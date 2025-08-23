@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data:; connect-src 'self' https://lrclib.net;">
+    <link rel="stylesheet" href="styles.css"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Rhythm Dock</title>
+</head>
+<body>
+<div id="container" class="container">
+    <div class="header-bar">
+        <div id="filename" class="filename">No song loaded</div>
+        <div class="window-controls">
+            <button id="copy-path-btn" title="Copy File Path">
+                <svg viewBox="0 0 24 24">
+                    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path>
+                </svg>
+            </button>
+            <button id="show-file-btn" title="Show File in Folder">
+                <svg viewBox="0 0 24 24">
+                    <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path>
+                </svg>
+            </button>
+            <button id="shuffle-btn" title="Shuffle">
+                <svg viewBox="0 0 24 24">
+                    <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
+                </svg>
+            </button>
+            <button id="loop-btn" title="Loop Off">
+                <svg id="loop-off-icon" viewBox="0 0 24 24">
+                    <path d="M21.03 5.46L19.57 4 4 19.57l1.46 1.46L21.03 5.46zM7 7h9.17l-2-2H7v3l-4 4 4 4v-3h1v-2H7V7zm10 10h-9.17l2 2H17v-3l4-4-4-4v3h-1v2h1v4z"></path>
+                </svg>
+                <svg id="loop-all-icon" style="display: none;" viewBox="0 0 24 24">
+                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
+                </svg>
+                <svg id="loop-one-icon" style="display: none;" viewBox="0 0 24 24">
+                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v2.5H13z"></path>
+                </svg>
+            </button>
+            <button id="orientation-btn" class="control-btn" title="Change Orientation (V)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                     viewBox="0 0 16 16">
+                    <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.832.547A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192Zm-6.8 5.068A.5.5 0 0 1 5 10.5h6v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h-6a4 4 0 0 0 3.585-5.777.5.5 0 1 1 .832-.547A5 5 0 0 1 5 13H4v-1.466a.25.25 0 0 1 .41-.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1-.41-.192Z"/>
+                </svg>
+            </button>
+            <button id="pin-btn" title="Pin Window">
+                <svg viewBox="0 0 24 24">
+                    <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"></path>
+                </svg>
+            </button>
+            <button id="minimize-btn" title="Minimize">
+                <svg viewBox="0 0 24 24">
+                    <path d="M20 14H4v-4h16"></path>
+                </svg>
+            </button>
+            <button id="close-btn" title="Close">
+                <svg viewBox="0 0 24 24">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="content-wrapper">
+        <img id="album-art" src="placeholder.png" alt="Album Art"/>
+        <div class="main-controls">
+            <div class="track-info">
+                <div id="title">No song loaded</div>
+                <div id="artist">Open a file or folder</div>
+            </div>
+            <div class="sliders">
+                <input id="progress-bar" type="range" min="0" value="0" step="0.1"/>
+                <div class="time-display">
+                    <span id="time-current">0:00</span>
+                    <span id="time-remaining">-0:00</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="side-controls">
+            <div class="playback-buttons">
+                <button id="prev-btn" title="Previous">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path>
+                    </svg>
+                </button>
+                <button id="play-pause-btn" title="Play/Pause">
+                    <svg id="play-icon" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"></path>
+                    </svg>
+                    <svg id="pause-icon" viewBox="0 0 24 24" style="display: none;">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path>
+                    </svg>
+                </button>
+                <button id="next-btn" title="Next">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M16 6h2v12h-2zm-4.5 6l-8.5 6V6z"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="volume-container">
+                <button id="volume-btn" title="Mute">
+                    <svg id="volume-icon" viewBox="0 0 24 24">
+                        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>
+                    </svg>
+                    <svg id="volume-mute-icon" style="display: none;" viewBox="0 0 24 24">
+                        <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path>
+                    </svg>
+                </button>
+                <input id="volume-slider" type="range" min="0" max="1" value="1" step="0.05"/>
+            </div>
+            <div class="utility-buttons">
+                <button id="open-file-btn" title="Open File(s)">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"></path>
+                    </svg>
+                </button>
+                <button id="open-folder-btn" class="control-btn" title="Open Folder (O)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                         viewBox="0 0 16 16">
+                        <path fill-rule="evenodd"
+                              d="M5 11.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm-3 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm0 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm0 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="lyrics-section">
+        <div id="lyrics-container" class="lyrics-container"></div>
+        <div class="lyrics-controls">
+            <button id="lyrics-offset-minus-btn" title="Decrease Lyrics Delay (-0.1s)">
+                <svg viewBox="0 0 24 24">
+                    <path d="M19 13H5v-2h14v2z"></path>
+                </svg>
+            </button>
+            <span id="lyrics-offset-display">0.0s</span>
+            <button id="lyrics-offset-plus-btn" title="Increase Lyrics Delay (+0.1s)">
+                <svg viewBox="0 0 24 24">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="./howler.core.min.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>

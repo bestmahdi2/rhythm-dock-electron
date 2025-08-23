@@ -1,0 +1,397 @@
+:root {
+    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+    color: #f6f6f6;
+    font-size: 16px;
+    --horizontal-width: 380px;
+    --horizontal-height: 180px;
+    --vertical-width: 105px;
+    --vertical-height: 420px;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    box-sizing: border-box;
+}
+
+*, *:before, *:after {
+    box-sizing: inherit;
+}
+
+.container {
+    position: relative; /* Needed for the drop overlay */
+    display: flex;
+    flex-direction: column;
+    background-color: rgba(25, 25, 25, 0.85);
+    backdrop-filter: blur(12px);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    transition: all 0.2s ease-in-out;
+    width: var(--horizontal-width);
+    height: var(--horizontal-height);
+}
+
+/* NEW Drag-and-drop overlay style */
+.container.drag-over::before {
+    content: 'Drop files to play';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(29, 185, 84, 0.7);
+    border: 2px dashed #fff;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #fff;
+    z-index: 100;
+}
+
+.header-bar {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+}
+
+.filename {
+    font-size: 0.65em;
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: 5px;
+    min-width: 0;
+}
+
+.window-controls {
+    display: flex;
+    gap: 8px;
+    -webkit-app-region: no-drag;
+}
+
+.window-controls button {
+    width: 16px;
+    height: 16px;
+}
+
+#pin-btn.pinned svg,
+#shuffle-btn.active svg,
+#loop-btn.active svg {
+    fill: #1db954;
+}
+
+/* --- NEW GRID LAYOUT WRAPPER --- */
+.content-wrapper {
+    width: 100%;
+    flex-grow: 1;
+    display: grid;
+    grid-template-columns: 60px 1fr 90px; /* Album Art | Main Controls (flexible) | Side Controls */
+    gap: 10px;
+    align-items: start; /* Aligns items to the top of their grid cell */
+    padding-top: 5px;
+}
+
+#album-art {
+    width: 60px;
+    height: 60px;
+    border-radius: 6px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+}
+
+.main-controls {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0; /* Crucial for allowing grid cell to shrink */
+}
+
+#title, #artist {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#title {
+    font-weight: 600;
+    font-size: 0.8em;
+}
+
+#artist {
+    color: #999;
+    font-size: 0.8em;
+}
+
+.sliders {
+    width: 100%;
+}
+
+.time-display {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6em;
+    color: #aaa;
+    margin-top: 4px;
+}
+
+#time-remaining {
+    cursor: pointer;
+}
+
+.side-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-around;
+    gap: 5px;
+    width: 90px;
+}
+
+.playback-buttons, .utility-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.volume-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#volume-btn {
+    width: 18px;
+    height: 18px;
+}
+
+#volume-slider {
+    width: 70px;
+}
+
+input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #444;
+    border-radius: 5px;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    -webkit-app-region: no-drag;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #f6f6f6;
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    -webkit-app-region: no-drag;
+}
+
+button svg {
+    fill: #f6f6f6;
+    width: 100%;
+    height: 100%;
+    transition: all 0.1s ease-in-out;
+}
+
+button:hover svg {
+    fill: #1db954;
+}
+
+button:active svg {
+    transform: scale(0.9);
+}
+
+/* --- VERTICAL MODE --- */
+.container.vertical-mode {
+    width: var(--vertical-width);
+    height: var(--vertical-height);
+}
+
+.container.vertical-mode .content-wrapper {
+    /* Use flexbox for the main container in vertical mode */
+    display: flex;
+    flex-direction: column;
+    padding-top: 0;
+    gap: 12px; /* Add some space between main sections */
+}
+
+/* Hide the grid wrapper in vertical mode as we'll use flexbox */
+.container.vertical-mode .player-grid {
+    display: contents;
+}
+
+.container.vertical-mode #album-art {
+    width: 85px; /* Full width with padding */
+    height: 85px;
+    margin: 0 auto 5px auto; /* Center the album art */
+}
+
+.container.vertical-mode .main-controls,
+.container.vertical-mode .side-controls,
+.container.vertical-mode .header-bar {
+    width: 100%;
+    align-items: center;
+    text-align: center;
+}
+
+/* Re-order elements for a logical top-to-bottom flow */
+.container.vertical-mode #album-art { order: 1; }
+.container.vertical-mode .main-controls { order: 2; }
+.container.vertical-mode .side-controls { order: 3; }
+.container.vertical-mode .header-bar { order: 4; }
+
+.container.vertical-mode .track-info {
+    margin-bottom: 10px;
+}
+.container.vertical-mode #title,
+.container.vertical-mode #artist {
+    white-space: normal; /* Allow text to wrap */
+}
+
+.container.vertical-mode .sliders {
+    width: 100%;
+}
+
+.container.vertical-mode .time-display {
+    justify-content: space-between;
+    font-size: 0.6em;
+    padding: 0 5px; /* Add a little padding */
+    margin-top: 5px;
+}
+
+.container.vertical-mode .side-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px; /* Space out the button groups */
+    margin-top: 5px;
+}
+
+.container.vertical-mode .playback-buttons {
+    gap: 20px;
+}
+.container.vertical-mode .utility-buttons {
+    gap: 15px;
+}
+
+.container.vertical-mode .volume-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.container.vertical-mode #volume-slider {
+    /* Make the volume slider vertical */
+    writing-mode: vertical-lr;
+    width: 4px;
+    height: 70px;
+}
+
+/* Hide elements we don't need in the compact vertical view */
+.container.vertical-mode .filename,
+.container.vertical-mode .lyrics-section {
+    display: none;
+}
+
+.copy-success svg {
+    fill: #1db954; /* Green */
+    transform: scale(1.1);
+}
+
+button:hover svg {
+    fill: #1db954;
+}
+
+button:active svg {
+    transform: scale(0.9);
+}
+
+.lyrics-section {
+    width: 100%;
+    margin-top: 5px;
+    display: grid;
+    grid-template-columns: 1fr auto; /* Lyrics take up space, controls are fixed */
+    align-items: center;
+    gap: 10px;
+}
+
+.lyrics-container {
+    height: 60px;
+    text-align: center;
+    overflow: hidden;
+    position: relative;
+    -webkit-app-region: no-drag;
+    line-height: 1.5;
+}
+
+/* NEW styles for lyrics controls */
+.lyrics-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.lyrics-controls button {
+    width: 14px;
+    height: 14px;
+}
+
+#lyrics-offset-display {
+    font-size: 0.65em;
+    color: #aaa;
+    font-variant-numeric: tabular-nums;
+    width: 35px;
+    text-align: center;
+}
+
+.lyrics-scroll-wrapper {
+    transition: transform 1s linear;
+}
+
+.lyrics-line {
+    font-size: 0.85em;
+    color: #999;
+    opacity: 0.7;
+    transition: all 0.3s ease-in-out;
+}
+
+.lyrics-line.active {
+    color: #fff;
+    opacity: 1;
+    font-weight: 600;
+    transform: scale(1.05);
+}
+
+.control-btn svg {
+    width: 1em;
+    height: 1em;
+    /* This prevents the SVG from interfering with button clicks */
+    pointer-events: none;
+}

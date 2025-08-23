@@ -1,0 +1,54 @@
+{
+  "name": "rhythm-dock-electron",
+  "version": "1.0.1",
+  "description": "A lightweight, feature-rich music player.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Masterous",
+  "license": "ISC",
+  "dependencies": {
+    "electron-store": "^7.0.0",
+    "howler": "^2.2.4",
+    "music-metadata": "^7.14.0"
+  },
+  "devDependencies": {
+    "electron": "^31.2.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.masterous.rhythmdock",
+    "productName": "Rhythm Dock",
+    "files": [
+      "**/*"
+    ],
+    "asarUnpack": [
+      "**/assets/**"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "mp3",
+        "name": "MP3 Audio File",
+        "description": "Audio file",
+        "role": "Viewer",
+        "icon": "build/icon.ico"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
+    }
+  }
+}
