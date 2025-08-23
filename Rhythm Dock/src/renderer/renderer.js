@@ -124,10 +124,18 @@ function processLyrics(lyricsText) {
 }
 
 function sanitizeForApiSearch(artist, title) {
-    const junkRegex = /\[.*?\]|\(.*?\)|official|lyric|video|audio|h[dq]/gi;
+    const junkRegex = /\[.*?\]|\(.*?\)|official|lyric|video|audio|h[dq]|\s*:.*|\s*-.*|ft\..*|feat\..*/gi;
     const cleanArtist = artist.replace(junkRegex, '').trim();
     const cleanTitle = title.replace(junkRegex, '').trim();
     return {artist: cleanArtist, title: cleanTitle};
+}
+
+function updateTimeDisplay() {
+    if (!currentSound) return;
+    const seek = currentSound.seek() || 0;
+    const duration = currentSound.duration() || 0;
+    timeCurrentEl.textContent = formatTime(seek);
+    timeRemainingEl.textContent = timeDisplayMode === 'remaining' ? `-${formatTime(duration - seek)}` : formatTime(duration);
 }
 
 // --- FIX 2: Consolidated the two duplicate getSongIdentifier functions into one.
@@ -162,6 +170,7 @@ function updateUI() {
         const seek = currentSound.seek() || 0;
         const duration = currentSound.duration() || 0;
         progressBar.value = seek;
+        updateTimeDisplay();
         timeCurrentEl.textContent = formatTime(seek);
         timeRemainingEl.textContent = timeDisplayMode === 'remaining' ? `-${formatTime(duration - seek)}` : formatTime(duration);
 
@@ -263,7 +272,12 @@ async function fetchLyrics(artist, title) {
         }
         return null;
     } catch (error) {
+        // FIX: Provide better user feedback on network errors
         console.error('Error fetching lyrics:', error);
+        // This check is useful because the lyrics object might not exist yet
+        if (lyricsContainer.querySelector('.lyrics-line')) {
+            lyricsContainer.querySelector('.lyrics-line').textContent = 'Lyrics search failed (Network Error)';
+        }
         return null;
     }
 }
@@ -590,6 +604,7 @@ if (showFileBtn) {
 }
 timeRemainingEl.addEventListener('click', () => {
     timeDisplayMode = timeDisplayMode === 'remaining' ? 'total' : 'remaining';
+    updateTimeDisplay();
 });
 toggleOrientationBtn.addEventListener('click', () => {
     const isCurrentlyVertical = !document.querySelector('.content-wrapper');

@@ -34,13 +34,10 @@ jobs:
   # This job builds the app on multiple operating systems
   build-and-upload:
     name: Build and Upload Artifacts
-    # This job depends on the 'create-release' job finishing first
     needs: create-release
-    # Use a matrix strategy to run this job on Windows, macOS, and Ubuntu
     strategy:
       matrix:
         os: [ windows-latest ] #, macos-latest, ubuntu-latest]
-    # Set the operating system for the current job run
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -52,26 +49,28 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Using a recent LTS version of Node.js
+          node-version: '20'
 
       - name: Install Dependencies
         run: npm install
         working-directory: './Rhythm Dock'
 
       - name: Build Application
-        # This command runs "electron-builder" as defined in your package.json
         run: npm run dist -- --win --x64 --ia32
         working-directory: './Rhythm Dock'
+
+      # --- NEW DEBUGGING STEP ---
+      # This will show us exactly what files are in the output directory.
+      - name: List Build Artifacts
+        run: ls -R
+        working-directory: './Rhythm Dock/dist'
 
       - name: Upload Release Asset
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # This tells the action to upload files, not create a new release
           action: upload
-          # Get the upload URL from the first job's output
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          # Use a wildcard to find and upload the correct installer file for each OS
-          asset_path: './Rhythm Dock/dist/*.{exe,dmg,AppImage,zip,deb}'
-          # Allow overwriting assets if the build is re-run
+          # FIX: Simplified the path to be more direct for Windows builds.
+          asset_path: './Rhythm Dock/dist/*.exe'
           allowUpdates: true
