@@ -60,7 +60,7 @@ jobs:
 
       - name: Build Application
         # This command runs "electron-builder" as defined in your package.json
-        run: npm run dist
+        run: npm run dist -- --win --x64 --ia32
         working-directory: './Rhythm Dock'
 
       - name: Upload Release Asset
