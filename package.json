@@ -35,12 +35,12 @@
         "name": "MP3 Audio File",
         "description": "Audio file",
         "role": "Viewer",
-        "icon": "build/icon.ico"
+        "icon": "static/img/icon.ico"
       }
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "static/img/icon.ico"
     },
     "nsis": {
       "oneClick": true,
