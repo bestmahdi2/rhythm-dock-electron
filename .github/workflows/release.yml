@@ -1,0 +1,70 @@
+# .github/workflows/release.yml
+
+name: Create Release and Build
+
+# This workflow runs when you push a tag that starts with 'v' (e.g., v1.0.1, v1.2.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # This job creates a draft release on GitHub
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.release_creator.outputs.upload_url }}
+    steps:
+      - name: Create Draft Release
+        id: release_creator
+        uses: ncipollo/release-action@v1
+        with:
+          # This token is provided by GitHub automatically
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Use the tag name for the release title
+          name: Release ${{ github.ref_name }}
+          # Mark the release as a draft so you can review it before publishing
+          draft: true
+          prerelease: false
+
+  # This job builds the app on multiple operating systems
+  build-and-upload:
+    name: Build and Upload Artifacts
+    # This job depends on the 'create-release' job finishing first
+    needs: create-release
+    # Use a matrix strategy to run this job on Windows, macOS, and Ubuntu
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    # Set the operating system for the current job run
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Using a recent LTS version of Node.js
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        # This command runs "electron-builder" as defined in your package.json
+        run: npm run dist
+
+      - name: Upload Release Asset
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # This tells the action to upload files, not create a new release
+          action: upload
+          # Get the upload URL from the first job's output
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          # Use a wildcard to find and upload the correct installer file for each OS
+          asset_path: dist/*.{exe,dmg,AppImage,zip,deb}
+          # Allow overwriting assets if the build is re-run
+          allowUpdates: true
