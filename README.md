@@ -6,6 +6,16 @@ Rhythm Dock is a compact, minimal music player designed to stay out of your way 
 
 ---
 
+## Download & Installation
+
+You can download the latest version for Windows from the GitHub Releases page.
+
+[**➡️ Download Latest Release**](https://github.com/bestmahdi2/rhythm-dock-electron/releases/latest)
+
+Simply download the `.exe` installer for your system (either `x64` for 64-bit or `ia32` for 32-bit) and run it.
+
+---
+
 ## Features
 
 - **Broad Format Support**: Plays a variety of audio formats including MP3, WAV, FLAC, and M4A.
@@ -51,7 +61,7 @@ To run the project locally, follow these steps:
     ```
 
 2.  **Install dependencies:**
-    This command will also trigger the `postinstall` script to correctly build the native `better-sqlite3` module for Electron.
+    This command will also trigger the `postinstall` script to correctly configure native dependencies for Electron.
     ```bash
     npm install
     ```
@@ -62,10 +72,17 @@ To run the project locally, follow these steps:
     ```
 
 4.  **Build the application for distribution:**
-    This will create an installer in the `dist/` directory.
-    ```bash
-    npm run dist
-    ```
+    The following commands will create installers in the `dist/` directory.
+
+    - **Build for both 32-bit and 64-bit Windows:**
+      ```bash
+      npm run dist:win
+      ```
+
+    - **Build for your current architecture only (e.g., just 64-bit):**
+      ```bash
+      npm run dist
+      ```
 
 ## License
 
