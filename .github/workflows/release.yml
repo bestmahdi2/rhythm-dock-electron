@@ -1,8 +1,8 @@
 # .github/workflows/release.yml
 
-name: Create Release and Build
+name: Build and Release for Windows
 
-# This workflow runs when you push a tag that starts with 'v' (e.g., v1.0.1, v1.2.0)
+# This workflow runs when you push a tag that starts with 'v' (e.g., v1.1.8)
 on:
   push:
     tags:
@@ -12,39 +12,15 @@ permissions:
   contents: write
 
 jobs:
-  # This job creates a draft release on GitHub
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.release_creator.outputs.upload_url }}
-    steps:
-      - name: Create Draft Release
-        id: release_creator
-        uses: ncipollo/release-action@v1
-        with:
-          # This token is provided by GitHub automatically
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # Use the tag name for the release title
-          name: Release ${{ github.ref_name }}
-          # Mark the release as a draft so you can review it before publishing
-          draft: true
-          prerelease: false
-
-  # This job builds the app on multiple operating systems
-  build-and-upload:
-    name: Build and Upload Artifacts
-    needs: create-release
-    strategy:
-      matrix:
-        os: [ windows-latest ] #, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+  # A single job to build the app and create the release
+  build-and-release:
+    name: Build and Release Windows
+    # This job will run only on a Windows virtual machine
+    runs-on: windows-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -55,22 +31,16 @@ jobs:
         run: npm install
         working-directory: './Rhythm Dock'
 
-      - name: Build Application
+      - name: Build Windows Application (x64 & ia32)
+        # This command builds both the 32-bit and 64-bit installers
         run: npm run dist -- --win --x64 --ia32
         working-directory: './Rhythm Dock'
 
-      # --- NEW DEBUGGING STEP ---
-      # This will show us exactly what files are in the output directory.
-      - name: List Build Artifacts
-        run: ls -R
-        working-directory: './Rhythm Dock/dist'
-
-      - name: Upload Release Asset
+      - name: Create and Publish Release
+        # This single step creates the release and uploads the .exe files
         uses: ncipollo/release-action@v1
         with:
+          # The 'artifact' property finds and uploads all matching files
+          artifact: './Rhythm Dock/dist/*.exe'
           token: ${{ secrets.GITHUB_TOKEN }}
-          action: upload
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          # FIX: Simplified the path to be more direct for Windows builds.
-          asset_path: './Rhythm Dock/dist/*.exe'
-          allowUpdates: true
+          draft: true # Set to false if you want to publish automatically
