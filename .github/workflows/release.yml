@@ -32,8 +32,7 @@ jobs:
         working-directory: './Rhythm Dock'
 
       - name: Build Windows Application (x64 & ia32)
-        # This command builds both the 32-bit and 64-bit installers
-        run: npm run dist -- --win --x64 --ia32
+        run: npm run dist:win
         working-directory: './Rhythm Dock'
 
       - name: Create and Publish Release
