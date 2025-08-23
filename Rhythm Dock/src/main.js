@@ -3,11 +3,17 @@ const path = require('path');
 const fs = require('fs');
 const mm = require('music-metadata');
 const Store = require('electron-store');
+const Database = require('better-sqlite3');
 
 Store.initRenderer();
 const store = new Store();
 
 let mainWindow;
+let db;
+
+const dbPath = app.isPackaged
+    ? path.join(app.getPath('userData'), 'lyrics.db')
+    : path.join(__dirname, '..', 'lyrics.db'); // In dev, creates lyrics.db in your project root
 
 // --- Thumbar Buttons (Taskbar Media Controls) ---
 // We define these here so we can update them easily.
@@ -17,8 +23,8 @@ let isPlaying = false; // Keep track of playback state in main process
 
 // development and in a packaged (asar) application.
 const assetsPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets')
-  : path.join(__dirname, 'assets');
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'images')
+    : path.join(__dirname, 'assets', 'images');
 
 const ICONS = {
     play: path.join(assetsPath, 'play.png'),
@@ -26,6 +32,29 @@ const ICONS = {
     next: path.join(assetsPath, 'next.png'),
     prev: path.join(assetsPath, 'prev.png'),
 };
+
+function initializeDatabase() {
+    db = new Database(dbPath);
+
+    const createTableStmt = `
+        CREATE TABLE IF NOT EXISTS lyrics
+        (
+            songKey
+            TEXT
+            PRIMARY
+            KEY,
+            lyricsText
+            TEXT
+            NOT
+            NULL,
+            lastUpdated
+            TEXT
+            NOT
+            NULL
+        );
+    `;
+    db.exec(createTableStmt);
+}
 
 function updateThumbar() {
     if (!mainWindow || process.platform !== 'win32') return;
@@ -63,7 +92,7 @@ const createWindow = () => {
         },
     });
 
-    mainWindow.loadFile('index.html');
+    mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
 
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -107,6 +136,7 @@ if (!gotTheLock) {
     });
 
     app.whenReady().then(() => {
+        initializeDatabase();
         createWindow();
 
         globalShortcut.register('MediaPlayPause', () => sendToRenderer('media-key-event', 'play-pause'));
@@ -166,6 +196,28 @@ app.on('window-all-closed', () => {
 ipcMain.on('playback-state-changed', (_event, state) => {
     isPlaying = state.isPlaying;
     updateThumbar(); // Update the taskbar buttons
+});
+
+ipcMain.handle('get-lyrics', (_event, songKey) => {
+    if (!db) return null;
+    try {
+        const stmt = db.prepare('SELECT lyricsText FROM lyrics WHERE songKey = ?');
+        const row = stmt.get(songKey);
+        return row ? row.lyricsText : null;
+    } catch (error) {
+        console.error('Failed to get lyrics from DB:', error);
+        return null;
+    }
+});
+
+ipcMain.on('save-lyrics', (_event, songKey, lyricsText) => {
+    if (!db) return;
+    try {
+        const stmt = db.prepare('INSERT OR REPLACE INTO lyrics (songKey, lyricsText, lastUpdated) VALUES (?, ?, datetime(\'now\'))');
+        stmt.run(songKey, lyricsText);
+    } catch (error) {
+        console.error('Failed to save lyrics to DB:', error);
+    }
 });
 
 ipcMain.handle('get-store-value', (_event, key) => store.get(key));
@@ -236,12 +288,31 @@ ipcMain.handle('process-dropped-paths', async (_event, droppedPaths) => {
     return allAudioFiles;
 });
 
-ipcMain.handle('toggle-orientation', (_event, isVertical) => {
+ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
     if (!mainWindow) return;
+
+    // 1. Get the current state from the renderer before changing anything
+    const state = await mainWindow.webContents.executeJavaScript('window.getCurrentAppState()', true);
+
+    // 2. Determine the new HTML file to load
+    const newHtmlPath = isVertical
+        ? path.join(__dirname, 'renderer/index_vertical.html')
+        : path.join(__dirname, 'renderer/index.html');
+
+    // 3. Load the new HTML file
+    await mainWindow.loadFile(newHtmlPath);
+
+    // 4. After the new page is ready, resize the window and send the state back
     const HORIZONTAL_SIZE = {width: 380, height: 180};
     const VERTICAL_SIZE = {width: 105, height: 420};
     const newSize = isVertical ? VERTICAL_SIZE : HORIZONTAL_SIZE;
-    mainWindow.setSize(newSize.width, newSize.height, true);
+
+    // Use a 'ready-to-show' listener to avoid flashes of unstyled content
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.setSize(newSize.width, newSize.height, true); // Animate the resize
+        sendToRenderer('restore-state', state); // Restore the player state
+        mainWindow.show();
+    });
 });
 
 ipcMain.handle('pin-window', () => {

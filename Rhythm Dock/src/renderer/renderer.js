@@ -274,17 +274,23 @@ async function searchAndDisplayOnlineLyrics(songData) {
     if (noLyricsEl) noLyricsEl.textContent = 'Searching for lyrics...';
 
     try {
-        const {artist: cleanArtist, title: cleanTitle} = sanitizeForApiSearch(songData.artist, songData.title);
-        const cacheKey = `lyricsCache.${cleanArtist} - ${cleanTitle}`; // Use cleanTitle for cache consistency
-        const cachedLyrics = await window.api.getStoreValue(cacheKey);
+        // Use the unique song identifier for the database key
+        const songId = getSongIdentifier();
+        if (!songId) {
+            // Cannot generate an ID, so we can't use the database.
+            // You could optionally just fetch without saving.
+            throw new Error("Cannot generate a song identifier to use the database.");
+        }
+
+        const cachedLyrics = await window.api.getLyrics(songId);
 
         if (cachedLyrics) {
-            console.log(`Lyrics for "${cleanTitle}" found in cache.`);
             lyrics = processLyrics(cachedLyrics);
         } else {
+            const {artist: cleanArtist, title: cleanTitle} = sanitizeForApiSearch(songData.artist, songData.title);
             const onlineLyricsText = await fetchLyrics(cleanArtist, cleanTitle);
             if (onlineLyricsText) {
-                window.api.setStoreValue(cacheKey, onlineLyricsText);
+                window.api.saveLyrics(songId, onlineLyricsText); // Save to DB
                 lyrics = processLyrics(onlineLyricsText);
             } else {
                 lyrics = {isSynced: false, lines: []};
@@ -325,7 +331,7 @@ async function playTrack(index, options = {}) {
     if (filenameEl) filenameEl.textContent = songData.basename;
     titleEl.textContent = songData.title;
     artistEl.textContent = songData.artist;
-    albumArtEl.src = songData.cover || 'placeholder.png';
+    albumArtEl.src = songData.cover || '../assets/images/placeholder.png';
     progressBar.max = 0;
     progressBar.value = seekTime;
 
@@ -351,7 +357,10 @@ async function playTrack(index, options = {}) {
             console.error(`Howler failed to load sound: ${songData.filePath}`, error);
             titleEl.textContent = 'Error: Unplayable file';
             artistEl.textContent = songData.basename;
-            if (currentSound) { currentSound.unload(); currentSound = null; }
+            if (currentSound) {
+                currentSound.unload();
+                currentSound = null;
+            }
             nextBtn.click();
         },
         onplayerror: (soundId, error) => {
@@ -359,7 +368,10 @@ async function playTrack(index, options = {}) {
             console.error(`Howler failed to play sound: ${songData.filePath}`, error);
             titleEl.textContent = 'Error: Cannot play file';
             artistEl.textContent = songData.basename;
-            if (currentSound) { currentSound.unload(); currentSound = null; }
+            if (currentSound) {
+                currentSound.unload();
+                currentSound = null;
+            }
             nextBtn.click();
         },
         onplay: () => {
@@ -430,7 +442,6 @@ window.api.onRestoreState((state) => {
         loadInitialState();
         return;
     }
-    console.log("Restoring state after orientation change:", state);
     originalPlaylist = state.originalPlaylist;
     playlist = [...state.originalPlaylist];
     isShuffled = state.isShuffled;
@@ -449,7 +460,7 @@ window.api.onRestoreState((state) => {
     }
     const trackIndex = playlist.findIndex(path => path === state.currentTrackPath);
     if (trackIndex !== -1) {
-        playTrack(trackIndex, { startPaused: !state.isPlaying, seekTime: state.seek });
+        playTrack(trackIndex, {startPaused: !state.isPlaying, seekTime: state.seek});
     }
 });
 
@@ -480,12 +491,41 @@ if (lyricsOffsetPlusBtn) {
 openFileBtn.addEventListener('click', async () => loadPlaylistAndPlay(await window.api.openFiles()));
 if (openFolderBtn) openFolderBtn.addEventListener('click', async () => loadPlaylistAndPlay(await window.api.openFolder()));
 albumArtEl.addEventListener('click', () => openFileBtn.click());
+
 playPauseBtn.addEventListener('click', () => {
     if (currentSound) {
-        if (isPlaying) currentSound.pause();
-        else currentSound.play();
+        if (isPlaying) {
+            // This part is for pausing and works correctly.
+            currentSound.pause();
+        } else {
+            // --- THIS IS THE FIX ---
+            // Optimistically set the state to "playing" and update the UI immediately.
+            // This avoids the race condition.
+            isPlaying = true;
+            updatePlayPauseIcon();
+            reportPlaybackState();
+
+            // Now, perform the actual playback action.
+            const seek = currentSound.seek();
+            const duration = currentSound.duration();
+
+            if (seek >= duration - 0.1) {
+                // If the song is over, restart it fully.
+                playTrack(currentIndex);
+            } else {
+                // If paused, just resume.
+                currentSound.play();
+            }
+        }
+    } else if (playlist.length > 0) {
+        // This is for when the app first opens and nothing is loaded.
+        isPlaying = true;
+        updatePlayPauseIcon();
+        reportPlaybackState();
+        playTrack(0);
     }
 });
+
 prevBtn.addEventListener('click', () => {
     if (!currentSound) return;
     if (currentSound.seek() > 3) {
@@ -620,16 +660,29 @@ containerEl.addEventListener('drop', async (event) => {
     loadPlaylistAndPlay(processedFiles);
 });
 window.api.onMediaKey((command) => {
-    const actions = {'play-pause': () => playPauseBtn.click(), 'next': () => nextBtn.click(), 'prev': () => prevBtn.click()};
+    const actions = {
+        'play-pause': () => playPauseBtn.click(),
+        'next': () => nextBtn.click(),
+        'prev': () => prevBtn.click()
+    };
     actions[command]?.();
 });
 window.api.onFilePathReceived((filePath) => loadPlaylistAndPlay([filePath]));
 window.addEventListener('keydown', (event) => {
     if (event.target.tagName === 'INPUT') return;
     switch (event.code) {
-        case 'Space': event.preventDefault(); playPauseBtn.click(); break;
-        case 'ArrowRight': event.preventDefault(); nextBtn.click(); break;
-        case 'ArrowLeft': event.preventDefault(); prevBtn.click(); break;
+        case 'Space':
+            event.preventDefault();
+            playPauseBtn.click();
+            break;
+        case 'ArrowRight':
+            event.preventDefault();
+            nextBtn.click();
+            break;
+        case 'ArrowLeft':
+            event.preventDefault();
+            prevBtn.click();
+            break;
         case 'ArrowUp':
             event.preventDefault();
             let newVolUp = Math.min(1, Howler.volume() + 0.05);
@@ -642,7 +695,10 @@ window.addEventListener('keydown', (event) => {
             Howler.volume(newVolDown);
             updateVolumeUI();
             break;
-        case 'KeyM': event.preventDefault(); volumeBtn.click(); break;
+        case 'KeyM':
+            event.preventDefault();
+            volumeBtn.click();
+            break;
     }
 });
 

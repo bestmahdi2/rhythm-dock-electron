@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('api', {
     closeWindow: () => ipcRenderer.invoke('close-window'),
     getStoreValue: (key) => ipcRenderer.invoke('get-store-value', key),
     setStoreValue: (key, value) => ipcRenderer.send('set-store-value', key, value),
+    getLyrics: (songKey) => ipcRenderer.invoke('get-lyrics', songKey),
+    saveLyrics: (songKey, lyricsText) => ipcRenderer.send('save-lyrics', songKey, lyricsText),
 
     // Main to Renderer
     onFilePathReceived: (callback) => ipcRenderer.on('open-file-path', (_event, filePath) => callback(filePath)),
