@@ -43,4 +43,4 @@ jobs:
           # The 'artifact' property finds and uploads all matching files
           artifact: './Rhythm Dock/dist/*.exe'
           token: ${{ secrets.GITHUB_TOKEN }}
-          draft: true # Set to false if you want to publish automatically
+          draft: false # Set to false if you want to publish automatically

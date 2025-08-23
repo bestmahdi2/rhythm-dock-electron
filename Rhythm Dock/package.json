@@ -1,12 +1,13 @@
 {
   "name": "rhythm-dock-electron",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A lightweight, feature-rich music player.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "postinstall": "electron-rebuild",
+    "dist:win": "electron-builder --win --x64 --ia32",
+    "postinstall": "electron-builder install-app-deps",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,7 +20,6 @@
     "music-metadata": "^7.14.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.1",
     "electron": "^31.2.1",
     "electron-builder": "^24.13.3"
   },
@@ -44,7 +44,8 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "src/assets/icons/icon.ico"
+      "icon": "src/assets/icons/icon.ico",
+      "artifactName": "${productName} Setup ${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": true,
@@ -52,7 +53,8 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "useZip": true
     }
   }
 }
