@@ -39,7 +39,7 @@ jobs:
     # Use a matrix strategy to run this job on Windows, macOS, and Ubuntu
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest] #, macos-latest, ubuntu-latest]
     # Set the operating system for the current job run
     runs-on: ${{ matrix.os }}
 
