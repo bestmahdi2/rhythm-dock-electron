@@ -39,7 +39,7 @@ jobs:
     # Use a matrix strategy to run this job on Windows, macOS, and Ubuntu
     strategy:
       matrix:
-        os: [windows-latest] #, macos-latest, ubuntu-latest]
+        os: [ windows-latest ] #, macos-latest, ubuntu-latest]
     # Set the operating system for the current job run
     runs-on: ${{ matrix.os }}
 
@@ -56,10 +56,12 @@ jobs:
 
       - name: Install Dependencies
         run: npm install
+        working-directory: './Rhythm Dock'
 
       - name: Build Application
         # This command runs "electron-builder" as defined in your package.json
         run: npm run dist
+        working-directory: './Rhythm Dock'
 
       - name: Upload Release Asset
         uses: ncipollo/release-action@v1
@@ -70,6 +72,6 @@ jobs:
           # Get the upload URL from the first job's output
           upload_url: ${{ needs.create-release.outputs.upload_url }}
           # Use a wildcard to find and upload the correct installer file for each OS
-          asset_path: dist/*.{exe,dmg,AppImage,zip,deb}
+          asset_path: './Rhythm Dock/dist/*.{exe,dmg,AppImage,zip,deb}'
           # Allow overwriting assets if the build is re-run
           allowUpdates: true
