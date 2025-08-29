@@ -9,6 +9,7 @@
 # The 'dist' folder is created by electron-builder when you package your app.
 **/dist
 **/release
+**/mergedFiles/**
 
 # Logs
 # These files are often generated for debugging purposes.

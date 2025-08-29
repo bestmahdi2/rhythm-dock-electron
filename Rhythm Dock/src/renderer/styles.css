@@ -3,7 +3,7 @@
     color: #f6f6f6;
     font-size: 16px;
     --horizontal-width: 380px;
-    --horizontal-height: 180px;
+    /*--horizontal-height: 180px;*/
     --vertical-width: 105px;
     --vertical-height: 420px;
 }
@@ -33,7 +33,9 @@ html, body {
     overflow: visible;
     transition: all 0.2s ease-in-out;
     width: var(--horizontal-width);
-    height: var(--horizontal-height);
+    /*height: var(--horizontal-height);*/
+     height: 100vh;
+    -webkit-app-region: drag; /* <-- ADD THIS LINE */
 }
 
 /* NEW Drag-and-drop overlay style */
@@ -61,7 +63,6 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    -webkit-app-region: drag;
     flex-shrink: 0;
 }
 
@@ -539,11 +540,12 @@ button:active svg {
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     transform: translateY(100%); /* Hidden by default */
     transition: transform 0.3s ease-in-out;
-    z-index: 50;
+    z-index: 1001;
     padding: 15px;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    flex-direction: column;
 }
 
 .settings-drawer.show {
@@ -553,9 +555,9 @@ button:active svg {
 .close-drawer-btn {
     width: 16px;
     height: 16px;
-    position: absolute;
-    top: 10px;
-    right: 10px;
+    align-self: flex-end;
+    margin-bottom: 10px;
+    flex-shrink: 0; /* Prevent button from shrinking */
 }
 
 .settings-content {
@@ -617,4 +619,74 @@ button:active svg {
 
 .container.light-mode .dropdown-item:hover {
     color: #fff;
+}
+
+/* Style for the non-interactive version display in the dropdown */
+.dropdown-item.version-display {
+    cursor: default;
+    background-color: transparent !important; /* Prevents hover effect */
+    color: #aaa !important; /* Dims the text slightly */
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.version-display svg {
+    fill: #777 !important;
+}
+
+/* --- True Opaque State --- */
+/* This class is added by JS when opacity slider is at 100% */
+.container.is-opaque {
+    background-color: rgb(25, 25, 25); /* Fully solid dark background */
+}
+
+.container.light-mode.is-opaque {
+    background-color: rgb(245, 245, 245); /* Fully solid light background */
+}
+
+/* Style for active toggle buttons in dropdowns */
+.dropdown-item.active span {
+    color: #1db954; /* Green text */
+    font-weight: bold;
+}
+.dropdown-item.active svg {
+    fill: #1db954; /* Green icon */
+}
+
+.dropdown-item.active:hover span {
+    color: #fff; /* Force text to be white on hover */
+}
+
+.dropdown-item.active:hover svg {
+    fill: #fff; /* Force icon to be white on hover */
+}
+
+/* --- Make interactive elements clickable/usable again --- */
+button,
+input,
+.dropdown-menu,
+#album-art,
+#lyrics-container,
+#time-remaining {
+    -webkit-app-region: no-drag;
+}
+
+/* --- Lyrics Section Visibility --- */
+.lyrics-hidden .lyrics-section {
+    display: none;
+}
+
+.lyrics-controls-hidden .lyrics-controls {
+    display: none;
+}
+
+/* --- Manual Scroll Styling --- */
+/* Optional: Add a visual cue when manual scroll is enabled */
+.manual-scroll-enabled .lyrics-container {
+    border: 1px solid #1db954; /* Green border to indicate active state */
+    padding: 2px;
+}
+
+.light-mode.manual-scroll-enabled .lyrics-container {
+     border-color: #181818;
 }

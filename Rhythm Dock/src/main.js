@@ -1,15 +1,18 @@
-const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell} = require('electron');
+const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, screen} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mm = require('music-metadata');
 const Store = require('electron-store');
 const Database = require('better-sqlite3');
+const pkg = require('../package.json');
 
 Store.initRenderer();
 const store = new Store();
 
 let mainWindow;
 let db;
+let currentLayout = 'horizontal';
+let lastHorizontalHeight = 180;
 
 const dbPath = app.isPackaged
     ? path.join(app.getPath('userData'), 'lyrics.db')
@@ -77,45 +80,76 @@ function updateThumbar() {
     mainWindow.setThumbarButtons(thumbarButtons);
 }
 
-
 const createWindow = () => {
+    // Get the last saved position
+    const lastPosition = store.get('lastWindowPosition');
+    let validatedPosition = {}; // Start with an empty object
+
+    // --- NEW: Validate the saved position to ensure it's on a visible screen ---
+    if (lastPosition) {
+        const displays = screen.getAllDisplays();
+        const externalDisplay = displays.find((d) => {
+            // Check if the saved position is within the bounds of any available display
+            return (
+                lastPosition.x >= d.bounds.x &&
+                lastPosition.x < d.bounds.x + d.bounds.width &&
+                lastPosition.y >= d.bounds.y &&
+                lastPosition.y < d.bounds.y + d.bounds.height
+            );
+        });
+
+        // If a display was found containing the position, use it.
+        if (externalDisplay) {
+            validatedPosition = lastPosition;
+        }
+    }
+    // If no valid position was found, validatedPosition remains empty,
+    // and Electron will center the window by default.
+    // --- END of validation logic ---
+
     mainWindow = new BrowserWindow({
         width: 380,
         height: 180,
+        // Use the validated position. If the properties don't exist, they are ignored.
+        x: validatedPosition.x,
+        y: validatedPosition.y,
         useContentSize: true,
-        resizable: false,
+        resizable: true,
         frame: false,
         transparent: true,
-        alwaysOnTop: store.get('isPinned', true), // Load pinned state
+        alwaysOnTop: store.get('isPinned', false),
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false,
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
         },
     });
 
-    // --- AUTOMATIC RESIZE FOR DEVTOOLS ---
-    // This block of code enhances the developer experience by resizing the
-    // window when the DevTools are opened, making it easier to debug.
+    const [initialWidth, initialHeight] = mainWindow.getSize();
+    mainWindow.setMinimumSize(initialWidth, initialHeight);
+    mainWindow.setMaximumSize(initialWidth, initialHeight);
 
-    let originalSize; // Variable to store the window's original size
+    // --- AUTOMATIC RESIZE FOR DEVTOOLS ---
+    let originalSize;
 
     mainWindow.setOpacity(store.get('windowOpacity', 0.85));
 
     mainWindow.webContents.on('devtools-opened', () => {
-        // 1. Store the original size when DevTools opens
         originalSize = mainWindow.getSize();
-
-        // 2. Set the window to a new, larger size for debugging
-        //    You can adjust these dimensions to your preference.
-        mainWindow.setSize(1000, 600, true); // width, height, animate
+        mainWindow.setSize(1000, 600, true);
     });
 
     mainWindow.webContents.on('devtools-closed', () => {
-        // 1. If we have a stored original size, restore the window
         if (originalSize) {
             mainWindow.setSize(originalSize[0], originalSize[1], true);
         }
     });
 
+    // Save the window's position before it closes
+    mainWindow.on('close', () => {
+        const [x, y] = mainWindow.getPosition();
+        store.set('lastWindowPosition', {x, y});
+    });
 
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
 
@@ -331,28 +365,43 @@ ipcMain.handle('process-dropped-paths', async (_event, droppedPaths) => {
 ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
     if (!mainWindow) return;
 
-    // 1. Get the current state from the renderer before changing anything
-    const state = await mainWindow.webContents.executeJavaScript('window.getCurrentAppState()', true);
+    currentLayout = isVertical ? 'vertical' : 'horizontal';
 
-    // 2. Determine the new HTML file to load
-    const newHtmlPath = isVertical
-        ? path.join(__dirname, 'renderer/index_vertical.html')
-        : path.join(__dirname, 'renderer/index.html');
+    const HORIZONTAL_WIDTH = 380;
+    const VERTICAL_SIZE = { width: 105, height: 420 };
 
-    // 3. Load the new HTML file
-    await mainWindow.loadFile(newHtmlPath);
+    const newWidth = isVertical ? VERTICAL_SIZE.width : HORIZONTAL_WIDTH;
+    const newHeight = isVertical ? VERTICAL_SIZE.height : lastHorizontalHeight;
 
-    // 4. After the new page is ready, resize the window and send the state back
-    const HORIZONTAL_SIZE = {width: 380, height: 180};
-    const VERTICAL_SIZE = {width: 105, height: 420};
-    const newSize = isVertical ? VERTICAL_SIZE : HORIZONTAL_SIZE;
+    // Update the size lock first
+    mainWindow.setMinimumSize(newWidth, newHeight);
+    mainWindow.setMaximumSize(newWidth, newHeight);
 
-    // Use a 'ready-to-show' listener to avoid flashes of unstyled content
-    mainWindow.once('ready-to-show', () => {
-        mainWindow.setSize(newSize.width, newSize.height, true); // Animate the resize
-        sendToRenderer('restore-state', state); // Restore the player state
-        mainWindow.show();
-    });
+    // Then set the size
+    mainWindow.setSize(newWidth, newHeight, true);
+
+    sendToRenderer('set-orientation-class', isVertical);
+});
+
+ipcMain.on('toggle-lyrics-visibility', (_event, isVisible) => {
+    if (!mainWindow) return;
+
+    const HEIGHT_WITH_LYRICS = 180;
+    const HEIGHT_WITHOUT_LYRICS = 122;
+
+    if (currentLayout === 'horizontal') {
+        const HORIZONTAL_WIDTH = 380;
+        const newHeight = isVisible ? HEIGHT_WITH_LYRICS : HEIGHT_WITHOUT_LYRICS;
+
+        lastHorizontalHeight = newHeight;
+
+        // Update the size lock first
+        mainWindow.setMinimumSize(HORIZONTAL_WIDTH, newHeight);
+        mainWindow.setMaximumSize(HORIZONTAL_WIDTH, newHeight);
+
+        // Then set the size
+        mainWindow.setSize(HORIZONTAL_WIDTH, newHeight, true);
+    }
 });
 
 ipcMain.handle('pin-window', () => {
@@ -381,9 +430,22 @@ ipcMain.on('set-opacity', (_event, opacity) => {
     }
 });
 
-ipcMain.on('open-github', () => {
-    // Replace with your actual GitHub repository URL
-    shell.openExternal('https://github.com/bestmahdi2/rhythm-dock-electron');
+ipcMain.on('open-github', () => { //
+    const url = pkg.homepage; //
+    if (url) {
+        shell.openExternal(url); //
+    } else {
+        console.error('Homepage URL is not defined in package.json');
+    }
+});
+
+ipcMain.on('open-author-url', () => {
+    const url = pkg.author?.url; // Use optional chaining for safety
+    if (url) {
+        shell.openExternal(url);
+    } else {
+        console.error('Author URL is not defined in package.json');
+    }
 });
 
 ipcMain.handle('get-app-version', () => {

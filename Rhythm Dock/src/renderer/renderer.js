@@ -14,8 +14,12 @@ let lastActiveLyricIndex = -1;
 let lyricsOffsets = {};
 let loadTicket = 0;
 let currentLyricsOffset = 0;
+let playbackVolume = 1.0;
+let areLyricsVisible = true;
+let areLyricsControlsVisible = true;
+let isManualScrollEnabled = false;
 
-// --- Get references to UI elements ---
+// --- Get references to ALL UI elements (Single Source of Truth) ---
 const containerEl = document.getElementById('container');
 const albumArtEl = document.getElementById('album-art');
 const filenameEl = document.getElementById('filename');
@@ -33,7 +37,6 @@ const volumeMuteIcon = document.getElementById('volume-mute-icon');
 const volumeSlider = document.getElementById('volume-slider');
 const openFileBtn = document.getElementById('open-file-btn');
 const openFolderBtn = document.getElementById('open-folder-btn');
-const toggleOrientationBtn = document.getElementById('orientation-btn');
 const timeCurrentEl = document.getElementById('time-current');
 const timeRemainingEl = document.getElementById('time-remaining');
 const pinBtn = document.getElementById('pin-btn');
@@ -50,16 +53,124 @@ const lyricsContainer = document.getElementById('lyrics-container');
 const lyricsOffsetMinusBtn = document.getElementById('lyrics-offset-minus-btn');
 const lyricsOffsetPlusBtn = document.getElementById('lyrics-offset-plus-btn');
 const lyricsOffsetDisplay = document.getElementById('lyrics-offset-display');
+const lightModeBtn = document.getElementById('light-mode-btn');
+const lightModeLabel = document.getElementById('light-mode-label');
+const orientationBtn = document.getElementById('orientation-btn');
+const orientationLabel = document.getElementById('orientation-label');
+const volumeBoostBtn = document.getElementById('volume-boost-btn');
+const volumeBoostLabel = document.getElementById('volume-boost-label');
+const settingsDrawer = document.getElementById('settings-drawer');
+const openTransparencyBtn = document.getElementById('settings-transparency-btn');
+const closeDrawerBtn = document.getElementById('close-settings-drawer-btn');
+const goToGithubBtn = document.getElementById('go-to-github-btn');
+const aboutMeBtn = document.getElementById('about-me-btn');
+const transparencySlider = document.getElementById('transparency-slider');
+const transparencyValue = document.getElementById('transparency-value');
+const versionMenuDisplay = document.getElementById('version-menu-display');
+const toggleLyricsBtn = document.getElementById('toggle-lyrics-section-btn');
+const toggleLyricsLabel = document.getElementById('toggle-lyrics-label');
+const toggleControlsBtn = document.getElementById('toggle-lyrics-controls-btn');
+const toggleControlsLabel = document.getElementById('toggle-lyrics-controls-label');
+const toggleManualScrollBtn = document.getElementById('toggle-manual-scroll-btn');
+const manualScrollLabel = document.getElementById('manual-scroll-label');
+const refetchLyricsBtn = document.getElementById('refetch-lyrics-btn');
+const volumeContainer = document.querySelector('.volume-container');
+const lyricsControls = document.querySelector('.lyrics-controls');
+
+const audioEngine = {
+    sound: null,
+    gainNode: null,
+
+    // Initializes the audio components
+    init: function () {
+        // Access Howler's global AudioContext. Howler initializes this on the first play.
+        if (Howler.ctx && !this.gainNode) {
+            // Create a GainNode.
+            this.gainNode = Howler.ctx.createGain();
+
+            // --- THE FIX ---
+            // Disconnect Howler's master gain from the final destination.
+            // This prevents the original audio path from playing simultaneously.
+            Howler.masterGain.disconnect();
+
+            // Now, connect our new, single audio path.
+            // Path: Howler's Output -> Our Gain Node -> Speakers
+            Howler.masterGain.connect(this.gainNode);
+            this.gainNode.connect(Howler.ctx.destination);
+        }
+    },
+
+    // Creates a new Howl instance and connects it
+    loadSound: function (filePath, options) {
+        // Unload any existing sound
+        if (this.sound) {
+            this.sound.unload();
+        }
+
+        // Create the new sound
+        this.sound = new Howl({
+            src: [filePath],
+            ...options // Spread any other options like onend, onload, etc.
+        });
+
+        // Ensure the audio engine is initialized AFTER a Howl instance exists
+        this.init();
+
+        return this.sound;
+    },
+
+    // Sets the volume using the GainNode
+    setVolume: function (level) {
+        if (this.gainNode) {
+            // The gainNode's 'gain.value' is what we control for volume.
+            // This value is not clamped at 1.0.
+            this.gainNode.gain.value = level;
+        }
+    }
+};
+
+/**
+ * Updates the text and active state of the app settings dropdown menu items.
+ * This function should be called on startup and whenever a setting changes.
+ */
+function updateAppSettingsMenu() {
+    // 1. Check for Light Mode
+    const isLightMode = containerEl.classList.contains('light-mode');
+    lightModeLabel.textContent = isLightMode ? 'Disable Light Mode' : 'Enable Light Mode';
+    lightModeBtn.classList.toggle('active', isLightMode);
+
+    // 2. Check for Vertical Orientation
+    const isVertical = containerEl.classList.contains('vertical-mode');
+    orientationLabel.textContent = isVertical ? 'Switch to Horizontal' : 'Switch to Vertical';
+    orientationBtn.classList.toggle('active', isVertical);
+
+    // 3. Check for Volume Boost
+    const isVolumeBoosted = parseFloat(volumeSlider.max) > 1.0;
+    volumeBoostLabel.textContent = isVolumeBoosted ? 'Disable Volume Boost' : 'Enable Volume Boost';
+    volumeBoostBtn.classList.toggle('active', isVolumeBoosted);
+}
 
 // --- Helper Functions ---
+function updateLyricsDropdownMenu() {
+    // 1. Show/Hide Lyrics Section
+    toggleLyricsLabel.textContent = areLyricsVisible ? 'Hide Lyrics' : 'Show Lyrics';
+    toggleLyricsBtn.classList.toggle('active', areLyricsVisible);
+
+    // 2. Show/Hide Lyrics Controls
+    toggleControlsLabel.textContent = areLyricsControlsVisible ? 'Hide Controls' : 'Show Controls';
+    toggleControlsBtn.classList.toggle('active', areLyricsControlsVisible);
+
+    // 3. Enable/Disable Manual Scroll
+    manualScrollLabel.textContent = isManualScrollEnabled ? 'Disable Manual Scroll' : 'Enable Manual Scroll';
+    toggleManualScrollBtn.classList.toggle('active', isManualScrollEnabled);
+}
+
 function formatTime(secs) {
     const minutes = Math.floor(secs / 60) || 0;
     const seconds = Math.floor(secs - minutes * 60) || 0;
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
-// --- FIX 1: Changed from 'const displayLyrics =' to 'function displayLyrics('
-// This ensures the function is "hoisted" and available everywhere in the script.
 function displayLyrics(data) {
     if (!lyricsContainer) return;
     lyricsContainer.innerHTML = '';
@@ -83,10 +194,13 @@ function displayLyrics(data) {
 };
 
 function shuffleArray(array) {
-    for (let i = array.length - 1; i > 0; i--) {
+    // Make a copy to avoid modifying the original array reference
+    const newArray = [...array];
+    for (let i = newArray.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
+        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
     }
+    return newArray;
 }
 
 function reportPlaybackState() {
@@ -138,18 +252,15 @@ function updateTimeDisplay() {
     timeRemainingEl.textContent = timeDisplayMode === 'remaining' ? `-${formatTime(duration - seek)}` : formatTime(duration);
 }
 
-// --- FIX 2: Consolidated the two duplicate getSongIdentifier functions into one.
-// This function now reliably uses the current player state.
 function getSongIdentifier() {
     if (!currentSongData || !currentSound) return null;
     const duration = Math.round(currentSound.duration());
     return `${currentSongData.artist} - ${currentSongData.title} - ${duration}`;
 }
 
-
 function updateOffsetDisplay() {
     if (!lyricsOffsetDisplay) return;
-    lyricsOffsetDisplay.textContent = `${currentLyricsOffset >= 0 ? '+' : ''}${currentLyricsOffset.toFixed(1)}s`;
+    lyricsOffsetDisplay.textContent = `${currentLyricsOffset >= 0 ? '' : ''}${currentLyricsOffset.toFixed(1)}s`;
 }
 
 // --- UI Update Functions ---
@@ -159,10 +270,10 @@ function updatePlayPauseIcon() {
 }
 
 function updateVolumeUI() {
-    const currentVolume = Howler.volume();
-    volumeIcon.style.display = (isMuted || currentVolume === 0) ? 'none' : 'block';
-    volumeMuteIcon.style.display = (isMuted || currentVolume === 0) ? 'block' : 'none';
-    volumeSlider.value = isMuted ? 0 : currentVolume;
+    const currentVolume = isMuted ? 0 : playbackVolume;
+    volumeIcon.style.display = currentVolume === 0 ? 'none' : 'block';
+    volumeMuteIcon.style.display = currentVolume === 0 ? 'block' : 'none';
+    volumeSlider.value = currentVolume;
 }
 
 function updateUI() {
@@ -171,10 +282,8 @@ function updateUI() {
         const duration = currentSound.duration() || 0;
         progressBar.value = seek;
         updateTimeDisplay();
-        timeCurrentEl.textContent = formatTime(seek);
-        timeRemainingEl.textContent = timeDisplayMode === 'remaining' ? `-${formatTime(duration - seek)}` : formatTime(duration);
 
-        if (lyricsContainer && lyrics.lines.length > 0) {
+        if (lyricsContainer && lyrics.lines.length > 0 && !isManualScrollEnabled) {
             if (lyrics.isSynced) {
                 let currentLyricIndex = -1;
                 for (let i = lyrics.lines.length - 1; i >= 0; i--) {
@@ -228,39 +337,6 @@ function saveLyricsOffsets() {
     window.api.setStoreValue('lyricsOffsets', lyricsOffsets);
 }
 
-async function loadInitialState() {
-    const lastVolume = await window.api.getStoreValue('lastVolume');
-    if (lastVolume !== undefined) {
-        Howler.volume(lastVolume);
-    } else {
-        Howler.volume(1.0);
-    }
-
-    const lastState = await window.api.getStoreValue('lastPlaybackState');
-    if (lastState && lastState.playlist && lastState.lastPlayedPath) {
-        originalPlaylist = lastState.playlist;
-        playlist = [...originalPlaylist];
-        isShuffled = lastState.isShuffled || false;
-
-        if (isShuffled) {
-            shuffleArray(playlist);
-            shuffleBtn.classList.add('active');
-        }
-
-        const lastTrackIndex = playlist.findIndex(path => path === lastState.lastPlayedPath);
-
-        if (lastTrackIndex !== -1) {
-            await playTrack(lastTrackIndex, {startPaused: true, seekTime: lastState.seek});
-        }
-    }
-
-    updateVolumeUI();
-    const savedOffsets = await window.api.getStoreValue('lyricsOffsets');
-    if (savedOffsets) {
-        lyricsOffsets = savedOffsets;
-    }
-}
-
 async function fetchLyrics(artist, title) {
     const url = `https://lrclib.net/api/search?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
     try {
@@ -272,31 +348,27 @@ async function fetchLyrics(artist, title) {
         }
         return null;
     } catch (error) {
-        // FIX: Provide better user feedback on network errors
         console.error('Error fetching lyrics:', error);
-        // This check is useful because the lyrics object might not exist yet
-        if (lyricsContainer.querySelector('.lyrics-line')) {
-            lyricsContainer.querySelector('.lyrics-line').textContent = 'Lyrics search failed (Network Error)';
+        const firstLine = lyricsContainer.querySelector('.lyrics-line');
+        if (firstLine) {
+            firstLine.textContent = 'Lyrics search failed (Network Error)';
         }
         return null;
     }
 }
 
-async function searchAndDisplayOnlineLyrics(songData) {
+async function searchAndDisplayOnlineLyrics(songData, forceRefetch = false) {
     if (!lyricsContainer) return;
     const noLyricsEl = lyricsContainer.querySelector('.lyrics-line');
     if (noLyricsEl) noLyricsEl.textContent = 'Searching for lyrics...';
 
     try {
-        // Use the unique song identifier for the database key
         const songId = getSongIdentifier();
         if (!songId) {
-            // Cannot generate an ID, so we can't use the database.
-            // You could optionally just fetch without saving.
             throw new Error("Cannot generate a song identifier to use the database.");
         }
 
-        const cachedLyrics = await window.api.getLyrics(songId);
+        const cachedLyrics = forceRefetch ? null : await window.api.getLyrics(songId);
 
         if (cachedLyrics) {
             lyrics = processLyrics(cachedLyrics);
@@ -323,7 +395,6 @@ async function playTrack(index, options = {}) {
     loadTicket++;
     const thisTicket = loadTicket;
 
-    Howler.stop();
     const {startPaused = false, seekTime = 0} = options;
 
     if (index < 0 || index >= playlist.length) {
@@ -333,13 +404,27 @@ async function playTrack(index, options = {}) {
         reportPlaybackState();
         return;
     }
-    currentIndex = index;
 
-    if (currentSound) {
-        currentSound.unload();
+    // --- FIX: VALIDATE THE FILE PATH ---
+    // Get the file path from the playlist.
+    const filePath = playlist[index];
+
+    // Check if the file path is a valid, non-empty string before proceeding.
+    // This prevents errors if the saved playlist state contains null or undefined entries.
+    if (typeof filePath !== 'string' || !filePath) {
+        console.error(`Invalid playlist entry at index ${index}. Value:`, filePath, 'Skipping track.');
+        // Attempt to recover by playing the next track automatically.
+        const nextIndex = index + 1;
+        if (nextIndex < playlist.length) {
+            playTrack(nextIndex);
+        }
+        return; // Stop execution of this function call.
     }
+    // --- END OF FIX ---
 
-    const songData = await window.api.getMetadata(playlist[currentIndex]);
+    currentIndex = index;
+    // We now use the validated 'filePath' variable.
+    const songData = await window.api.getMetadata(filePath);
     currentSongData = songData;
 
     if (filenameEl) filenameEl.textContent = songData.basename;
@@ -353,34 +438,22 @@ async function playTrack(index, options = {}) {
     displayLyrics(lyricsData);
     lyrics = lyricsData;
 
-    currentSound = new Howl({
-        src: [songData.filePath],
-        html5: true,
+    currentSound = audioEngine.loadSound(songData.filePath, {
         onload: () => {
             if (thisTicket !== loadTicket) return;
             progressBar.max = currentSound.duration();
             if (seekTime > 0) currentSound.seek(seekTime);
 
-            // --- FIX 2 (continued): Changed call to use the new single function
             const songId = getSongIdentifier();
             currentLyricsOffset = lyricsOffsets[songId] || 0;
             updateOffsetDisplay();
+
+            audioEngine.setVolume(isMuted ? 0 : playbackVolume);
         },
         onloaderror: (soundId, error) => {
             if (thisTicket !== loadTicket) return;
             console.error(`Howler failed to load sound: ${songData.filePath}`, error);
             titleEl.textContent = 'Error: Unplayable file';
-            artistEl.textContent = songData.basename;
-            if (currentSound) {
-                currentSound.unload();
-                currentSound = null;
-            }
-            nextBtn.click();
-        },
-        onplayerror: (soundId, error) => {
-            if (thisTicket !== loadTicket) return;
-            console.error(`Howler failed to play sound: ${songData.filePath}`, error);
-            titleEl.textContent = 'Error: Cannot play file';
             artistEl.textContent = songData.basename;
             if (currentSound) {
                 currentSound.unload();
@@ -428,379 +501,212 @@ async function playTrack(index, options = {}) {
 
 function loadPlaylistAndPlay(files) {
     if (files && files.length > 0) {
-        Howler.stop();
         originalPlaylist = [...files];
         playlist = [...files];
         if (isShuffled) {
-            shuffleArray(playlist);
+            playlist = shuffleArray(playlist);
         }
         playTrack(0);
     }
 }
 
-window.getCurrentAppState = () => {
-    return {
-        originalPlaylist,
-        isShuffled,
-        currentTrackPath: playlist.length > 0 ? playlist[currentIndex] : null,
-        seek: currentSound ? currentSound.seek() : 0,
-        isPlaying,
-        volume: Howler.volume(),
-        isMuted,
-        loopMode,
-    };
-};
+// --- App Entry Point & Event Listeners ---
+document.addEventListener('DOMContentLoaded', () => {
 
-window.api.onRestoreState((state) => {
-    if (!state || !state.originalPlaylist) {
-        loadInitialState();
-        return;
-    }
-    originalPlaylist = state.originalPlaylist;
-    playlist = [...state.originalPlaylist];
-    isShuffled = state.isShuffled;
-    if (isShuffled) {
-        shuffleArray(playlist);
-        shuffleBtn.classList.add('active');
-    }
-    Howler.volume(state.volume);
-    isMuted = state.isMuted;
-    Howler.mute(isMuted);
-    updateVolumeUI();
-    loopMode = 'none';
-    const targetLoopIndex = ['none', 'all', 'one'].indexOf(state.loopMode);
-    for (let i = 0; i < targetLoopIndex; i++) {
-        loopBtn.click();
-    }
-    const trackIndex = playlist.findIndex(path => path === state.currentTrackPath);
-    if (trackIndex !== -1) {
-        playTrack(trackIndex, {startPaused: !state.isPlaying, seekTime: state.seek});
-    }
-});
-
-if (lyricsOffsetMinusBtn) {
-    lyricsOffsetMinusBtn.addEventListener('click', () => {
-        currentLyricsOffset -= 0.1;
-        updateOffsetDisplay();
-        const songId = getSongIdentifier();
-        if (songId) {
-            lyricsOffsets[songId] = currentLyricsOffset;
-            saveLyricsOffsets();
+    // --- Consolidated Initialization Function ---
+    async function initialize() {
+        // Load settings that affect UI appearance first
+        const theme = await window.api.getStoreValue('theme');
+        if (theme === 'light') {
+            containerEl.classList.add('light-mode');
         }
-    });
-}
-if (lyricsOffsetPlusBtn) {
-    lyricsOffsetPlusBtn.addEventListener('click', () => {
-        currentLyricsOffset += 0.1;
-        updateOffsetDisplay();
-        const songId = getSongIdentifier();
-        if (songId) {
-            lyricsOffsets[songId] = currentLyricsOffset;
-            saveLyricsOffsets();
+
+        const opacity = await window.api.getStoreValue('windowOpacity', 0.85);
+        transparencySlider.value = opacity;
+        transparencyValue.textContent = `${Math.round(opacity * 100)}%`;
+        containerEl.classList.toggle('is-opaque', opacity >= 1.0);
+
+        const isVolumeBoosted = await window.api.getStoreValue('volumeBoost', false);
+        volumeSlider.max = isVolumeBoosted ? '2' : '1';
+
+        const version = await window.api.getAppVersion();
+        if (versionMenuDisplay) {
+            versionMenuDisplay.textContent = `v${version}`;
         }
-    });
-}
 
-// --- Event Listeners ---
-openFileBtn.addEventListener('click', async () => loadPlaylistAndPlay(await window.api.openFiles()));
-if (openFolderBtn) openFolderBtn.addEventListener('click', async () => loadPlaylistAndPlay(await window.api.openFolder()));
-albumArtEl.addEventListener('click', () => openFileBtn.click());
+        // Load audio and playback state
+        const lastVolume = await window.api.getStoreValue('lastVolume');
+        playbackVolume = lastVolume !== undefined ? lastVolume : 1.0;
 
-playPauseBtn.addEventListener('click', () => {
-    if (currentSound) {
-        if (isPlaying) {
-            // This part is for pausing and works correctly.
-            currentSound.pause();
-        } else {
-            // --- THIS IS THE FIX ---
-            // Optimistically set the state to "playing" and update the UI immediately.
-            // This avoids the race condition.
-            isPlaying = true;
-            updatePlayPauseIcon();
-            reportPlaybackState();
+        // We no longer set volume here; it's set when a track loads.
 
-            // Now, perform the actual playback action.
-            const seek = currentSound.seek();
-            const duration = currentSound.duration();
+        const savedOffsets = await window.api.getStoreValue('lyricsOffsets');
+        if (savedOffsets) {
+            lyricsOffsets = savedOffsets;
+        }
 
-            if (seek >= duration - 0.1) {
-                // If the song is over, restart it fully.
-                playTrack(currentIndex);
-            } else {
-                // If paused, just resume.
-                currentSound.play();
+        const isPinned = await window.api.getStoreValue('isPinned');
+        pinBtn.classList.toggle('pinned', isPinned !== false);
+
+        updateVolumeUI();
+
+        // Restore last playlist
+        const lastState = await window.api.getStoreValue('lastPlaybackState');
+        if (lastState && lastState.playlist && lastState.lastPlayedPath) {
+            originalPlaylist = lastState.playlist;
+            playlist = [...originalPlaylist];
+            isShuffled = lastState.isShuffled || false;
+            if (isShuffled) {
+                playlist = shuffleArray(playlist);
+                shuffleBtn.classList.add('active');
+            }
+            const lastTrackIndex = playlist.findIndex(path => path === lastState.lastPlayedPath);
+            if (lastTrackIndex !== -1) {
+                await playTrack(lastTrackIndex, {startPaused: true, seekTime: lastState.seek});
             }
         }
-    } else if (playlist.length > 0) {
-        // This is for when the app first opens and nothing is loaded.
-        isPlaying = true;
-        updatePlayPauseIcon();
-        reportPlaybackState();
-        playTrack(0);
-    }
-});
 
-prevBtn.addEventListener('click', () => {
-    if (!currentSound) return;
-    if (currentSound.seek() > 3) {
-        currentSound.seek(0);
-    } else {
-        const previousIndex = currentIndex - 1;
-        if (previousIndex >= 0) {
-            playTrack(previousIndex);
+        // Finally, update menus to reflect all loaded states
+        updateAppSettingsMenu();
+        updateLyricsDropdownMenu();
+    }
+
+    // --- Attach All Event Listeners ---
+
+    // Playback Controls
+    playPauseBtn.addEventListener('click', () => {
+        if (currentSound) {
+            if (isPlaying) {
+                currentSound.pause();
+            } else {
+                if (currentSound.seek() >= currentSound.duration() - 0.1) {
+                    playTrack(currentIndex);
+                } else {
+                    currentSound.play();
+                }
+            }
+        } else if (playlist.length > 0) {
+            playTrack(0);
         }
-    }
-});
-nextBtn.addEventListener('click', () => {
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < playlist.length) {
-        playTrack(nextIndex);
-    }
-});
-progressBar.addEventListener('input', () => {
-    if (currentSound) currentSound.seek(progressBar.value);
-});
-progressBar.addEventListener('wheel', (event) => {
-    if (!currentSound) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const seekTime = 5;
-    let seek = currentSound.seek();
-    if (event.deltaY < 0) seek += seekTime;
-    else seek -= seekTime;
-    const duration = currentSound.duration();
-    seek = Math.max(0, Math.min(duration, seek));
-    currentSound.seek(seek);
-    progressBar.value = seek;
-});
-volumeSlider.addEventListener('input', (e) => {
-    const newVolume = parseFloat(e.target.value);
-    Howler.volume(newVolume);
-    isMuted = false;
-    Howler.mute(false);
-    updateVolumeUI();
-    window.api.setStoreValue('lastVolume', newVolume);
-});
-volumeBtn.addEventListener('click', () => {
-    isMuted = !isMuted;
-    Howler.mute(isMuted);
-    updateVolumeUI();
-});
-if (copyPathBtn) {
-    copyPathBtn.addEventListener('click', () => {
-        if (!currentSound || currentIndex < 0) return;
-        const filePath = playlist[currentIndex];
-        window.api.copyToClipboard(filePath);
-        copyPathBtn.classList.add('copy-success');
-        setTimeout(() => copyPathBtn.classList.remove('copy-success'), 1000);
     });
-}
-if (showFileBtn) {
-    showFileBtn.addEventListener('click', () => {
-        if (!currentSound || currentIndex < 0) return;
-        const filePath = playlist[currentIndex];
-        window.api.showFileInFolder(filePath);
-    });
-}
-timeRemainingEl.addEventListener('click', () => {
-    timeDisplayMode = timeDisplayMode === 'remaining' ? 'total' : 'remaining';
-    updateTimeDisplay();
-});
-toggleOrientationBtn.addEventListener('click', () => {
-    const isCurrentlyVertical = !document.querySelector('.content-wrapper');
-    window.api.toggleOrientation(!isCurrentlyVertical);
-});
-pinBtn.addEventListener('click', async () => pinBtn.classList.toggle('pinned', await window.api.pinWindow()));
-minimizeBtn.addEventListener('click', () => window.api.minimizeWindow());
-closeBtn.addEventListener('click', () => window.api.closeWindow());
-shuffleBtn.addEventListener('click', () => {
-    isShuffled = !isShuffled;
-    shuffleBtn.classList.toggle('active', isShuffled);
-    if (playlist.length === 0) return;
-    const currentTrack = playlist[currentIndex];
-    if (isShuffled) {
-        shuffleArray(playlist);
-    } else {
-        playlist = [...originalPlaylist];
-    }
-    currentIndex = playlist.findIndex(track => track === currentTrack);
-});
-loopBtn.addEventListener('click', () => {
-    loopOffIcon.style.display = 'none';
-    loopAllIcon.style.display = 'none';
-    loopOneIcon.style.display = 'none';
-    loopBtn.classList.remove('active');
-    if (loopMode === 'none') {
-        loopMode = 'all';
-        loopAllIcon.style.display = 'block';
-        loopBtn.classList.add('active');
-        loopBtn.title = 'Loop All';
-    } else if (loopMode === 'all') {
-        loopMode = 'one';
-        loopOneIcon.style.display = 'block';
-        loopBtn.classList.add('active');
-        loopBtn.title = 'Loop One';
-    } else {
-        loopMode = 'none';
-        loopOffIcon.style.display = 'block';
-        loopBtn.title = 'Loop Off';
-    }
-});
-containerEl.addEventListener('wheel', (event) => {
-    event.preventDefault();
-    const volumeStep = 0.05;
-    let currentVolume = Howler.volume();
-    if (event.deltaY < 0) currentVolume += volumeStep;
-    else currentVolume -= volumeStep;
-    currentVolume = Math.max(0, Math.min(1, currentVolume));
-    Howler.volume(currentVolume);
-    isMuted = false;
-    Howler.mute(false);
-    updateVolumeUI();
-    window.api.setStoreValue('lastVolume', currentVolume);
-});
-containerEl.addEventListener('dragover', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-});
-containerEl.addEventListener('dragenter', () => containerEl.classList.add('drag-over'));
-containerEl.addEventListener('dragleave', () => containerEl.classList.remove('drag-over'));
-containerEl.addEventListener('drop', async (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    containerEl.classList.remove('drag-over');
-    const droppedPaths = Array.from(event.dataTransfer.files).map(f => f.path).filter(p => p);
-    if (droppedPaths.length === 0) return;
-    const processedFiles = await window.api.processDroppedPaths(droppedPaths);
-    loadPlaylistAndPlay(processedFiles);
-});
-window.api.onMediaKey((command) => {
-    const actions = {
-        'play-pause': () => playPauseBtn.click(),
-        'next': () => nextBtn.click(),
-        'prev': () => prevBtn.click()
-    };
-    actions[command]?.();
-});
-window.api.onFilePathReceived((filePath) => loadPlaylistAndPlay([filePath]));
-window.addEventListener('keydown', (event) => {
-    if (event.target.tagName === 'INPUT') return;
-    switch (event.code) {
-        case 'Space':
-            event.preventDefault();
-            playPauseBtn.click();
-            break;
-        case 'ArrowRight':
-            event.preventDefault();
-            nextBtn.click();
-            break;
-        case 'ArrowLeft':
-            event.preventDefault();
-            prevBtn.click();
-            break;
-        case 'ArrowUp':
-            event.preventDefault();
-            let newVolUp = Math.min(1, Howler.volume() + 0.05);
-            Howler.volume(newVolUp);
-            updateVolumeUI();
-            break;
-        case 'ArrowDown':
-            event.preventDefault();
-            let newVolDown = Math.max(0, Howler.volume() - 0.05);
-            Howler.volume(newVolDown);
-            updateVolumeUI();
-            break;
-        case 'KeyM':
-            event.preventDefault();
-            volumeBtn.click();
-            break;
-    }
-});
 
-document.addEventListener('DOMContentLoaded', () => {
-    // --- Element Selection ---
-    const lyricsControls = document.querySelector('.lyrics-controls');
-    const lyricsOffsetMinusBtn = document.getElementById('lyrics-offset-minus-btn');
-    const lyricsOffsetPlusBtn = document.getElementById('lyrics-offset-plus-btn');
-
-    // Make sure we found the elements before proceeding
-    if (!lyricsControls || !lyricsOffsetMinusBtn || !lyricsOffsetPlusBtn) {
-        console.log('Lyrics control elements not found, skipping enhancement.');
-        return;
-    }
-
-    // --- Core Logic and State ---
-    let holdDelayTimer = null;    // Timer for the 1-second delay
-    let holdRepeatTimer = null;   // Timer for the rapid repeating action
-    const HOLD_DELAY_MS = 500;   // 0.5 second delay
-    const HOLD_INTERVAL_MS = 100; // Adjusts every 100ms when held
-
-    // This assumes you have a function or variable that handles the offset.
-    // We will simulate it here. You should integrate this with your actual offset logic.
-    // For example, replace this with `window.api.adjustLyricsOffset(amount);`
-    // IMPORTANT: This function is now the ONLY way we adjust the offset.
-    const updateLyricsOffset = (amount) => {
-        // Find the display element each time to ensure it's current
-        const lyricsOffsetDisplay = document.getElementById('lyrics-offset-display');
-        if (lyricsOffsetDisplay) {
-            // This is example logic. Replace it with your app's actual offset handling.
-            let currentOffset = parseFloat(lyricsOffsetDisplay.textContent) || 0;
-            let newOffset = parseFloat((currentOffset + amount).toFixed(2));
-
-            // Update your application's actual offset variable here!
-            // Example: window.lyrics.offset = newOffset;
-
-            // Update the display
-            lyricsOffsetDisplay.textContent = newOffset.toFixed(1) + 's';
+    prevBtn.addEventListener('click', () => {
+        if (!currentSound) return;
+        if (currentSound.seek() > 3) {
+            currentSound.seek(0);
+        } else {
+            const previousIndex = currentIndex - 1;
+            if (previousIndex >= 0) {
+                playTrack(previousIndex);
+            }
         }
-    };
+    });
 
-    // --- 1. SCROLL WHEEL SUPPORT FOR LYRICS OFFSET ---
-    lyricsControls.addEventListener('wheel', (event) => {
-        // Prevent the default scroll action (like scrolling the page)
+    nextBtn.addEventListener('click', () => {
+        const nextIndex = currentIndex + 1;
+        if (nextIndex < playlist.length) {
+            playTrack(nextIndex);
+        } else if (loopMode === 'all') {
+            playTrack(0);
+        }
+    });
+
+    // File Handling
+    openFileBtn.addEventListener('click', async () => loadPlaylistAndPlay(await window.api.openFiles()));
+    if (openFolderBtn) openFolderBtn.addEventListener('click', async () => loadPlaylistAndPlay(await window.api.openFolder()));
+    albumArtEl.addEventListener('click', () => openFileBtn.click());
+
+
+    // Sliders & Progress
+    progressBar.addEventListener('input', () => {
+        if (currentSound) currentSound.seek(progressBar.value);
+    });
+
+    progressBar.addEventListener('wheel', (event) => {
+        if (!currentSound) return;
         event.preventDefault();
-        // CRITICAL: Stop the event from bubbling up to the volume control
-        event.stopPropagation();
+        const seekTime = 5;
+        let seek = currentSound.seek() + (event.deltaY < 0 ? seekTime : -seekTime);
+        seek = Math.max(0, Math.min(currentSound.duration(), seek));
+        currentSound.seek(seek);
+        progressBar.value = seek;
+    });
 
-        // Check scroll direction and adjust offset
-        const adjustment = event.deltaY < 0 ? 0.1 : -0.1;
-        updateLyricsOffset(adjustment);
-    }, {passive: false});
+    volumeSlider.addEventListener('input', (e) => {
+        const newVolume = parseFloat(e.target.value);
+        playbackVolume = newVolume;
+        isMuted = newVolume === 0;
+        audioEngine.setVolume(playbackVolume);
+        updateVolumeUI();
+        window.api.setStoreValue('lastVolume', playbackVolume);
+    });
 
+    volumeBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        audioEngine.setVolume(isMuted ? 0 : playbackVolume);
+        updateVolumeUI();
+    });
 
-    // --- 2. REFINED PRESS-AND-HOLD LOGIC ---
-    const setupHoldListener = (buttonElement, adjustment) => {
-        const stopHold = () => {
-            // Clear both timers to stop any pending or active hold action
-            clearTimeout(holdDelayTimer);
-            clearInterval(holdRepeatTimer);
-        };
+    // Window and System Controls
+    pinBtn.addEventListener('click', async () => pinBtn.classList.toggle('pinned', await window.api.pinWindow()));
+    minimizeBtn.addEventListener('click', () => window.api.minimizeWindow());
+    closeBtn.addEventListener('click', () => window.api.closeWindow());
 
-        const startHold = () => {
-            // --- Step A: Immediate single-click action ---
-            updateLyricsOffset(adjustment);
+    // App Settings & Menus
+    lightModeBtn.addEventListener('click', () => {
+        const isLight = containerEl.classList.toggle('light-mode');
+        window.api.setStoreValue('theme', isLight ? 'light' : 'dark');
+        updateAppSettingsMenu();
+    });
 
-            // --- Step B: Set a timeout for the 1-second delay ---
-            holdDelayTimer = setTimeout(() => {
-                // --- Step C: After 1s, start the rapid adjustment interval ---
-                holdRepeatTimer = setInterval(() => {
-                    updateLyricsOffset(adjustment);
-                }, HOLD_INTERVAL_MS);
-            }, HOLD_DELAY_MS);
-        };
+    orientationBtn.addEventListener('click', () => {
+        const isCurrentlyVertical = containerEl.classList.contains('vertical-mode');
+        window.api.toggleOrientation(!isCurrentlyVertical);
+    });
 
-        // Assign events to the button
-        buttonElement.addEventListener('mousedown', startHold);
-        buttonElement.addEventListener('mouseup', stopHold);
-        buttonElement.addEventListener('mouseleave', stopHold);
-    };
+    volumeBoostBtn.addEventListener('click', () => {
+        const isBoosting = !(parseFloat(volumeSlider.max) > 1.0);
 
-    // Initialize the listeners for both buttons
-    setupHoldListener(lyricsOffsetMinusBtn, -0.1);
-    setupHoldListener(lyricsOffsetPlusBtn, 0.1);
+        if (!isBoosting && playbackVolume > 1.0) {
+            playbackVolume = 1.0;
+            audioEngine.setVolume(playbackVolume);
+        }
 
-    // --- Dropdown Menu Logic ---
-    // Link toggle buttons to their corresponding menu IDs
+        volumeSlider.max = isBoosting ? '2' : '1';
+        updateVolumeUI();
+        window.api.setStoreValue('volumeBoost', isBoosting);
+        updateAppSettingsMenu();
+    });
+
+    toggleLyricsBtn.addEventListener('click', () => {
+        areLyricsVisible = !areLyricsVisible;
+        containerEl.classList.toggle('lyrics-hidden', !areLyricsVisible);
+        window.api.toggleLyricsVisibility(areLyricsVisible);
+        updateLyricsDropdownMenu();
+    });
+
+    toggleControlsBtn.addEventListener('click', () => {
+        areLyricsControlsVisible = !areLyricsControlsVisible;
+        containerEl.classList.toggle('lyrics-controls-hidden', !areLyricsControlsVisible);
+        updateLyricsDropdownMenu();
+    });
+
+    toggleManualScrollBtn.addEventListener('click', () => {
+        isManualScrollEnabled = !isManualScrollEnabled;
+        containerEl.classList.toggle('manual-scroll-enabled', isManualScrollEnabled);
+        updateLyricsDropdownMenu();
+    });
+
+    refetchLyricsBtn.addEventListener('click', () => {
+        if (!currentSongData) {
+            // Can't refetch if no song is loaded
+            return;
+        }
+        // Call with 'true' to force a refetch, skipping the local cache
+        searchAndDisplayOnlineLyrics(currentSongData, true);
+    });
+
+    // Dropdown Menu Logic
     const dropdownMap = new Map([
         ['play-dropdown-btn', 'play-dropdown-menu'],
         ['file-dropdown-btn', 'file-dropdown-menu'],
@@ -811,141 +717,244 @@ document.addEventListener('DOMContentLoaded', () => {
     dropdownMap.forEach((menuId, btnId) => {
         const toggleBtn = document.getElementById(btnId);
         const menu = document.getElementById(menuId);
-
         if (!toggleBtn || !menu) return;
 
         toggleBtn.addEventListener('click', (event) => {
-            event.stopPropagation(); // Prevent the window click listener from immediately closing it
-
+            event.stopPropagation();
             const isAlreadyOpen = menu.classList.contains('show');
 
-            // First, close all menus
+            // First, close all other open menus
             document.querySelectorAll('.dropdown-menu.show').forEach(openMenu => {
                 openMenu.classList.remove('show');
-                // Also reset the toggle button state
-                const openBtn = Array.from(dropdownMap.keys()).find(key => dropdownMap.get(key) === openMenu.id);
-                document.getElementById(openBtn)?.parentElement.classList.remove('open');
+                const openBtnId = Array.from(dropdownMap.keys()).find(key => dropdownMap.get(key) === openMenu.id);
+                document.getElementById(openBtnId)?.parentElement.classList.remove('open');
             });
 
-            // If the clicked menu was NOT already open, show it and position it
             if (!isAlreadyOpen) {
-                // Get the position of the button that was clicked
                 const rect = toggleBtn.getBoundingClientRect();
-
-                // Position the menu below the button
-                menu.style.top = `${rect.bottom + 5}px`; // 5px of space below the button
-                menu.style.right = `${window.innerWidth - rect.right}px`; // Align the right edges
-                menu.style.left = 'auto'; // Unset left
-
+                menu.style.top = `${rect.bottom + 5}px`;
+                menu.style.right = `${window.innerWidth - rect.right}px`;
+                menu.style.left = 'auto';
                 menu.classList.add('show');
                 toggleBtn.parentElement.classList.add('open');
             }
         });
     });
 
-// Close dropdowns if user clicks outside of them
-    window.addEventListener('click', (event) => {
-        document.querySelectorAll('.dropdown-menu.show').forEach(openMenu => {
-            // Find which button corresponds to this open menu
-            const btnId = Array.from(dropdownMap.keys()).find(key => dropdownMap.get(key) === openMenu.id);
-            const toggleBtn = document.getElementById(btnId);
-
-            // If the click was not on the toggle button itself, close the menu
-            if (toggleBtn && !toggleBtn.contains(event.target)) {
-                openMenu.classList.remove('show');
-                toggleBtn.parentElement.classList.remove('open');
-            }
-        });
-    });
-
-    // --- Settings Drawer Logic ---
-    const settingsDrawer = document.getElementById('settings-drawer');
-    const openTransparencyBtn = document.getElementById('settings-transparency-btn');
-    const closeDrawerBtn = document.getElementById('close-settings-drawer-btn');
-
+    // Settings Drawer Logic
     if (settingsDrawer && openTransparencyBtn && closeDrawerBtn) {
-        // Button in the dropdown to open the drawer
-        openTransparencyBtn.addEventListener('click', () => {
-            settingsDrawer.classList.add('show');
-        });
-
-        // Button inside the drawer to close it
-        closeDrawerBtn.addEventListener('click', () => {
-            settingsDrawer.classList.remove('show');
-        });
+        openTransparencyBtn.addEventListener('click', () => settingsDrawer.classList.add('show'));
+        closeDrawerBtn.addEventListener('click', () => settingsDrawer.classList.remove('show'));
     }
 
-    // --- App Settings Dropdown Logic ---
-    const lightModeBtn = document.getElementById('light-mode-btn');
-
-    const goToGithubBtn = document.getElementById('go-to-github-btn');
-    const transparencySlider = document.getElementById('transparency-slider');
-    const transparencyValue = document.getElementById('transparency-value');
-    const appVersionContainer = document.getElementById('app-version-container');
-    const appVersionDisplay = document.getElementById('app-version-display');
-
-    // 1. Light/Dark Mode
-    lightModeBtn.addEventListener('click', () => {
-        const isLight = containerEl.classList.toggle('light-mode');
-        window.api.setStoreValue('theme', isLight ? 'light' : 'dark');
+    transparencySlider.addEventListener('input', () => {
+        const opacityValue = parseFloat(transparencySlider.value);
+        window.api.setOpacity(opacityValue);
+        transparencyValue.textContent = `${Math.round(opacityValue * 100)}%`;
+        containerEl.classList.toggle('is-opaque', opacityValue >= 1.0);
     });
 
-    // 2. GitHub Link
     goToGithubBtn.addEventListener('click', () => {
         window.api.openGitHub();
     });
 
-    // 3. Transparency
-    transparencySlider.addEventListener('input', () => {
-        const opacityValue = parseFloat(transparencySlider.value);
-        // Send to main process to change window opacity
-        window.api.setOpacity(opacityValue);
-        // Update the text display
-        transparencyValue.textContent = `${Math.round(opacityValue * 100)}%`;
+    aboutMeBtn.addEventListener('click', () => {
+        window.api.openAuthorUrl();
     });
 
-    // 4. Show Version
-    const showVersionBtn = document.getElementById('show-version-btn');
+    volumeContainer.addEventListener('wheel', (event) => {
+        // Prevent the default scroll behavior
+        event.preventDefault();
 
-    showVersionBtn.addEventListener('click', async () => {
-        const version = await window.api.getAppVersion();
-        appVersionDisplay.textContent = `v${version}`;
-        appVersionContainer.style.display = 'flex';
-        settingsDrawer.classList.add('show');
+        // Define how much the volume changes per scroll tick
+        const volumeStep = 0.05;
+        const scrollDirection = event.deltaY < 0 ? 1 : -1; // Up: 1, Down: -1
+
+        // Calculate the new volume, ensuring it stays within the valid range (0 to max)
+        let newVolume = playbackVolume + (scrollDirection * volumeStep);
+        newVolume = Math.max(0, Math.min(parseFloat(volumeSlider.max), newVolume));
+
+        // Apply the new volume
+        playbackVolume = parseFloat(newVolume.toFixed(2));
+        isMuted = playbackVolume === 0;
+        audioEngine.setVolume(playbackVolume);
+
+        // Update the UI and save the state
+        updateVolumeUI();
+        window.api.setStoreValue('lastVolume', playbackVolume);
     });
 
-    // 5. Load Initial Settings on Startup
-    async function loadAppSettings() {
-        // Theme
-        const theme = await window.api.getStoreValue('theme');
-        if (theme === 'light') {
-            containerEl.classList.add('light-mode');
+    lyricsControls.addEventListener('wheel', (event) => {
+        // Do nothing if no song is loaded
+        if (!currentSound) return;
+
+        // Prevent the default scroll behavior
+        event.preventDefault();
+
+        // Define the adjustment step
+        const offsetStep = 0.1;
+        // Note: Scrolling UP feels like lyrics should come SOONER, so we DECREASE the offset.
+        const scrollDirection = event.deltaY < 0 ? -1 : 1;
+
+        // Apply the change
+        currentLyricsOffset = parseFloat((currentLyricsOffset + (scrollDirection * offsetStep)).toFixed(2));
+
+        // Update the UI
+        updateOffsetDisplay();
+
+        // Save the new offset value
+        const songId = getSongIdentifier();
+        if (songId) {
+            lyricsOffsets[songId] = currentLyricsOffset;
+            saveLyricsOffsets();
         }
-        // Opacity
-        const opacity = await window.api.getStoreValue('windowOpacity', 0.85);
-        transparencySlider.value = opacity;
-        transparencyValue.textContent = `${Math.round(opacity * 100)}%`;
+    });
+
+    // Other UI Listeners
+    shuffleBtn.addEventListener('click', () => {
+        isShuffled = !isShuffled;
+        shuffleBtn.classList.toggle('active', isShuffled);
+        if (playlist.length === 0) return;
+        const currentTrack = playlist[currentIndex];
+        playlist = isShuffled ? shuffleArray(originalPlaylist) : [...originalPlaylist];
+        currentIndex = playlist.findIndex(track => track === currentTrack);
+        if (currentIndex === -1 && isShuffled && originalPlaylist.length > 0) {
+            // If the current track was removed from a shuffled playlist, find its original index
+            const originalIndex = originalPlaylist.findIndex(track => track === currentTrack);
+            if (originalIndex !== -1) currentIndex = originalIndex;
+        }
+    });
+
+    loopBtn.addEventListener('click', () => {
+        const modes = ['none', 'all', 'one'];
+        const currentModeIndex = modes.indexOf(loopMode);
+        loopMode = modes[(currentModeIndex + 1) % modes.length];
+
+        loopOffIcon.style.display = loopMode === 'none' ? 'block' : 'none';
+        loopAllIcon.style.display = loopMode === 'all' ? 'block' : 'none';
+        loopOneIcon.style.display = loopMode === 'one' ? 'block' : 'none';
+
+        loopBtn.classList.toggle('active', loopMode !== 'none');
+        loopBtn.title = `Loop ${loopMode.charAt(0).toUpperCase() + loopMode.slice(1)}`;
+    });
+
+    // Lyrics Offset Press-and-Hold Logic
+    const setupHoldListener = (buttonElement, adjustment) => {
+        let holdDelayTimer = null;
+        let holdRepeatTimer = null;
+        const HOLD_DELAY_MS = 500;
+        const HOLD_INTERVAL_MS = 100;
+
+        const stopHold = () => {
+            clearTimeout(holdDelayTimer);
+            clearInterval(holdRepeatTimer);
+            saveLyricsOffsets(); // Save the final value when the user lets go
+        };
+
+        const applyChange = () => {
+            currentLyricsOffset = parseFloat((currentLyricsOffset + adjustment).toFixed(2));
+            updateOffsetDisplay();
+            const songId = getSongIdentifier();
+            if (songId) {
+                lyricsOffsets[songId] = currentLyricsOffset;
+            }
+        };
+
+        const startHold = () => {
+            applyChange(); // Immediate change on first click
+            holdDelayTimer = setTimeout(() => {
+                holdRepeatTimer = setInterval(applyChange, HOLD_INTERVAL_MS);
+            }, HOLD_DELAY_MS);
+        };
+
+        buttonElement.addEventListener('mousedown', startHold);
+        ['mouseup', 'mouseleave'].forEach(evt => buttonElement.addEventListener(evt, stopHold));
+    };
+
+    if (lyricsOffsetMinusBtn && lyricsOffsetPlusBtn) {
+        setupHoldListener(lyricsOffsetMinusBtn, -0.1);
+        setupHoldListener(lyricsOffsetPlusBtn, 0.1);
     }
 
-    // Call this function inside your existing DOMContentLoaded listener
-    loadAppSettings();
+    // --- Start the Application ---
+    initialize().then(() => {
+        // Start the continuous UI update loop only after initialization is complete
+        requestAnimationFrame(updateUI);
+    });
 });
 
-// --- LISTENER FOR FILE OPEN FROM MAIN PROCESS ---
 
-// Use the secure API exposed by the preload script
-window.api.onPlayFile((filePath) => {
-    loadPlaylistAndPlay([filePath]);
+// --- Global Event Listeners ---
+
+// Close dropdowns on outside click
+window.addEventListener('click', () => {
+    document.querySelectorAll('.dropdown-menu.show').forEach(openMenu => {
+        openMenu.classList.remove('show');
+        const dropdownMap = new Map([['play-dropdown-btn', 'play-dropdown-menu'], ['file-dropdown-btn', 'file-dropdown-menu'], ['lyrics-dropdown-btn', 'lyrics-dropdown-menu'], ['app-dropdown-btn', 'app-dropdown-menu']]);
+        const btnId = Array.from(dropdownMap.keys()).find(key => dropdownMap.get(key) === openMenu.id);
+        if (btnId) document.getElementById(btnId).parentElement.classList.remove('open');
+    });
 });
 
-// --- Initial Setup ---
-Howler.stop();
-isMuted = false;
-Howler.mute(isMuted);
-window.api.getStoreValue('isPinned').then(isPinned => {
-    pinBtn.classList.toggle('pinned', isPinned !== false);
+// Drag and Drop
+containerEl.addEventListener('dragover', (event) => event.preventDefault());
+containerEl.addEventListener('dragenter', () => containerEl.classList.add('drag-over'));
+containerEl.addEventListener('dragleave', () => containerEl.classList.remove('drag-over'));
+containerEl.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    containerEl.classList.remove('drag-over');
+    const droppedPaths = Array.from(event.dataTransfer.files).map(f => f.path).filter(p => p);
+    if (droppedPaths.length > 0) {
+        const processedFiles = await window.api.processDroppedPaths(droppedPaths);
+        loadPlaylistAndPlay(processedFiles);
+    }
 });
-loadInitialState();
-updateUI();
+
+// Keyboard Shortcuts
+window.addEventListener('keydown', (event) => {
+    if (event.target.tagName === 'INPUT') return;
+    const actions = {
+        'Space': () => playPauseBtn.click(),
+        'ArrowRight': () => nextBtn.click(),
+        'ArrowLeft': () => prevBtn.click(),
+        'ArrowUp': () => {
+            let newVol = Math.min(parseFloat(volumeSlider.max), playbackVolume + 0.05);
+            playbackVolume = parseFloat(newVol.toFixed(2));
+            audioEngine.setVolume(playbackVolume);
+            updateVolumeUI();
+            window.api.setStoreValue('lastVolume', playbackVolume);
+        },
+        'ArrowDown': () => {
+            let newVol = Math.max(0, playbackVolume - 0.05);
+            playbackVolume = parseFloat(newVol.toFixed(2));
+            audioEngine.setVolume(playbackVolume);
+            updateVolumeUI();
+            window.api.setStoreValue('lastVolume', playbackVolume);
+        },
+        'KeyM': () => volumeBtn.click()
+    };
+    if (actions[event.code]) {
+        event.preventDefault();
+        actions[event.code]();
+    }
+});
+
+// Save state periodically and before closing
 setInterval(savePlaybackState, 5000);
 window.addEventListener('beforeunload', savePlaybackState);
+
+// API Listeners from Main Process
+window.api.onMediaKey((command) => {
+    const actions = {
+        'play-pause': () => playPauseBtn.click(),
+        'next': () => nextBtn.click(),
+        'prev': () => prevBtn.click()
+    };
+    actions[command]?.();
+});
+
+window.api.onFilePathReceived((filePath) => loadPlaylistAndPlay([filePath]));
+
+window.api.onSetOrientationClass((isVertical) => {
+    containerEl.classList.toggle('vertical-mode', isVertical);
+});

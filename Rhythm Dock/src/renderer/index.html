@@ -154,6 +154,11 @@
     </div>
 
     <div id="settings-drawer" class="settings-drawer">
+        <button id="close-settings-drawer-btn" class="close-drawer-btn" title="Close Settings">
+            <svg viewBox="0 0 24 24">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
+            </svg>
+        </button>
         <div class="settings-content">
             <div class="setting-item">
                 <label for="transparency-slider">Opacity</label>
@@ -161,21 +166,11 @@
                 <span id="transparency-value">85%</span>
             </div>
 
-            <div class="setting-item">
-                <label for="volume-boost-toggle">Allow Volume > 100%</label>
-                <input type="checkbox" id="volume-boost-toggle">
-            </div>
-
             <div class="setting-item" id="app-version-container" style="display: none;">
                 <label>Version</label>
                 <span id="app-version-display"></span>
             </div>
         </div>
-        <button id="close-settings-drawer-btn" class="close-drawer-btn" title="Close Settings">
-            <svg viewBox="0 0 24 24">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
-            </svg>
-        </button>
     </div>
 </div>
 
@@ -212,8 +207,25 @@
         <svg viewBox="0 0 24 24">
             <path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path>
         </svg>
-        <span>Show/Hide Lyrics</span>
+        <span id="toggle-lyrics-label">Hide Lyrics</span>
     </button>
+
+    <button class="dropdown-item" id="toggle-lyrics-controls-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path>
+        </svg>
+        <span id="toggle-lyrics-controls-label">Hide Controls</span>
+    </button>
+
+    <button class="dropdown-item" id="toggle-manual-scroll-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"></path>
+        </svg>
+        <span id="manual-scroll-label">Enable Manual Scroll</span>
+    </button>
+
+    <hr class="dropdown-divider">
+
     <button class="dropdown-item" id="refetch-lyrics-btn">
         <svg viewBox="0 0 24 24">
             <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path>
@@ -226,21 +238,26 @@
         <svg viewBox="0 0 24 24">
             <path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"></path>
         </svg>
-        <span>Toggle Light Mode</span>
+        <span id="light-mode-label">Enable Light Mode</span>
     </button>
     <button class="dropdown-item" id="orientation-btn">
         <svg viewBox="0 0 24 24">
             <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h-2.02c-.33-2.88-2.20-5.43-4.58-6.75l1.63-1.73zM2.52 16.48C4.07 19.75 7.24 22.09 11 22.45v-2.02c-2.88-.33-5.43-2.2-6.75-4.58l-1.73 1.63zM7.55 4.03l-1.63 1.73C3.05 7.24.71 10.41 1.07 14.17h2.02c-.33-2.88 2.2-5.43 4.58-6.75L7.55 4.03zM16.48 21.48l1.73-1.63c2.82-2.82 3.25-7.01 1.1-10.42h-2.02c1.78 2.53 1.48 5.92-1.1 8.5L16.48 21.48z"></path>
         </svg>
-        <span>Change Orientation</span>
+        <span id="orientation-label">Switch to Vertical</span>
+    </button>
+    <button class="dropdown-item" id="volume-boost-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm7 1.66L8.24 9H5v6h3.24L10 16.34V10.66zM14 12c0-1.28-.68-2.4-1.7-3.03v6.06c1.02-.63 1.7-1.75 1.7-3.03zM16.5 12c0 2.08-1.27 3.86-3.08 4.63v-9.26C15.23 8.14 16.5 9.92 16.5 12z"></path>
+        </svg>
+        <span id="volume-boost-label">Enable Volume Boost</span>
     </button>
     <button class="dropdown-item" id="settings-transparency-btn">
         <svg viewBox="0 0 24 24">
             <path d="M20 4h-4L12.71.71c-.38-.38-1.02-.38-1.41 0L8 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM12 6c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"></path>
         </svg>
-        <span>Transparency...</span>
+        <span>Adjust Opacity...</span>
     </button>
-
     <hr class="dropdown-divider">
 
     <button class="dropdown-item" id="go-to-github-btn">
@@ -249,12 +266,20 @@
         </svg>
         <span>Go to GitHub</span>
     </button>
-    <button class="dropdown-item" id="show-version-btn">
+     <button class="dropdown-item" id="about-me-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path>
+        </svg>
+        <span>About Me</span>
+    </button>
+    <hr class="dropdown-divider">
+    <div class="dropdown-item version-display">
         <svg viewBox="0 0 24 24">
             <path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path>
         </svg>
-        <span>Show Version...</span>
-    </button>
+        <span>Version</span>
+        <span id="version-menu-display">...</span>
+    </div>
 </div>
 
 <script src="../assets/vendor/howler.core.min.js"></script>
