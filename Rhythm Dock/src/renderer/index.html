@@ -13,51 +13,59 @@
     <div class="header-bar">
         <div id="filename" class="filename">No song loaded</div>
         <div class="window-controls">
-            <button id="copy-path-btn" title="Copy File Path">
-                <svg viewBox="0 0 24 24">
-                    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path>
-                </svg>
-            </button>
-            <button id="show-file-btn" title="Show File in Folder">
-                <svg viewBox="0 0 24 24">
-                    <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path>
-                </svg>
-            </button>
-            <button id="shuffle-btn" title="Shuffle">
-                <svg viewBox="0 0 24 24">
-                    <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
-                </svg>
-            </button>
-            <button id="loop-btn" title="Loop Off">
-                <svg id="loop-off-icon" viewBox="0 0 24 24">
-                    <path d="M21.03 5.46L19.57 4 4 19.57l1.46 1.46L21.03 5.46zM7 7h9.17l-2-2H7v3l-4 4 4 4v-3h1v-2H7V7zm10 10h-9.17l2 2H17v-3l4-4-4-4v3h-1v2h1v4z"></path>
-                </svg>
-                <svg id="loop-all-icon" style="display: none;" viewBox="0 0 24 24">
-                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
-                </svg>
-                <svg id="loop-one-icon" style="display: none;" viewBox="0 0 24 24">
-                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v2.5H13z"></path>
-                </svg>
-            </button>
-            <button id="orientation-btn" class="control-btn" title="Change Orientation (V)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                     viewBox="0 0 16 16">
-                    <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.832.547A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192Zm-6.8 5.068A.5.5 0 0 1 5 10.5h6v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h-6a4 4 0 0 0 3.585-5.777.5.5 0 1 1 .832-.547A5 5 0 0 1 5 13H4v-1.466a.25.25 0 0 1 .41-.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1-.41-.192Z"/>
-                </svg>
-            </button>
+            <div class="dropdown">
+                <button class="dropdown-toggle" id="play-dropdown-btn" title="Playback Options">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M7 10l5 5 5-5z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="dropdown">
+                <button class="dropdown-toggle" id="file-dropdown-btn" title="File Options">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="dropdown">
+                <button class="dropdown-toggle" id="lyrics-dropdown-btn" title="Lyrics Options">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="dropdown">
+                <button class="dropdown-toggle" id="app-dropdown-btn" title="App Settings">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"></path>
+                    </svg>
+                </button>
+            </div>
+
             <button id="pin-btn" title="Pin Window">
                 <svg viewBox="0 0 24 24">
                     <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"></path>
                 </svg>
             </button>
+
             <button id="minimize-btn" title="Minimize">
                 <svg viewBox="0 0 24 24">
                     <path d="M20 14H4v-4h16"></path>
                 </svg>
             </button>
+
             <button id="close-btn" title="Close">
                 <svg viewBox="0 0 24 24">
                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
+                </svg>
+            </button>
+
+            <button id="like-btn" title="Add to Favorites" style="display: none;">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path>
                 </svg>
             </button>
         </div>
@@ -144,6 +152,109 @@
             </button>
         </div>
     </div>
+
+    <div id="settings-drawer" class="settings-drawer">
+        <div class="settings-content">
+            <div class="setting-item">
+                <label for="transparency-slider">Opacity</label>
+                <input type="range" id="transparency-slider" min="0.3" max="1.0" step="0.05" value="0.85">
+                <span id="transparency-value">85%</span>
+            </div>
+
+            <div class="setting-item">
+                <label for="volume-boost-toggle">Allow Volume > 100%</label>
+                <input type="checkbox" id="volume-boost-toggle">
+            </div>
+
+            <div class="setting-item" id="app-version-container" style="display: none;">
+                <label>Version</label>
+                <span id="app-version-display"></span>
+            </div>
+        </div>
+        <button id="close-settings-drawer-btn" class="close-drawer-btn" title="Close Settings">
+            <svg viewBox="0 0 24 24">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
+            </svg>
+        </button>
+    </div>
+</div>
+
+<div class="dropdown-menu" id="play-dropdown-menu">
+    <button class="dropdown-item" id="shuffle-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
+        </svg>
+        <span>Shuffle</span>
+    </button>
+    <button class="dropdown-item" id="loop-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
+        </svg>
+        <span>Loop</span>
+    </button>
+</div>
+<div class="dropdown-menu" id="file-dropdown-menu">
+    <button class="dropdown-item" id="show-file-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path>
+        </svg>
+        <span>Show in Folder</span>
+    </button>
+    <button class="dropdown-item" id="copy-path-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path>
+        </svg>
+        <span>Copy File Path</span>
+    </button>
+</div>
+<div class="dropdown-menu" id="lyrics-dropdown-menu">
+    <button class="dropdown-item" id="toggle-lyrics-section-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path>
+        </svg>
+        <span>Show/Hide Lyrics</span>
+    </button>
+    <button class="dropdown-item" id="refetch-lyrics-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path>
+        </svg>
+        <span>Refetch Lyrics</span>
+    </button>
+</div>
+<div class="dropdown-menu" id="app-dropdown-menu">
+    <button class="dropdown-item" id="light-mode-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"></path>
+        </svg>
+        <span>Toggle Light Mode</span>
+    </button>
+    <button class="dropdown-item" id="orientation-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h-2.02c-.33-2.88-2.20-5.43-4.58-6.75l1.63-1.73zM2.52 16.48C4.07 19.75 7.24 22.09 11 22.45v-2.02c-2.88-.33-5.43-2.2-6.75-4.58l-1.73 1.63zM7.55 4.03l-1.63 1.73C3.05 7.24.71 10.41 1.07 14.17h2.02c-.33-2.88 2.2-5.43 4.58-6.75L7.55 4.03zM16.48 21.48l1.73-1.63c2.82-2.82 3.25-7.01 1.1-10.42h-2.02c1.78 2.53 1.48 5.92-1.1 8.5L16.48 21.48z"></path>
+        </svg>
+        <span>Change Orientation</span>
+    </button>
+    <button class="dropdown-item" id="settings-transparency-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M20 4h-4L12.71.71c-.38-.38-1.02-.38-1.41 0L8 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM12 6c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"></path>
+        </svg>
+        <span>Transparency...</span>
+    </button>
+
+    <hr class="dropdown-divider">
+
+    <button class="dropdown-item" id="go-to-github-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.1.1 1.7 1.1 1.7 1.1.9 1.6 2.4 1.2 3 .9.1-.7.4-1.2.8-1.4-2.3-.3-4.7-1.1-4.7-5.1 0-1.1.4-2 1.1-2.8-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1.1.8-.2 1.7-.3 2.5-.3s1.7.1 2.5.3c2-.1 2.8-1.1 2.8-1.1.6 1.4.2 2.5.1 2.7.7.7 1.1 1.6 1.1 2.8 0 4-2.4 4.8-4.7 5.1.4.3.8.9.8 1.8v2.6c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"></path>
+        </svg>
+        <span>Go to GitHub</span>
+    </button>
+    <button class="dropdown-item" id="show-version-btn">
+        <svg viewBox="0 0 24 24">
+            <path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path>
+        </svg>
+        <span>Show Version...</span>
+    </button>
 </div>
 
 <script src="../assets/vendor/howler.core.min.js"></script>

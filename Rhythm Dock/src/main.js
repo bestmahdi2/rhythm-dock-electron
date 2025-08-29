@@ -92,6 +92,31 @@ const createWindow = () => {
         },
     });
 
+    // --- AUTOMATIC RESIZE FOR DEVTOOLS ---
+    // This block of code enhances the developer experience by resizing the
+    // window when the DevTools are opened, making it easier to debug.
+
+    let originalSize; // Variable to store the window's original size
+
+    mainWindow.setOpacity(store.get('windowOpacity', 0.85));
+
+    mainWindow.webContents.on('devtools-opened', () => {
+        // 1. Store the original size when DevTools opens
+        originalSize = mainWindow.getSize();
+
+        // 2. Set the window to a new, larger size for debugging
+        //    You can adjust these dimensions to your preference.
+        mainWindow.setSize(1000, 600, true); // width, height, animate
+    });
+
+    mainWindow.webContents.on('devtools-closed', () => {
+        // 1. If we have a stored original size, restore the window
+        if (originalSize) {
+            mainWindow.setSize(originalSize[0], originalSize[1], true);
+        }
+    });
+
+
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
 
     mainWindow.on('closed', () => {
@@ -117,45 +142,60 @@ const sendFilePathToWindow = (filePath) => {
     mainWindow.focus();
 };
 
+// Function to parse command-line arguments for a file path
+const getFilePathFromArgs = (argv) => {
+    // On Windows, the second argument is often the file path.
+    // We check if it's not another switch (like --inspect) and if it exists.
+    // The first arg is the app path, so we look at the second (index 1).
+    if (argv.length >= 2 && !argv[1].startsWith('--')) {
+        return argv[1];
+    }
+    return null;
+};
+
 // --- Single Instance Lock ---
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
     app.quit();
 } else {
-    app.on('second-instance', (event, commandLine) => {
+    // This is the primary instance.
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, we should focus our window.
         if (mainWindow) {
-            const filePath = commandLine.pop();
-            if (filePath && fs.existsSync(filePath)) {
-                sendFilePathToWindow(filePath);
-            } else {
-                if (mainWindow.isMinimized()) mainWindow.restore();
-                mainWindow.focus();
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+
+            // Check if the second instance was launched with a file path
+            const filePath = getFilePathFromArgs(commandLine);
+            if (filePath) {
+                // Send the file path to the renderer process to be played
+                mainWindow.webContents.send('play-file-on-open', filePath);
             }
         }
     });
-
-    app.whenReady().then(() => {
-        initializeDatabase();
-        createWindow();
-
-        globalShortcut.register('MediaPlayPause', () => sendToRenderer('media-key-event', 'play-pause'));
-        globalShortcut.register('MediaNextTrack', () => sendToRenderer('media-key-event', 'next'));
-        globalShortcut.register('MediaPreviousTrack', () => sendToRenderer('media-key-event', 'prev'));
-
-        app.on('activate', () => {
-            if (BrowserWindow.getAllWindows().length === 0) createWindow();
-        });
-
-        // Handle opening file on startup (Windows/Linux)
-        const filePath = process.argv.length >= 2 ? process.argv[process.argv.length - 1] : null;
-        if (filePath && fs.existsSync(filePath) && path.resolve(filePath) !== path.resolve(process.execPath)) {
-            mainWindow.once('ready-to-show', () => {
-                sendFilePathToWindow(filePath);
-            });
-        }
-    });
 }
+
+app.whenReady().then(() => {
+    initializeDatabase();
+    createWindow();
+
+    globalShortcut.register('MediaPlayPause', () => sendToRenderer('media-key-event', 'play-pause'));
+    globalShortcut.register('MediaNextTrack', () => sendToRenderer('media-key-event', 'next'));
+    globalShortcut.register('MediaPreviousTrack', () => sendToRenderer('media-key-event', 'prev'));
+
+    app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+
+    // Handle opening file on startup (Windows/Linux)
+    const filePath = process.argv.length >= 2 ? process.argv[process.argv.length - 1] : null;
+    if (filePath && fs.existsSync(filePath) && path.resolve(filePath) !== path.resolve(process.execPath)) {
+        mainWindow.once('ready-to-show', () => {
+            sendFilePathToWindow(filePath);
+        });
+    }
+});
 
 // macOS specific: Handle opening files when the app is running
 app.on('open-file', (event, path) => {
@@ -333,3 +373,19 @@ ipcMain.handle('show-file-in-folder', (_event, filePath) => {
 });
 
 ipcMain.handle('copy-to-clipboard', (_event, text) => clipboard.writeText(text));
+
+ipcMain.on('set-opacity', (_event, opacity) => {
+    if (mainWindow) {
+        mainWindow.setOpacity(opacity);
+        store.set('windowOpacity', opacity); // Save for persistence
+    }
+});
+
+ipcMain.on('open-github', () => {
+    // Replace with your actual GitHub repository URL
+    shell.openExternal('https://github.com/bestmahdi2/rhythm-dock-electron');
+});
+
+ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+});

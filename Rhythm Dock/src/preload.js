@@ -24,4 +24,12 @@ contextBridge.exposeInMainWorld('api', {
     onMediaKey: (callback) => ipcRenderer.on('media-key-event', (_event, command) => callback(command)),
 
     onRestoreState: (callback) => ipcRenderer.on('restore-state', (_event, state) => callback(state)),
+
+    onPlayFile: (callback) => {
+        ipcRenderer.on('play-file-on-open', (event, filePath) => callback(filePath));
+    },
+
+    setOpacity: (value) => ipcRenderer.send('set-opacity', value),
+    openGitHub: () => ipcRenderer.send('open-github'),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 });

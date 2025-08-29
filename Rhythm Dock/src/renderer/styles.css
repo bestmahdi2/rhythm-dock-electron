@@ -13,6 +13,7 @@ html, body {
     padding: 0;
     background-color: transparent;
     box-sizing: border-box;
+    overflow: hidden; /* Add this line to prevent scrollbars */
 }
 
 *, *:before, *:after {
@@ -29,7 +30,7 @@ html, body {
     padding: 10px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    overflow: hidden;
+    overflow: visible;
     transition: all 0.2s ease-in-out;
     width: var(--horizontal-width);
     height: var(--horizontal-height);
@@ -80,7 +81,7 @@ html, body {
     -webkit-app-region: no-drag;
 }
 
-.window-controls button {
+.window-controls > button, .dropdown-toggle {
     width: 16px;
     height: 16px;
 }
@@ -260,14 +261,26 @@ button:active svg {
 }
 
 /* Re-order elements for a logical top-to-bottom flow */
-.container.vertical-mode #album-art { order: 1; }
-.container.vertical-mode .main-controls { order: 2; }
-.container.vertical-mode .side-controls { order: 3; }
-.container.vertical-mode .header-bar { order: 4; }
+.container.vertical-mode #album-art {
+    order: 1;
+}
+
+.container.vertical-mode .main-controls {
+    order: 2;
+}
+
+.container.vertical-mode .side-controls {
+    order: 3;
+}
+
+.container.vertical-mode .header-bar {
+    order: 4;
+}
 
 .container.vertical-mode .track-info {
     margin-bottom: 10px;
 }
+
 .container.vertical-mode #title,
 .container.vertical-mode #artist {
     white-space: normal; /* Allow text to wrap */
@@ -294,6 +307,7 @@ button:active svg {
 .container.vertical-mode .playback-buttons {
     gap: 20px;
 }
+
 .container.vertical-mode .utility-buttons {
     gap: 15px;
 }
@@ -343,13 +357,34 @@ button:active svg {
 .lyrics-container {
     height: 60px;
     text-align: center;
-    overflow: hidden;
+    overflow-y: auto; /* Changed from hidden to auto */
     position: relative;
     -webkit-app-region: no-drag;
     line-height: 1.5;
+    /* Hide scrollbar by default for a cleaner look */
+    scrollbar-width: none; /* For Firefox */
+    -ms-overflow-style: none; /* For Internet Explorer and Edge */
 }
 
-/* NEW styles for lyrics controls */
+/* For Webkit browsers (Chrome, Electron) */
+.lyrics-container::-webkit-scrollbar {
+    width: 6px; /* Width of the scrollbar */
+}
+
+.lyrics-container::-webkit-scrollbar-track {
+    background: transparent; /* Make the track invisible */
+}
+
+.lyrics-container::-webkit-scrollbar-thumb {
+    background-color: #444; /* Scrollbar color */
+    border-radius: 10px;
+    border: 2px solid transparent; /* Creates padding around thumb */
+}
+
+.lyrics-container:hover::-webkit-scrollbar-thumb {
+    background-color: #555; /* Slightly lighter on hover */
+}
+
 .lyrics-controls {
     display: flex;
     flex-direction: column;
@@ -394,4 +429,192 @@ button:active svg {
     height: 1em;
     /* This prevents the SVG from interfering with button clicks */
     pointer-events: none;
+}
+
+/* --- Dropdown Menus --- */
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-toggle svg {
+    fill: #f6f6f6;
+    transition: transform 0.2s ease-in-out;
+}
+
+.dropdown.open .dropdown-toggle svg {
+    transform: rotate(180deg);
+    fill: #1db954;
+}
+
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 8px;
+    background-color: rgba(30, 30, 30, 0.95);
+    backdrop-filter: blur(10px);
+    min-width: 200px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    z-index: 1000;
+    padding: 6px 0;
+
+    /* --- NEW --- */
+    /* Set a max-height relative to the viewport (window) height */
+    max-height: calc(100vh - 45px);
+    /* Show a scrollbar ONLY if the content overflows the max-height */
+    overflow-y: auto;
+}
+
+.dropdown-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+.dropdown-menu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.dropdown-menu::-webkit-scrollbar-thumb {
+    background-color: #444;
+    border-radius: 10px;
+}
+
+.dropdown-item {
+    color: #f0f0f0;
+    padding: 12px 18px; /* Increased padding */
+    text-decoration: none;
+    width: 100%;
+    text-align: left;
+    font-size: 0.85em; /* Increased font size */
+    border: none;
+    background: none;
+    cursor: pointer;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+.dropdown-item svg {
+    width: 18px; /* Larger icons */
+    height: 18px; /* Larger icons */
+    fill: #aaa;
+    flex-shrink: 0;
+    transition: fill 0.2s ease-in-out;
+}
+
+.dropdown-item:hover {
+    background-color: #1db954;
+    color: #fff;
+}
+
+.dropdown-item:hover svg {
+    fill: #fff;
+}
+
+.dropdown-divider {
+    height: 1px;
+    margin: 6px 0;
+    overflow: hidden;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 0;
+}
+
+.dropdown-menu.show {
+    display: block; /* Shown with JS */
+}
+
+/* --- Settings Drawer --- */
+.settings-drawer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: rgba(20, 20, 20, 0.9);
+    backdrop-filter: blur(5px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    transform: translateY(100%); /* Hidden by default */
+    transition: transform 0.3s ease-in-out;
+    z-index: 50;
+    padding: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.settings-drawer.show {
+    transform: translateY(0); /* Shown with JS */
+}
+
+.close-drawer-btn {
+    width: 16px;
+    height: 16px;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+}
+
+.settings-content {
+    width: 100%;
+}
+
+/* --- Settings Drawer Content --- */
+.setting-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.8em;
+}
+
+.setting-item label {
+    flex-shrink: 0;
+}
+
+.setting-item input[type="range"] {
+    flex-grow: 1;
+}
+
+.setting-item span {
+    font-variant-numeric: tabular-nums;
+    width: 40px;
+    text-align: right;
+}
+
+/* --- Light Theme --- */
+.container.light-mode {
+    background-color: rgba(245, 245, 245, 0.9);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: #181818; /* Dark text */
+}
+
+.container.light-mode .filename,
+.container.light-mode #artist,
+.container.light-mode .time-display,
+.container.light-mode #lyrics-offset-display {
+    color: #555;
+}
+
+.container.light-mode button svg {
+    fill: #181818;
+}
+
+.container.light-mode button:hover svg {
+    fill: #1db954;
+}
+
+.container.light-mode .dropdown-menu {
+    background-color: rgba(255, 255, 255, 0.95);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.container.light-mode .dropdown-item {
+    color: #181818;
+}
+
+.container.light-mode .dropdown-item:hover {
+    color: #fff;
 }

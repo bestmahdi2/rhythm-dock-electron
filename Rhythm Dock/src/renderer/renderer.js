@@ -717,6 +717,227 @@ window.addEventListener('keydown', (event) => {
     }
 });
 
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Element Selection ---
+    const lyricsControls = document.querySelector('.lyrics-controls');
+    const lyricsOffsetMinusBtn = document.getElementById('lyrics-offset-minus-btn');
+    const lyricsOffsetPlusBtn = document.getElementById('lyrics-offset-plus-btn');
+
+    // Make sure we found the elements before proceeding
+    if (!lyricsControls || !lyricsOffsetMinusBtn || !lyricsOffsetPlusBtn) {
+        console.log('Lyrics control elements not found, skipping enhancement.');
+        return;
+    }
+
+    // --- Core Logic and State ---
+    let holdDelayTimer = null;    // Timer for the 1-second delay
+    let holdRepeatTimer = null;   // Timer for the rapid repeating action
+    const HOLD_DELAY_MS = 500;   // 0.5 second delay
+    const HOLD_INTERVAL_MS = 100; // Adjusts every 100ms when held
+
+    // This assumes you have a function or variable that handles the offset.
+    // We will simulate it here. You should integrate this with your actual offset logic.
+    // For example, replace this with `window.api.adjustLyricsOffset(amount);`
+    // IMPORTANT: This function is now the ONLY way we adjust the offset.
+    const updateLyricsOffset = (amount) => {
+        // Find the display element each time to ensure it's current
+        const lyricsOffsetDisplay = document.getElementById('lyrics-offset-display');
+        if (lyricsOffsetDisplay) {
+            // This is example logic. Replace it with your app's actual offset handling.
+            let currentOffset = parseFloat(lyricsOffsetDisplay.textContent) || 0;
+            let newOffset = parseFloat((currentOffset + amount).toFixed(2));
+
+            // Update your application's actual offset variable here!
+            // Example: window.lyrics.offset = newOffset;
+
+            // Update the display
+            lyricsOffsetDisplay.textContent = newOffset.toFixed(1) + 's';
+        }
+    };
+
+    // --- 1. SCROLL WHEEL SUPPORT FOR LYRICS OFFSET ---
+    lyricsControls.addEventListener('wheel', (event) => {
+        // Prevent the default scroll action (like scrolling the page)
+        event.preventDefault();
+        // CRITICAL: Stop the event from bubbling up to the volume control
+        event.stopPropagation();
+
+        // Check scroll direction and adjust offset
+        const adjustment = event.deltaY < 0 ? 0.1 : -0.1;
+        updateLyricsOffset(adjustment);
+    }, {passive: false});
+
+
+    // --- 2. REFINED PRESS-AND-HOLD LOGIC ---
+    const setupHoldListener = (buttonElement, adjustment) => {
+        const stopHold = () => {
+            // Clear both timers to stop any pending or active hold action
+            clearTimeout(holdDelayTimer);
+            clearInterval(holdRepeatTimer);
+        };
+
+        const startHold = () => {
+            // --- Step A: Immediate single-click action ---
+            updateLyricsOffset(adjustment);
+
+            // --- Step B: Set a timeout for the 1-second delay ---
+            holdDelayTimer = setTimeout(() => {
+                // --- Step C: After 1s, start the rapid adjustment interval ---
+                holdRepeatTimer = setInterval(() => {
+                    updateLyricsOffset(adjustment);
+                }, HOLD_INTERVAL_MS);
+            }, HOLD_DELAY_MS);
+        };
+
+        // Assign events to the button
+        buttonElement.addEventListener('mousedown', startHold);
+        buttonElement.addEventListener('mouseup', stopHold);
+        buttonElement.addEventListener('mouseleave', stopHold);
+    };
+
+    // Initialize the listeners for both buttons
+    setupHoldListener(lyricsOffsetMinusBtn, -0.1);
+    setupHoldListener(lyricsOffsetPlusBtn, 0.1);
+
+    // --- Dropdown Menu Logic ---
+    // Link toggle buttons to their corresponding menu IDs
+    const dropdownMap = new Map([
+        ['play-dropdown-btn', 'play-dropdown-menu'],
+        ['file-dropdown-btn', 'file-dropdown-menu'],
+        ['lyrics-dropdown-btn', 'lyrics-dropdown-menu'],
+        ['app-dropdown-btn', 'app-dropdown-menu']
+    ]);
+
+    dropdownMap.forEach((menuId, btnId) => {
+        const toggleBtn = document.getElementById(btnId);
+        const menu = document.getElementById(menuId);
+
+        if (!toggleBtn || !menu) return;
+
+        toggleBtn.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent the window click listener from immediately closing it
+
+            const isAlreadyOpen = menu.classList.contains('show');
+
+            // First, close all menus
+            document.querySelectorAll('.dropdown-menu.show').forEach(openMenu => {
+                openMenu.classList.remove('show');
+                // Also reset the toggle button state
+                const openBtn = Array.from(dropdownMap.keys()).find(key => dropdownMap.get(key) === openMenu.id);
+                document.getElementById(openBtn)?.parentElement.classList.remove('open');
+            });
+
+            // If the clicked menu was NOT already open, show it and position it
+            if (!isAlreadyOpen) {
+                // Get the position of the button that was clicked
+                const rect = toggleBtn.getBoundingClientRect();
+
+                // Position the menu below the button
+                menu.style.top = `${rect.bottom + 5}px`; // 5px of space below the button
+                menu.style.right = `${window.innerWidth - rect.right}px`; // Align the right edges
+                menu.style.left = 'auto'; // Unset left
+
+                menu.classList.add('show');
+                toggleBtn.parentElement.classList.add('open');
+            }
+        });
+    });
+
+// Close dropdowns if user clicks outside of them
+    window.addEventListener('click', (event) => {
+        document.querySelectorAll('.dropdown-menu.show').forEach(openMenu => {
+            // Find which button corresponds to this open menu
+            const btnId = Array.from(dropdownMap.keys()).find(key => dropdownMap.get(key) === openMenu.id);
+            const toggleBtn = document.getElementById(btnId);
+
+            // If the click was not on the toggle button itself, close the menu
+            if (toggleBtn && !toggleBtn.contains(event.target)) {
+                openMenu.classList.remove('show');
+                toggleBtn.parentElement.classList.remove('open');
+            }
+        });
+    });
+
+    // --- Settings Drawer Logic ---
+    const settingsDrawer = document.getElementById('settings-drawer');
+    const openTransparencyBtn = document.getElementById('settings-transparency-btn');
+    const closeDrawerBtn = document.getElementById('close-settings-drawer-btn');
+
+    if (settingsDrawer && openTransparencyBtn && closeDrawerBtn) {
+        // Button in the dropdown to open the drawer
+        openTransparencyBtn.addEventListener('click', () => {
+            settingsDrawer.classList.add('show');
+        });
+
+        // Button inside the drawer to close it
+        closeDrawerBtn.addEventListener('click', () => {
+            settingsDrawer.classList.remove('show');
+        });
+    }
+
+    // --- App Settings Dropdown Logic ---
+    const lightModeBtn = document.getElementById('light-mode-btn');
+
+    const goToGithubBtn = document.getElementById('go-to-github-btn');
+    const transparencySlider = document.getElementById('transparency-slider');
+    const transparencyValue = document.getElementById('transparency-value');
+    const appVersionContainer = document.getElementById('app-version-container');
+    const appVersionDisplay = document.getElementById('app-version-display');
+
+    // 1. Light/Dark Mode
+    lightModeBtn.addEventListener('click', () => {
+        const isLight = containerEl.classList.toggle('light-mode');
+        window.api.setStoreValue('theme', isLight ? 'light' : 'dark');
+    });
+
+    // 2. GitHub Link
+    goToGithubBtn.addEventListener('click', () => {
+        window.api.openGitHub();
+    });
+
+    // 3. Transparency
+    transparencySlider.addEventListener('input', () => {
+        const opacityValue = parseFloat(transparencySlider.value);
+        // Send to main process to change window opacity
+        window.api.setOpacity(opacityValue);
+        // Update the text display
+        transparencyValue.textContent = `${Math.round(opacityValue * 100)}%`;
+    });
+
+    // 4. Show Version
+    const showVersionBtn = document.getElementById('show-version-btn');
+
+    showVersionBtn.addEventListener('click', async () => {
+        const version = await window.api.getAppVersion();
+        appVersionDisplay.textContent = `v${version}`;
+        appVersionContainer.style.display = 'flex';
+        settingsDrawer.classList.add('show');
+    });
+
+    // 5. Load Initial Settings on Startup
+    async function loadAppSettings() {
+        // Theme
+        const theme = await window.api.getStoreValue('theme');
+        if (theme === 'light') {
+            containerEl.classList.add('light-mode');
+        }
+        // Opacity
+        const opacity = await window.api.getStoreValue('windowOpacity', 0.85);
+        transparencySlider.value = opacity;
+        transparencyValue.textContent = `${Math.round(opacity * 100)}%`;
+    }
+
+    // Call this function inside your existing DOMContentLoaded listener
+    loadAppSettings();
+});
+
+// --- LISTENER FOR FILE OPEN FROM MAIN PROCESS ---
+
+// Use the secure API exposed by the preload script
+window.api.onPlayFile((filePath) => {
+    loadPlaylistAndPlay([filePath]);
+});
+
 // --- Initial Setup ---
 Howler.stop();
 isMuted = false;
