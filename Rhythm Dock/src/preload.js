@@ -2,6 +2,7 @@ const {contextBridge, ipcRenderer} = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
     // Renderer to Main
+    rendererReady: () => ipcRenderer.send('renderer-ready'),
     sendPlaybackState: (state) => ipcRenderer.send('playback-state-changed', state), // <-- ADD THIS LINE
     getMetadata: (filePath) => ipcRenderer.invoke('get-metadata', filePath),
     openFiles: () => ipcRenderer.invoke('open-files'),
@@ -20,9 +21,6 @@ contextBridge.exposeInMainWorld('api', {
     onFilePathReceived: (callback) => ipcRenderer.on('open-file-path', (_event, filePath) => callback(filePath)),
     onMediaKey: (callback) => ipcRenderer.on('media-key-event', (_event, command) => callback(command)),
     onRestoreState: (callback) => ipcRenderer.on('restore-state', (_event, state) => callback(state)),
-    onPlayFile: (callback) => {
-        ipcRenderer.on('play-file-on-open', (event, filePath) => callback(filePath));
-    },
     onSetOrientationClass: (callback) => ipcRenderer.on('set-orientation-class', (_event, isVertical) => callback(isVertical)),
     setOpacity: (value) => ipcRenderer.send('set-opacity', value),
     openGitHub: () => ipcRenderer.send('open-github'),

@@ -10,12 +10,16 @@ let isMuted = false;
 let loopMode = 'none';
 let isShuffled = false;
 let lyrics = {isSynced: false, lines: []};
+let favoritesPlaylist = [];
+let isMagnifierEnabled = true;
+let isSoundLoading = false;
 let lastActiveLyricIndex = -1;
 let lyricsOffsets = {};
 let loadTicket = 0;
 let currentLyricsOffset = 0;
 let playbackVolume = 1.0;
 let areLyricsVisible = true;
+let volumeOverlayTimeout = null;
 let areLyricsControlsVisible = true;
 let isManualScrollEnabled = false;
 
@@ -47,6 +51,7 @@ const loopBtn = document.getElementById('loop-btn');
 const loopOffIcon = document.getElementById('loop-off-icon');
 const loopAllIcon = document.getElementById('loop-all-icon');
 const loopOneIcon = document.getElementById('loop-one-icon');
+const likeBtn = document.getElementById('like-btn');
 const copyPathBtn = document.getElementById('copy-path-btn');
 const showFileBtn = document.getElementById('show-file-btn');
 const lyricsContainer = document.getElementById('lyrics-container');
@@ -74,7 +79,11 @@ const toggleControlsLabel = document.getElementById('toggle-lyrics-controls-labe
 const toggleManualScrollBtn = document.getElementById('toggle-manual-scroll-btn');
 const manualScrollLabel = document.getElementById('manual-scroll-label');
 const refetchLyricsBtn = document.getElementById('refetch-lyrics-btn');
-const volumeContainer = document.querySelector('.volume-container');
+const toggleMagnifierBtn = document.getElementById('toggle-magnifier-btn');
+const toggleMagnifierLabel = document.getElementById('toggle-magnifier-label');
+const magnifiedAlbumArtEl = document.getElementById('magnified-album-art');
+const volumeOverlay = document.getElementById('volume-overlay');
+const volumeOverlayText = document.getElementById('volume-overlay-text');
 const lyricsControls = document.querySelector('.lyrics-controls');
 
 const audioEngine = {
@@ -150,6 +159,12 @@ function updateAppSettingsMenu() {
     volumeBoostBtn.classList.toggle('active', isVolumeBoosted);
 }
 
+function updateMagnifierUI() {
+    toggleMagnifierLabel.textContent = isMagnifierEnabled ? 'Disable Magnifier' : 'Enable Magnifier';
+    toggleMagnifierBtn.classList.toggle('active', isMagnifierEnabled);
+    containerEl.classList.toggle('magnifier-disabled', !isMagnifierEnabled);
+}
+
 // --- Helper Functions ---
 function updateLyricsDropdownMenu() {
     // 1. Show/Hide Lyrics Section
@@ -163,6 +178,54 @@ function updateLyricsDropdownMenu() {
     // 3. Enable/Disable Manual Scroll
     manualScrollLabel.textContent = isManualScrollEnabled ? 'Disable Manual Scroll' : 'Enable Manual Scroll';
     toggleManualScrollBtn.classList.toggle('active', isManualScrollEnabled);
+}
+
+/**
+ * Displays the volume percentage over the album art and hides it after a delay.
+ * @param {number} volume The volume level (e.g., 0.0 to 2.0).
+ */
+function showVolumeFeedback(volume) {
+    if (!volumeOverlay || !volumeOverlayText) return;
+
+    // Convert volume to percentage and update the text
+    const percentage = Math.round(volume * 100);
+    volumeOverlayText.textContent = `${percentage}%`;
+
+    volumeOverlay.classList.add('show');
+
+    clearTimeout(volumeOverlayTimeout);
+    volumeOverlayTimeout = setTimeout(() => volumeOverlay.classList.remove('show'), 3000);
+}
+
+/**
+ * Updates the loop button's icon, tooltip, and active state based on the current loopMode.
+ */
+function updateLoopButtonUI() {
+    if (!loopBtn || !loopOffIcon || !loopAllIcon || !loopOneIcon) return;
+
+    loopOffIcon.style.display = loopMode === 'none' ? 'block' : 'none';
+    loopAllIcon.style.display = loopMode === 'all' ? 'block' : 'none';
+    loopOneIcon.style.display = loopMode === 'one' ? 'block' : 'none';
+
+    loopBtn.classList.toggle('active', loopMode !== 'none');
+    loopBtn.title = `Loop: ${loopMode.charAt(0).toUpperCase() + loopMode.slice(1)}`;
+}
+
+/**
+ * Updates the like button's UI state based on whether the current song is in the favorites list.
+ */
+function updateLikeButtonUI() {
+    if (!likeBtn || currentIndex < 0) {
+        likeBtn.classList.remove('active');
+        return;
+    }
+    const currentPath = playlist[currentIndex];
+    const isFavorite = favoritesPlaylist.includes(currentPath);
+    likeBtn.classList.toggle('active', isFavorite);
+}
+
+function saveFavorites() {
+    window.api.setStoreValue('favoritesPlaylist', favoritesPlaylist);
 }
 
 function formatTime(secs) {
@@ -329,6 +392,7 @@ function savePlaybackState() {
         lastPlayedPath: playlist[currentIndex],
         seek: currentSound.seek() || 0,
         isShuffled: isShuffled,
+        loopMode: loopMode,
     };
     window.api.setStoreValue('lastPlaybackState', state);
 }
@@ -393,6 +457,7 @@ async function searchAndDisplayOnlineLyrics(songData, forceRefetch = false) {
 // --- Core Music & Playlist Logic ---
 async function playTrack(index, options = {}) {
     loadTicket++;
+    isSoundLoading = true; // Prevent interaction while the sound is loading
     const thisTicket = loadTicket;
 
     const {startPaused = false, seekTime = 0} = options;
@@ -430,7 +495,14 @@ async function playTrack(index, options = {}) {
     if (filenameEl) filenameEl.textContent = songData.basename;
     titleEl.textContent = songData.title;
     artistEl.textContent = songData.artist;
-    albumArtEl.src = songData.cover || '../assets/images/placeholder.png';
+    const isVideo = filePath.toLowerCase().endsWith('.mp4');
+    let albumArtSrc = songData.cover;
+    if (!albumArtSrc) {
+        albumArtSrc = isVideo ? '../assets/images/placeholder-video.png' : '../assets/images/placeholder.png';
+    }
+    albumArtEl.src = albumArtSrc;
+    magnifiedAlbumArtEl.src = albumArtSrc;
+
     progressBar.max = 0;
     progressBar.value = seekTime;
 
@@ -438,9 +510,11 @@ async function playTrack(index, options = {}) {
     displayLyrics(lyricsData);
     lyrics = lyricsData;
 
+    updateLikeButtonUI();
     currentSound = audioEngine.loadSound(songData.filePath, {
         onload: () => {
             if (thisTicket !== loadTicket) return;
+            isSoundLoading = false; // Sound is ready, allow interaction
             progressBar.max = currentSound.duration();
             if (seekTime > 0) currentSound.seek(seekTime);
 
@@ -454,6 +528,7 @@ async function playTrack(index, options = {}) {
             if (thisTicket !== loadTicket) return;
             console.error(`Howler failed to load sound: ${songData.filePath}`, error);
             titleEl.textContent = 'Error: Unplayable file';
+            isSoundLoading = false; // Loading failed, allow interaction with next track
             artistEl.textContent = songData.basename;
             if (currentSound) {
                 currentSound.unload();
@@ -512,9 +587,20 @@ function loadPlaylistAndPlay(files) {
 
 // --- App Entry Point & Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
+    let uiLoopStarted = false;
 
-    // --- Consolidated Initialization Function ---
-    async function initialize() {
+    function startUiLoopOnce() {
+        if (!uiLoopStarted) {
+            requestAnimationFrame(updateUI);
+            uiLoopStarted = true;
+        }
+    }
+
+    /**
+     * Loads essential app settings like theme, volume, opacity, etc., from storage.
+     * This should be called on any type of startup.
+     */
+    async function loadAppSettings() {
         // Load settings that affect UI appearance first
         const theme = await window.api.getStoreValue('theme');
         if (theme === 'light') {
@@ -544,12 +630,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (savedOffsets) {
             lyricsOffsets = savedOffsets;
         }
+        const savedFavorites = await window.api.getStoreValue('favoritesPlaylist');
+        if (savedFavorites && Array.isArray(savedFavorites)) {
+            favoritesPlaylist = savedFavorites;
+        }
+
+        const savedMagnifierState = await window.api.getStoreValue('magnifierEnabled');
+        isMagnifierEnabled = savedMagnifierState !== false; // Default to true
 
         const isPinned = await window.api.getStoreValue('isPinned');
         pinBtn.classList.toggle('pinned', isPinned !== false);
 
         updateVolumeUI();
+        updateAppSettingsMenu();
+        updateLyricsDropdownMenu();
+        updateMagnifierUI();
+        updateLoopButtonUI();
+    }
 
+    /**
+     * Restores the playlist and last played track from the previous session.
+     */
+    async function restoreLastPlaybackState() {
         // Restore last playlist
         const lastState = await window.api.getStoreValue('lastPlaybackState');
         if (lastState && lastState.playlist && lastState.lastPlayedPath) {
@@ -560,21 +662,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 playlist = shuffleArray(playlist);
                 shuffleBtn.classList.add('active');
             }
+
+            loopMode = lastState.loopMode || 'none';
+            updateLoopButtonUI();
+
             const lastTrackIndex = playlist.findIndex(path => path === lastState.lastPlayedPath);
             if (lastTrackIndex !== -1) {
                 await playTrack(lastTrackIndex, {startPaused: true, seekTime: lastState.seek});
             }
         }
-
-        // Finally, update menus to reflect all loaded states
-        updateAppSettingsMenu();
-        updateLyricsDropdownMenu();
     }
 
     // --- Attach All Event Listeners ---
 
     // Playback Controls
     playPauseBtn.addEventListener('click', () => {
+        if (isSoundLoading) return; // Ignore clicks if sound is not ready
+
         if (currentSound) {
             if (isPlaying) {
                 currentSound.pause();
@@ -638,6 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isMuted = newVolume === 0;
         audioEngine.setVolume(playbackVolume);
         updateVolumeUI();
+        showVolumeFeedback(newVolume);
         window.api.setStoreValue('lastVolume', playbackVolume);
     });
 
@@ -645,6 +750,21 @@ document.addEventListener('DOMContentLoaded', () => {
         isMuted = !isMuted;
         audioEngine.setVolume(isMuted ? 0 : playbackVolume);
         updateVolumeUI();
+        showVolumeFeedback(isMuted ? 0 : playbackVolume);
+    });
+
+    volumeBoostBtn.addEventListener('click', () => {
+        const isBoosting = !(parseFloat(volumeSlider.max) > 1.0);
+
+        if (!isBoosting && playbackVolume > 1.0) {
+            playbackVolume = 1.0;
+            audioEngine.setVolume(playbackVolume);
+        }
+
+        volumeSlider.max = isBoosting ? '2' : '1';
+        updateVolumeUI();
+        window.api.setStoreValue('volumeBoost', isBoosting);
+        updateAppSettingsMenu();
     });
 
     // Window and System Controls
@@ -662,20 +782,6 @@ document.addEventListener('DOMContentLoaded', () => {
     orientationBtn.addEventListener('click', () => {
         const isCurrentlyVertical = containerEl.classList.contains('vertical-mode');
         window.api.toggleOrientation(!isCurrentlyVertical);
-    });
-
-    volumeBoostBtn.addEventListener('click', () => {
-        const isBoosting = !(parseFloat(volumeSlider.max) > 1.0);
-
-        if (!isBoosting && playbackVolume > 1.0) {
-            playbackVolume = 1.0;
-            audioEngine.setVolume(playbackVolume);
-        }
-
-        volumeSlider.max = isBoosting ? '2' : '1';
-        updateVolumeUI();
-        window.api.setStoreValue('volumeBoost', isBoosting);
-        updateAppSettingsMenu();
     });
 
     toggleLyricsBtn.addEventListener('click', () => {
@@ -762,27 +868,28 @@ document.addEventListener('DOMContentLoaded', () => {
         window.api.openAuthorUrl();
     });
 
-    volumeContainer.addEventListener('wheel', (event) => {
-        // Prevent the default scroll behavior
-        event.preventDefault();
-
-        // Define how much the volume changes per scroll tick
-        const volumeStep = 0.05;
-        const scrollDirection = event.deltaY < 0 ? 1 : -1; // Up: 1, Down: -1
-
-        // Calculate the new volume, ensuring it stays within the valid range (0 to max)
-        let newVolume = playbackVolume + (scrollDirection * volumeStep);
-        newVolume = Math.max(0, Math.min(parseFloat(volumeSlider.max), newVolume));
-
-        // Apply the new volume
-        playbackVolume = parseFloat(newVolume.toFixed(2));
-        isMuted = playbackVolume === 0;
-        audioEngine.setVolume(playbackVolume);
-
-        // Update the UI and save the state
-        updateVolumeUI();
-        window.api.setStoreValue('lastVolume', playbackVolume);
-    });
+    // volumeContainer.addEventListener('wheel', (event) => {
+    //     // Prevent the default scroll behavior
+    //     event.preventDefault();
+    //
+    //     // Check for Shift key for fine-grained control
+    //     const isFineControl = event.shiftKey;
+    //     const volumeStep = isFineControl ? 0.01 : 0.05;
+    //     const scrollDirection = event.deltaY < 0 ? 1 : -1; // Up: 1, Down: -1
+    //
+    //     // Calculate the new volume, ensuring it stays within the valid range (0 to max)
+    //     let newVolume = playbackVolume + (scrollDirection * volumeStep);
+    //     newVolume = Math.max(0, Math.min(parseFloat(volumeSlider.max), newVolume));
+    //
+    //     // Apply the new volume
+    //     playbackVolume = parseFloat(newVolume.toFixed(2));
+    //     isMuted = playbackVolume === 0;
+    //     audioEngine.setVolume(playbackVolume);
+    //
+    //     // Update the UI and save the state
+    //     updateVolumeUI();
+    //     window.api.setStoreValue('lastVolume', playbackVolume);
+    // });
 
     lyricsControls.addEventListener('wheel', (event) => {
         // Do nothing if no song is loaded
@@ -830,12 +937,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentModeIndex = modes.indexOf(loopMode);
         loopMode = modes[(currentModeIndex + 1) % modes.length];
 
-        loopOffIcon.style.display = loopMode === 'none' ? 'block' : 'none';
-        loopAllIcon.style.display = loopMode === 'all' ? 'block' : 'none';
-        loopOneIcon.style.display = loopMode === 'one' ? 'block' : 'none';
+        updateLoopButtonUI();
+    });
 
-        loopBtn.classList.toggle('active', loopMode !== 'none');
-        loopBtn.title = `Loop ${loopMode.charAt(0).toUpperCase() + loopMode.slice(1)}`;
+    toggleMagnifierBtn.addEventListener('click', () => {
+        isMagnifierEnabled = !isMagnifierEnabled;
+        window.api.setStoreValue('magnifierEnabled', isMagnifierEnabled);
+        updateMagnifierUI();
+    });
+
+    likeBtn.addEventListener('click', () => {
+        if (currentIndex < 0) return; // No song loaded
+
+        const currentPath = playlist[currentIndex];
+        const favoriteIndex = favoritesPlaylist.indexOf(currentPath);
+
+        if (favoriteIndex > -1) {
+            favoritesPlaylist.splice(favoriteIndex, 1); // Unlike
+        } else {
+            favoritesPlaylist.push(currentPath); // Like
+        }
+
+        updateLikeButtonUI();
+        saveFavorites();
     });
 
     // Lyrics Offset Press-and-Hold Logic
@@ -876,11 +1000,79 @@ document.addEventListener('DOMContentLoaded', () => {
         setupHoldListener(lyricsOffsetPlusBtn, 0.1);
     }
 
-    // --- Start the Application ---
-    initialize().then(() => {
-        // Start the continuous UI update loop only after initialization is complete
-        requestAnimationFrame(updateUI);
+    // File Context Menu Controls
+    showFileBtn.addEventListener('click', () => {
+        if (currentIndex > -1 && playlist[currentIndex]) {
+            window.api.showFileInFolder(playlist[currentIndex]);
+        }
     });
+
+    copyPathBtn.addEventListener('click', () => {
+        if (currentIndex > -1 && playlist[currentIndex]) {
+            window.api.copyToClipboard(playlist[currentIndex]);
+            // Provide user feedback that the copy was successful
+            copyPathBtn.classList.add('copy-success');
+            setTimeout(() => copyPathBtn.classList.remove('copy-success'), 1500);
+        }
+    });
+
+    // --- Application Startup Logic ---
+
+    // Fired on a normal app launch.
+    window.api.onRestoreState(async () => {
+        await loadAppSettings();
+        await restoreLastPlaybackState();
+        startUiLoopOnce();
+    });
+
+    // Fired when the app is launched by opening a file.
+    window.api.onFilePathReceived(async (filePath) => {
+        await loadAppSettings(); // Still need to load theme, volume, etc.
+        loadPlaylistAndPlay([filePath]); // But play the new file.
+        startUiLoopOnce();
+    });
+
+    // --- Global Volume Scroll ---
+    containerEl.addEventListener('wheel', (event) => {
+        // Define selectors for areas that have their own scroll behavior and should be ignored.
+        const ignoredSelectors = [
+            '#progress-bar',
+            '.volume-container',
+            '.lyrics-controls',
+            '.lyrics-container',
+            '.settings-drawer',
+            '.dropdown-menu',
+            'input[type="range"]'
+        ];
+
+        // Check if the scroll event originated from within an ignored area.
+        if (ignoredSelectors.some(selector => event.target.closest(selector))) {
+            return; // If so, do nothing and let the element handle its own scroll.
+        }
+
+        // If the scroll is in a "safe" area, control the main volume.
+        event.preventDefault();
+
+        const isFineControl = event.shiftKey;
+        const volumeStep = isFineControl ? 0.01 : 0.05;
+        const scrollDirection = event.deltaY < 0 ? 1 : -1; // Up increases volume, Down decreases.
+
+        let newVolume = playbackVolume + (scrollDirection * volumeStep);
+        // Clamp the new volume within the allowed range (0 to max, which could be 2 for boost).
+        newVolume = Math.max(0, Math.min(parseFloat(volumeSlider.max), newVolume));
+
+        // Apply the new volume and update the UI/state directly.
+        playbackVolume = parseFloat(newVolume.toFixed(2));
+        showVolumeFeedback(playbackVolume);
+        isMuted = playbackVolume === 0;
+        audioEngine.setVolume(playbackVolume);
+
+        updateVolumeUI(); // This updates the slider's visual position and the mute icon.
+        window.api.setStoreValue('lastVolume', playbackVolume);
+    });
+
+    // Signal to the main process that the renderer is ready for startup instructions.
+    window.api.rendererReady();
 });
 
 
@@ -912,31 +1104,43 @@ containerEl.addEventListener('drop', async (event) => {
 
 // Keyboard Shortcuts
 window.addEventListener('keydown', (event) => {
-    if (event.target.tagName === 'INPUT') return;
-    const actions = {
-        'Space': () => playPauseBtn.click(),
-        'ArrowRight': () => nextBtn.click(),
-        'ArrowLeft': () => prevBtn.click(),
-        'ArrowUp': () => {
-            let newVol = Math.min(parseFloat(volumeSlider.max), playbackVolume + 0.05);
-            playbackVolume = parseFloat(newVol.toFixed(2));
-            audioEngine.setVolume(playbackVolume);
-            updateVolumeUI();
-            window.api.setStoreValue('lastVolume', playbackVolume);
-        },
-        'ArrowDown': () => {
-            let newVol = Math.max(0, playbackVolume - 0.05);
-            playbackVolume = parseFloat(newVol.toFixed(2));
-            audioEngine.setVolume(playbackVolume);
-            updateVolumeUI();
-            window.api.setStoreValue('lastVolume', playbackVolume);
-        },
-        'KeyM': () => volumeBtn.click()
-    };
-    if (actions[event.code]) {
-        event.preventDefault();
-        actions[event.code]();
+    if (event.target.tagName === 'INPUT') return; // Ignore inputs
+
+    let handled = false;
+    if (event.shiftKey) {
+        // --- Shortcuts with Shift ---
+        if (event.code === 'ArrowRight') {
+            nextBtn.click();
+            handled = true;
+        } else if (event.code === 'ArrowLeft') {
+            prevBtn.click();
+            handled = true;
+        }
+    } else {
+        // --- Shortcuts without Shift ---
+        const seekTime = 5; // 5 seconds
+        if (event.code === 'ArrowRight' && currentSound) {
+            currentSound.seek(Math.min(currentSound.duration(), currentSound.seek() + seekTime));
+            handled = true;
+        } else if (event.code === 'ArrowLeft' && currentSound) {
+            currentSound.seek(Math.max(0, currentSound.seek() - seekTime));
+            handled = true;
+        } else if (event.code === 'Space') {
+            playPauseBtn.click();
+            handled = true;
+        } else if (event.code === 'ArrowUp') {
+            volumeSlider.dispatchEvent(new Event('input', {detail: {value: Math.min(parseFloat(volumeSlider.max), playbackVolume + 0.05)}}));
+            handled = true;
+        } else if (event.code === 'ArrowDown') {
+            volumeSlider.dispatchEvent(new Event('input', {detail: {value: Math.max(0, playbackVolume - 0.05)}}));
+            handled = true;
+        } else if (event.code === 'KeyM') {
+            volumeBtn.click();
+            handled = true;
+        }
     }
+
+    if (handled) event.preventDefault();
 });
 
 // Save state periodically and before closing
@@ -952,8 +1156,6 @@ window.api.onMediaKey((command) => {
     };
     actions[command]?.();
 });
-
-window.api.onFilePathReceived((filePath) => loadPlaylistAndPlay([filePath]));
 
 window.api.onSetOrientationClass((isVertical) => {
     containerEl.classList.toggle('vertical-mode', isVertical);

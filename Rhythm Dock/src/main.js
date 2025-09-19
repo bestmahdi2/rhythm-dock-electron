@@ -136,11 +136,17 @@ const createWindow = () => {
 
     mainWindow.webContents.on('devtools-opened', () => {
         originalSize = mainWindow.getSize();
+        // Temporarily remove size constraints to allow the window to be resized.
+        mainWindow.setMaximumSize(screen.getPrimaryDisplay().workAreaSize.width, screen.getPrimaryDisplay().workAreaSize.height);
+        mainWindow.setMinimumSize(800, 600); // A reasonable minimum for devtools
         mainWindow.setSize(1000, 600, true);
     });
 
     mainWindow.webContents.on('devtools-closed', () => {
         if (originalSize) {
+            // Restore the original fixed size and constraints.
+            mainWindow.setMaximumSize(originalSize[0], originalSize[1]);
+            mainWindow.setMinimumSize(originalSize[0], originalSize[1]);
             mainWindow.setSize(originalSize[0], originalSize[1], true);
         }
     });
@@ -178,11 +184,16 @@ const sendFilePathToWindow = (filePath) => {
 
 // Function to parse command-line arguments for a file path
 const getFilePathFromArgs = (argv) => {
-    // On Windows, the second argument is often the file path.
-    // We check if it's not another switch (like --inspect) and if it exists.
-    // The first arg is the app path, so we look at the second (index 1).
-    if (argv.length >= 2 && !argv[1].startsWith('--')) {
-        return argv[1];
+    // The last argument is the most likely candidate for a file path,
+    // especially in packaged apps or during development.
+    const lastArg = argv[argv.length - 1];
+
+    // It's not a file path if it's the app executable itself or a project path like '.'
+    if (lastArg && path.resolve(lastArg) !== path.resolve(process.execPath) && lastArg !== '.') {
+        // A final check to ensure the file actually exists prevents errors.
+        if (fs.existsSync(lastArg)) {
+            return lastArg;
+        }
     }
     return null;
 };
@@ -203,8 +214,7 @@ if (!gotTheLock) {
             // Check if the second instance was launched with a file path
             const filePath = getFilePathFromArgs(commandLine);
             if (filePath) {
-                // Send the file path to the renderer process to be played
-                mainWindow.webContents.send('play-file-on-open', filePath);
+                sendFilePathToWindow(filePath);
             }
         }
     });
@@ -219,15 +229,21 @@ app.whenReady().then(() => {
     globalShortcut.register('MediaPreviousTrack', () => sendToRenderer('media-key-event', 'prev'));
 
     app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+        if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
+        }
     });
+});
 
-    // Handle opening file on startup (Windows/Linux)
-    const filePath = process.argv.length >= 2 ? process.argv[process.argv.length - 1] : null;
-    if (filePath && fs.existsSync(filePath) && path.resolve(filePath) !== path.resolve(process.execPath)) {
-        mainWindow.once('ready-to-show', () => {
-            sendFilePathToWindow(filePath);
-        });
+// This new listener handles the startup logic once the renderer signals it's ready.
+ipcMain.on('renderer-ready', () => {
+    const filePath = getFilePathFromArgs(process.argv);
+    if (filePath) {
+        // Launched with a file: tell the renderer to play it.
+        sendFilePathToWindow(filePath);
+    } else {
+        // Normal launch: tell the renderer to restore the last session.
+        sendToRenderer('restore-state');
     }
 });
 
@@ -368,7 +384,7 @@ ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
     currentLayout = isVertical ? 'vertical' : 'horizontal';
 
     const HORIZONTAL_WIDTH = 380;
-    const VERTICAL_SIZE = { width: 105, height: 420 };
+    const VERTICAL_SIZE = {width: 105, height: 420};
 
     const newWidth = isVertical ? VERTICAL_SIZE.width : HORIZONTAL_WIDTH;
     const newHeight = isVertical ? VERTICAL_SIZE.height : lastHorizontalHeight;

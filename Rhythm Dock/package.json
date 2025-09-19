@@ -1,6 +1,6 @@
 {
   "name": "rhythm-dock-electron",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "description": "A lightweight, feature-rich music player.",
   "main": "src/main.js",
   "homepage": "https://github.com/bestmahdi2/rhythm-dock-electron",
@@ -18,10 +18,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-"author": {
-  "name": "Masterous",
-  "url": "https://alibadiee.ir"
-},
+  "author": {
+    "name": "Masterous",
+    "url": "https://alibadiee.ir"
+  },
   "license": "ISC",
   "dependencies": {
     "better-sqlite3": "^12.2.0",
@@ -48,6 +48,13 @@
       {
         "ext": "mp3",
         "name": "MP3 Audio File",
+        "description": "Audio file",
+        "role": "Viewer",
+        "icon": "src/assets/icons/icon.ico"
+      },
+      {
+        "ext": "m4a",
+        "name": "M4A Audio File",
         "description": "Audio file",
         "role": "Viewer",
         "icon": "src/assets/icons/icon.ico"
