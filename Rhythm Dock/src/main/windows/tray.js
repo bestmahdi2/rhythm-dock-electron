@@ -30,7 +30,7 @@ let quitting = false;
 function iconDirectory() {
     const packaged = path.join(process.resourcesPath || '', 'build', 'icons', 'tray');
     if (app.isPackaged && fs.existsSync(packaged)) return packaged;
-    return path.join(__dirname, '..', '..', 'build', 'icons', 'tray');
+    return path.join(__dirname, '..', '..', '..', 'build', 'icons', 'tray');
 }
 
 function loadTrayImage() {

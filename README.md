@@ -54,12 +54,23 @@ this is a hobby project. Each OS reacts differently:
 - Sleep timer, with an option to let the current song finish first.
 
 ### Lyrics
-- Fetches synced (LRC) lyrics from [lrclib.net](https://lrclib.net), falls back
-  to lyrics embedded in the file's tags.
+- Five sources, tried in order until one has the song: an `.lrc` file beside the
+  track, lyrics embedded in its tags, [lrclib.net](https://lrclib.net), NetEase
+  (much better coverage of CJK repertoire), and Genius for matching.
+- **Tap-to-sync editor.** Play the track, tap on each line, get a timed LRC.
+  Save it to the library, beside the file as `.lrc`, or into the tags - your
+  work survives a library reset or a move to another player.
+- **Word-level karaoke** for enhanced LRC files: the highlight moves within the
+  line, not just between lines.
+- **Full-screen mode** - large type over blurred album art, no chrome (`F`).
+- **Desktop overlay** - a borderless always-on-top strip that floats over other
+  applications and shows the current line, with optional click-through.
+- Typography settings: font, size, weight, alignment and line spacing, applied
+  everywhere lyrics appear. Matters a great deal for CJK and RTL scripts.
 - Cached locally in SQLite, so a track you have played once works offline.
-- Per-track timing offset in 0.1s steps.
-- Live translation (Google, or your own LibreTranslate instance), with proper
-  right-to-left rendering for Arabic and Persian.
+- Per-track timing offset in 0.1s steps, remembered per song.
+- Live translation (Google, or your own LibreTranslate instance), cached per
+  song and language, with proper right-to-left rendering for Arabic and Persian.
 - Manual scroll mode when you want to read ahead.
 
 ### Library
@@ -96,7 +107,7 @@ this is a hobby project. Each OS reacts differently:
   lyrics and theme in real time.
 - Optional room password, and a toggle for whether guests can control playback.
 - Requires the companion server in [`server/`](./server) - see
-  [SERVER-SETUP.md](./SERVER-SETUP.md).
+  [docs/SERVER-SETUP.md](./docs/SERVER-SETUP.md).
 
 ---
 
@@ -189,20 +200,26 @@ everything and needs none of them.
 Rhythm Dock/
 |- Makefile              Build entry points
 |- src/
-|  |- main.js            Electron main process, IPC surface
-|  |- preload.js         The renderer's only bridge to the system
-|  |- main/
+|  |- main/              Electron main process
+|  |  |- index.js        Entry point, app lifecycle, IPC surface
+|  |  |- core/           paths.js, shortcuts.js
+|  |  |- services/       database.js, translate.js, room-client.js
+|  |  |- windows/        tray.js, window-state.js
 |  |  |- library/        Scanning, metadata resolution, tag read/write
-|  |  |- database.js     SQLite lyrics cache
-|  |  |- room-client.js  translate.js  tray.js
-|  |  |- shortcuts.js    window-state.js  paths.js
+|  |- preload/
+|  |  |- index.js        The renderer's only bridge to the system
 |  |- renderer/
-|     |- index.html      Markup for every panel
-|     |- styles.css      Design tokens and all ten themes
-|     |- renderer.js     UI logic
-|     |- audio/          Playback engine, equalizer, device handling
-|- server/               Optional "listen together" relay
+|  |  |- index.html      Markup for every panel
+|  |  |- vertical.html   Compact vertical layout
+|  |  |- overlay.html    Desktop lyrics strip (its own window)
+|  |  |- styles/         Design tokens and all ten themes
+|  |  |- js/             UI logic, plus audio/ (engine, equalizer, devices)
+|  |- assets/            Bundled images and icons
 |- scripts/              Icon generation
+
+server/                  Optional "listen together" relay
+docs/                    ROADMAP.md, PHASES.md, SERVER-SETUP.md
+tools/                   Repo maintenance scripts (PowerShell / Python)
 ```
 
 ---

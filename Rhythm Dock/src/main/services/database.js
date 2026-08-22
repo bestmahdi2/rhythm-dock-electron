@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
-const paths = require('./paths');
+const paths = require('../core/paths');
 
 const MAX_BACKUPS = 10;
 
@@ -75,6 +75,82 @@ const MIGRATIONS = [
             );
         `);
         db.exec(`CREATE INDEX IF NOT EXISTS idx_translations_song ON translations (songKey);`);
+    },
+
+    // 3 -> 4: Phase 9. Per-track lyric preferences (offset, resolved provider, the
+    // sidecar we last wrote) and a flag for word-level timing on the cached lyric.
+    //
+    // Deliberately a separate table rather than more columns on `lyrics`: an offset is
+    // meaningful for a track whose lyrics came from an embedded tag and were therefore
+    // never cached here, and a preference should survive a refetch of the lyric.
+    (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS lyrics_prefs
+            (
+                songKey     TEXT PRIMARY KEY,
+                offsetMs    INTEGER NOT NULL DEFAULT 0,
+                source      TEXT,
+                sidecarPath TEXT,
+                lastUpdated TEXT NOT NULL
+            );
+        `);
+
+        const columns = db.prepare(`PRAGMA table_info(lyrics)`).all().map((c) => c.name);
+        if (!columns.includes('hasWordTiming')) {
+            db.exec(`ALTER TABLE lyrics ADD COLUMN hasWordTiming INTEGER NOT NULL DEFAULT 0`);
+        }
+    },
+
+    // 4 -> 5: the persistent library (Phase 7). Watched folders, the tracks found in
+    // them, and per-track play statistics.
+    //
+    // `track_stats` is a separate table from `tracks` on purpose. A rescan rewrites
+    // rows in `tracks`; play counts must not be collateral damage of that, and a user
+    // who removes a folder and adds it back expects their history intact. The two are
+    // joined on filePath rather than related by foreign key for the same reason -
+    // statistics outlive the track row.
+    (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS roots
+            (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                path       TEXT NOT NULL UNIQUE,
+                addedAt    TEXT NOT NULL,
+                lastScanAt TEXT
+            );
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS tracks
+            (
+                filePath        TEXT PRIMARY KEY,
+                rootId          INTEGER,
+                basename        TEXT NOT NULL,
+                title           TEXT,
+                artist          TEXT,
+                album           TEXT,
+                durationSeconds REAL,
+                addedAt         TEXT NOT NULL,
+                lastSeenAt      TEXT NOT NULL,
+                missing         INTEGER NOT NULL DEFAULT 0
+            );
+        `);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_root ON tracks (rootId);`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_added ON tracks (addedAt);`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks (artist);`);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS track_stats
+            (
+                filePath     TEXT PRIMARY KEY,
+                playCount    INTEGER NOT NULL DEFAULT 0,
+                skipCount    INTEGER NOT NULL DEFAULT 0,
+                listenedMs   INTEGER NOT NULL DEFAULT 0,
+                lastPlayedAt TEXT
+            );
+        `);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_stats_played ON track_stats (lastPlayedAt);`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_stats_count ON track_stats (playCount);`);
     },
 ];
 
@@ -285,25 +361,41 @@ function getLyrics(songKey) {
     }
 }
 
+/** The full cached row, including provenance. Used by the Phase 9 provider chain. */
+function getLyricsRow(songKey) {
+    if (!db || !songKey) return null;
+    try {
+        return db
+            .prepare('SELECT lyricsText, source, isSynced, hasWordTiming FROM lyrics WHERE songKey = ?')
+            .get(songKey) || null;
+    } catch (error) {
+        console.error('[db] Failed to read lyrics row:', error);
+        return null;
+    }
+}
+
 function saveLyrics(songKey, lyricsText, details = {}) {
     if (!db || !songKey || !lyricsText) return;
     try {
         db.prepare(
-            `INSERT INTO lyrics (songKey, lyricsText, lastUpdated, source, isSynced, artist, title)
-             VALUES (?, ?, datetime('now'), ?, ?, ?, ?)
-             ON CONFLICT(songKey) DO UPDATE SET lyricsText  = excluded.lyricsText,
-                                                lastUpdated = excluded.lastUpdated,
-                                                source      = excluded.source,
-                                                isSynced    = excluded.isSynced,
-                                                artist      = COALESCE(excluded.artist, lyrics.artist),
-                                                title       = COALESCE(excluded.title, lyrics.title)`
+            `INSERT INTO lyrics (songKey, lyricsText, lastUpdated, source, isSynced, artist, title,
+                                 hasWordTiming)
+             VALUES (?, ?, datetime('now'), ?, ?, ?, ?, ?)
+             ON CONFLICT(songKey) DO UPDATE SET lyricsText    = excluded.lyricsText,
+                                                lastUpdated   = excluded.lastUpdated,
+                                                source        = excluded.source,
+                                                isSynced      = excluded.isSynced,
+                                                hasWordTiming = excluded.hasWordTiming,
+                                                artist        = COALESCE(excluded.artist, lyrics.artist),
+                                                title         = COALESCE(excluded.title, lyrics.title)`
         ).run(
             songKey,
             lyricsText,
             details.source || 'unknown',
             details.isSynced ? 1 : 0,
             details.artist || null,
-            details.title || null
+            details.title || null,
+            details.hasWordTiming ? 1 : 0
         );
     } catch (error) {
         console.error('[db] Failed to save lyrics:', error);
@@ -340,6 +432,67 @@ function saveTranslation(songKey, targetLanguage, translatedText, provider = 'un
     }
 }
 
+// --- Per-track lyric preferences (Phase 9) --------------------------------------
+
+/**
+ * Returns `{offsetMs, source, sidecarPath}` for a track, or null.
+ *
+ * The offset control used to be session-only, which meant re-nudging the same badly
+ * timed lyric on every listen.
+ */
+function getLyricsPrefs(songKey) {
+    if (!db || !songKey) return null;
+    try {
+        return db
+            .prepare('SELECT offsetMs, source, sidecarPath FROM lyrics_prefs WHERE songKey = ?')
+            .get(songKey) || null;
+    } catch (error) {
+        console.error('[db] Failed to read lyric preferences:', error);
+        return null;
+    }
+}
+
+/** Upserts one or more preferences. Unspecified fields keep their stored value. */
+function saveLyricsPrefs(songKey, prefs = {}) {
+    if (!db || !songKey) return;
+    try {
+        db.prepare(
+            `INSERT INTO lyrics_prefs (songKey, offsetMs, source, sidecarPath, lastUpdated)
+             VALUES (?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(songKey) DO UPDATE SET offsetMs    = COALESCE(excluded.offsetMs, lyrics_prefs.offsetMs),
+                                                source      = COALESCE(excluded.source, lyrics_prefs.source),
+                                                sidecarPath = COALESCE(excluded.sidecarPath, lyrics_prefs.sidecarPath),
+                                                lastUpdated = excluded.lastUpdated`
+        ).run(
+            songKey,
+            Number.isFinite(prefs.offsetMs) ? Math.round(prefs.offsetMs) : null,
+            prefs.source || null,
+            prefs.sidecarPath || null
+        );
+    } catch (error) {
+        console.error('[db] Failed to save lyric preferences:', error);
+    }
+}
+
+/**
+ * Drops every cached translation for a track. Called whenever its lyrics change:
+ * a translation is stored as a line-for-line array, so a lyric with a different
+ * line count would render against the wrong lines.
+ */
+function clearTranslations(songKey) {
+    if (!db || !songKey) return;
+    try {
+        db.prepare('DELETE FROM translations WHERE songKey = ?').run(songKey);
+    } catch (error) {
+        console.error('[db] Failed to clear translations:', error);
+    }
+}
+
+/** Handle for the library store, which owns its own statements. */
+function handle() {
+    return db;
+}
+
 /** Flushes the WAL back into the main file so the DB is a single clean artifact. */
 function close() {
     if (!db) return;
@@ -357,7 +510,12 @@ module.exports = {
     initialize,
     close,
     getLyrics,
+    getLyricsRow,
     saveLyrics,
+    getLyricsPrefs,
+    saveLyricsPrefs,
+    clearTranslations,
+    handle,
     getTranslation,
     saveTranslation,
     backupDatabase,

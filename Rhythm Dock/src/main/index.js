@@ -3,19 +3,22 @@ const path = require('path');
 const fs = require('fs');
 const mm = require('music-metadata');
 const Store = require('electron-store');
-const pkg = require('../package.json');
+const pkg = require('../../package.json');
 
-const paths = require('./main/paths');
-const database = require('./main/database');
-const windowState = require('./main/window-state');
-const scanner = require('./main/library/scanner');
-const metadata = require('./main/library/metadata');
-const tags = require('./main/library/tags');
-const {LibraryIndex} = require('./main/library/index');
-const tray = require('./main/tray');
-const shortcuts = require('./main/shortcuts');
-const translate = require('./main/translate');
-const {RoomClient} = require('./main/room-client');
+const paths = require('./core/paths');
+const database = require('./services/database');
+const windowState = require('./windows/window-state');
+const scanner = require('./library/scanner');
+const metadata = require('./library/metadata');
+const tags = require('./library/tags');
+const {LibraryIndex} = require('./library/index');
+const libraryStore = require('./services/library-store');
+const tray = require('./windows/tray');
+const lyricsOverlay = require('./windows/lyrics-overlay');
+const shortcuts = require('./core/shortcuts');
+const translate = require('./services/translate');
+const lyrics = require('./services/lyrics');
+const {RoomClient} = require('./services/room-client');
 
 // Lazily constructed: most sessions never open a room, and constructing it eagerly
 // would pull in the ws dependency for no reason.
@@ -57,7 +60,7 @@ let isPlaying = false; // Keep track of playback state in main process
  */
 const mediaIconRoot = app.isPackaged
     ? path.join(process.resourcesPath, 'build', 'icons', 'media')
-    : path.join(__dirname, '..', 'build', 'icons', 'media');
+    : path.join(__dirname, '..', '..', 'build', 'icons', 'media');
 
 // A dark taskbar needs LIGHT glyphs, hence the apparent inversion here.
 const currentIconVariant = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
@@ -129,14 +132,16 @@ const createWindow = () => {
         // resizable between the bounds declared in window-state.js.
         resizable: true,
         maximizable: false,
-        fullscreenable: false,
+        // Full-screen lyrics (Phase 9) needs this. It was false because nothing used
+        // to full-screen the dock, and setFullScreen() fails silently without it.
+        fullscreenable: true,
         frame: false,
         transparent: true,
         show: false,
         backgroundColor: '#00000000',
         alwaysOnTop: store.get('isPinned', false),
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, '..', 'preload', 'index.js'),
             contextIsolation: true,
             nodeIntegration: false,
             // Renderer-side spellcheck is dead weight for a music player.
@@ -176,6 +181,11 @@ const createWindow = () => {
         }
     });
 
+    // The OS can leave full-screen without asking us (the green button on macOS, F11
+    // on Windows), so the renderer is told rather than assuming its own state holds.
+    mainWindow.on('enter-full-screen', () => sendToRenderer('window:fullscreen-changed', true));
+    mainWindow.on('leave-full-screen', () => sendToRenderer('window:fullscreen-changed', false));
+
     // Same treatment for the minimise button when the option is on.
     mainWindow.on('minimize', (event) => {
         if (store.get('minimizeToTray', false)) {
@@ -184,10 +194,13 @@ const createWindow = () => {
         }
     });
 
-    mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
     mainWindow.on('closed', () => {
         mainWindow = null;
+        // The overlay is a real window, so leaving it open would keep the app alive
+        // past 'window-all-closed' with no player behind it feeding it lines.
+        lyricsOverlay.close(store);
     });
 
     // Set initial thumbar buttons
@@ -253,6 +266,12 @@ app.whenReady().then(() => {
     store = new Store({cwd: paths.getConfigDir()});
     database.initialize();
     createWindow();
+
+    // Reopen the desktop lyrics strip if it was showing at shutdown. Deliberately after
+    // createWindow(), so the player exists to answer the state request it triggers.
+    if (store.get('lyricsOverlayEnabled', false)) {
+        lyricsOverlay.create(store);
+    }
 
     // --- Global shortcuts (request #5) ---
     // registerAll reports conflicts instead of failing silently, which is what the old
@@ -352,7 +371,11 @@ async function scanAndIndex(dirPath) {
 
 // Set the quitting flag first, so the window 'close' handler stops hiding the window
 // and lets it actually close.
-app.on('before-quit', () => tray.setQuitting(true));
+app.on('before-quit', () => {
+    tray.setQuitting(true);
+    // Flushes the strip's position before the window is torn down.
+    if (store) lyricsOverlay.close(store);
+});
 
 app.on('will-quit', () => {
     shortcuts.unregisterAll();
@@ -392,6 +415,151 @@ ipcMain.handle('get-lyrics', (_event, songKey) => database.getLyrics(songKey));
 
 ipcMain.on('save-lyrics', (_event, songKey, lyricsText, details) => {
     database.saveLyrics(songKey, lyricsText, details || {});
+});
+
+// --- Lyrics (Phase 9) -------------------------------------------------------------
+//
+// The renderer used to call lrclib directly with fetch(). That put a provider URL in
+// the CSP, gave the renderer no way to read an .lrc sidecar, and meant one provider
+// outage read to the user as "this song has no lyrics". Resolution now happens here,
+// behind a chain of sources. See services/lyrics.js.
+
+const LYRICS_DEFAULTS = {
+    providerOrder: lyrics.DEFAULT_PROVIDER_ORDER,
+    geniusToken: '',
+    autoSaveLrc: false,
+    typography: {
+        fontFamily: '',
+        fontSize: 15,
+        fontWeight: 600,
+        align: 'center',
+        lineHeight: 1.4,
+    },
+};
+
+function getLyricsConfig() {
+    const stored = store.get('lyrics', {}) || {};
+    return {
+        ...LYRICS_DEFAULTS,
+        ...stored,
+        typography: {...LYRICS_DEFAULTS.typography, ...(stored.typography || {})},
+    };
+}
+
+ipcMain.handle('lyrics:get-config', () => getLyricsConfig());
+
+ipcMain.handle('lyrics:set-config', (_event, config) => {
+    const merged = {...getLyricsConfig(), ...(config || {})};
+    merged.typography = {...getLyricsConfig().typography, ...((config || {}).typography || {})};
+    store.set('lyrics', merged);
+    return merged;
+});
+
+/**
+ * Resolves lyrics for a track: database cache first, then the provider chain.
+ *
+ * `forceRefetch` bypasses the cache but never the sidecar - a user asking to search
+ * again should not have their own hand-synced file thrown away underneath them.
+ */
+ipcMain.handle('lyrics:resolve', async (_event, request = {}) => {
+    const {songKey, forceRefetch} = request;
+    const config = getLyricsConfig();
+    const offsetMs = songKey ? (database.getLyricsPrefs(songKey)?.offsetMs || 0) : 0;
+
+    if (songKey && !forceRefetch) {
+        const cached = database.getLyricsRow(songKey);
+        if (cached && cached.lyricsText) {
+            return {
+                ok: true,
+                text: cached.lyricsText,
+                source: cached.source || 'cache',
+                isSynced: Boolean(cached.isSynced),
+                hasWordTiming: Boolean(cached.hasWordTiming),
+                cached: true,
+                offsetMs,
+            };
+        }
+    }
+
+    const result = await lyrics.resolve({
+        ...request,
+        lyricsDir: paths.getLyricsDir(),
+        order: config.providerOrder,
+    }, config);
+
+    if (result.ok && songKey) {
+        // A refetch replaces the lyric, so any cached translation of the previous one
+        // is now misaligned line for line. Dropping it is cheaper than detecting it.
+        if (forceRefetch) database.clearTranslations(songKey);
+
+        database.saveLyrics(songKey, result.text, {
+            source: result.source,
+            isSynced: result.isSynced,
+            hasWordTiming: result.hasWordTiming,
+            artist: request.artist || null,
+            title: request.title || null,
+        });
+        if (result.sidecarPath) {
+            database.saveLyricsPrefs(songKey, {
+                source: result.source,
+                sidecarPath: result.sidecarPath,
+            });
+        }
+    }
+
+    return {...result, cached: false, offsetMs};
+});
+
+/**
+ * Saves a lyric the user authored or edited: the database always, plus an .lrc
+ * sidecar and/or the file's own tags on request.
+ *
+ * Returns per-destination results rather than a single boolean, because embedding can
+ * fail (unsupported container) while the sidecar succeeded, and the user needs to know
+ * which of the two actually happened.
+ */
+ipcMain.handle('lyrics:save', async (_event, payload = {}) => {
+    const {songKey, filePath, text, saveSidecar, embed, artist, title} = payload;
+    if (!text) return {ok: false, error: 'Nothing to save.'};
+
+    const shape = {
+        isSynced: lyrics.isSynced(text),
+        hasWordTiming: lyrics.hasWordTiming(text),
+    };
+
+    if (songKey) {
+        database.saveLyrics(songKey, text, {...shape, source: 'user', artist, title});
+        database.clearTranslations(songKey);
+    }
+
+    const result = {ok: true, ...shape};
+
+    if (saveSidecar && filePath) {
+        const written = lyrics.writeSidecar(filePath, text, paths.getLyricsDir());
+        result.sidecar = written;
+        if (written.ok && songKey) {
+            database.saveLyricsPrefs(songKey, {
+                source: 'user',
+                sidecarPath: written.sidecarPath,
+            });
+        }
+    }
+
+    if (embed && filePath) {
+        result.embedded = tags.writeLyrics(filePath, text);
+    }
+
+    return result;
+});
+
+ipcMain.handle('lyrics:get-offset', (_event, songKey) => (
+    database.getLyricsPrefs(songKey)?.offsetMs || 0
+));
+
+ipcMain.handle('lyrics:set-offset', (_event, {songKey, offsetMs} = {}) => {
+    if (!songKey) return false;
+    database.saveLyricsPrefs(songKey, {offsetMs: Number(offsetMs) || 0});
+    return true;
 });
 
 ipcMain.handle('get-store-value', (_event, key) => store.get(key));
@@ -590,6 +758,69 @@ ipcMain.handle('pin-window', () => {
     return isPinned;
 });
 
+/**
+ * Full-screen lyrics (Phase 9).
+ *
+ * The overlay itself is renderer-side, but it has to be paired with real window
+ * full-screen: the dock is 180px tall, and a "full-screen" lyric view inside a
+ * 180px window is a joke. Bounds are restored by Electron on exit, but the
+ * always-on-top flag is not - a pinned dock that stayed on top of everything after
+ * leaving full-screen was the first thing that went wrong here.
+ */
+let wasPinnedBeforeFullscreen = false;
+
+ipcMain.handle('window:set-fullscreen', (_event, enabled) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+    if (enabled) {
+        wasPinnedBeforeFullscreen = mainWindow.isAlwaysOnTop();
+        mainWindow.setAlwaysOnTop(false);
+    } else {
+        mainWindow.setAlwaysOnTop(wasPinnedBeforeFullscreen);
+    }
+
+    mainWindow.setFullScreen(Boolean(enabled));
+    return Boolean(enabled);
+});
+
+ipcMain.handle('window:is-fullscreen', () => Boolean(mainWindow?.isFullScreen()));
+
+// --- Desktop lyrics overlay (Phase 9) ---------------------------------------------
+//
+// The overlay is a second window with its own tiny preload; see windows/lyrics-overlay.js.
+// Main is the only path between the two renderers, which is the point: the strip can
+// receive a line and send a transport command, and nothing else.
+
+ipcMain.handle('overlay:toggle', (_event, enabled) => {
+    const shouldOpen = enabled === undefined ? !lyricsOverlay.isOpen() : Boolean(enabled);
+    const open = shouldOpen ? Boolean(lyricsOverlay.create(store)) : lyricsOverlay.close(store);
+    store.set('lyricsOverlayEnabled', open);
+
+    // A freshly created window has missed every push so far, so the player is asked
+    // for the current line rather than leaving the strip blank until the next one.
+    if (open) sendToRenderer('overlay:request-state');
+    return open;
+});
+
+ipcMain.handle('overlay:is-open', () => lyricsOverlay.isOpen());
+
+ipcMain.on('overlay:update', (_event, payload) => lyricsOverlay.send('overlay:update', payload));
+ipcMain.on('overlay:style', (_event, payload) => lyricsOverlay.send('overlay:style', payload));
+
+ipcMain.handle('overlay:set-click-through', (_event, enabled) => (
+    lyricsOverlay.setClickThrough(enabled)
+));
+
+// Transport buttons on the strip reuse the same channel the tray and the thumbar use,
+// so there is one command vocabulary rather than three.
+ipcMain.on('overlay:command', (_event, action) => sendToRenderer('media-key-event', action));
+
+ipcMain.on('overlay:close', () => {
+    lyricsOverlay.close(store);
+    store.set('lyricsOverlayEnabled', false);
+    sendToRenderer('overlay:closed');
+});
+
 ipcMain.handle('minimize-window', () => mainWindow?.minimize());
 ipcMain.handle('close-window', () => mainWindow?.close());
 
@@ -668,6 +899,16 @@ ipcMain.handle('library-resolve-track', async (_event, filePath) => {
         });
 
         library.add(filePath, resolved);
+
+        // A scan only knows filenames; this is the first point at which real tags have
+        // been read, so the stored row is upgraded from the guess to the truth.
+        libraryStore.updateTrackMetadata(filePath, {
+            title: resolved.title,
+            artist: resolved.artist,
+            album: resolved.album,
+            durationSeconds: parsedTags.format?.duration,
+        });
+
         return resolved;
     } catch (error) {
         console.error('Failed to resolve track:', error);
@@ -739,6 +980,124 @@ ipcMain.handle('toggle-exclusion', (_event, filePath) => {
 });
 
 ipcMain.handle('scan-folder-path', async (_event, dirPath) => scanAndIndex(dirPath));
+
+// --- Persistent library (Phase 7) -------------------------------------------------
+//
+// The in-memory index above answers search and artist browsing and is rebuilt on every
+// scan. These handlers sit on top of services/library-store.js, which is the durable
+// half: watched folders, the tracks in them, and play statistics that survive a
+// rescan, a folder removal, and an app update.
+
+/**
+ * Scans one root and records the result, keeping the in-memory index in step.
+ * Returns the sync summary so the caller can report how many missing tracks came back.
+ */
+async function scanRoot(root) {
+    const {files, truncated} = await scanner.scanDirectory(root.path, SUPPORTED_EXTENSIONS, {
+        onProgress: ({found, current}) => sendToRenderer('scan-progress', {found, current}),
+    });
+
+    library.ingest(files);
+    if (truncated) sendToRenderer('scan-truncated', {count: files.length});
+
+    return libraryStore.syncRoot(root.id, files);
+}
+
+ipcMain.handle('library-roots', () => libraryStore.listRoots());
+ipcMain.handle('library-stats', () => libraryStore.stats());
+ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
+
+ipcMain.handle('library-add-root', async () => {
+    const {canceled, filePaths} = await dialog.showOpenDialog({properties: ['openDirectory']});
+    if (canceled || filePaths.length === 0) return null;
+
+    const root = libraryStore.addRoot(filePaths[0]);
+    if (!root) return null;
+
+    const result = await scanRoot(root);
+    sendToRenderer('library-updated', {
+        trackCount: library.size,
+        artists: library.listArtists(),
+    });
+    sendToRenderer('scan-complete', {
+        total: result.seen,
+        reparsed: result.added,
+        missing: result.missing,
+    });
+    return {root, ...result};
+});
+
+ipcMain.handle('library-remove-root', (_event, rootId) => libraryStore.removeRoot(rootId));
+
+/** Rescans one root, or every root when `rootId` is null. */
+ipcMain.handle('library-rescan', async (_event, rootId) => {
+    const roots = libraryStore.listRoots()
+        .filter((root) => rootId == null || root.id === rootId);
+
+    const totals = {seen: 0, added: 0, restored: 0, missing: 0};
+    for (const root of roots) {
+        // Sequential on purpose: two concurrent scans of a spinning disk or a network
+        // share are slower than one, and they interleave their progress events.
+        const result = await scanRoot(root);
+        for (const key of Object.keys(totals)) totals[key] += result[key];
+    }
+
+    sendToRenderer('library-updated', {
+        trackCount: library.size,
+        artists: library.listArtists(),
+    });
+    sendToRenderer('scan-complete', {
+        total: totals.seen,
+        reparsed: totals.added,
+        missing: totals.missing,
+    });
+    return totals;
+});
+
+ipcMain.handle('library-recheck-missing', () => libraryStore.recheckMissing());
+
+ipcMain.on('library-record-play', (_event, filePath, listenedMs) => {
+    libraryStore.recordPlay(filePath, listenedMs);
+});
+
+ipcMain.on('library-record-skip', (_event, filePath, listenedMs) => {
+    libraryStore.recordSkip(filePath, listenedMs);
+});
+
+ipcMain.handle('library-export', async () => {
+    const {canceled, filePath} = await dialog.showSaveDialog({
+        title: 'Back up library',
+        defaultPath: `rhythm-dock-library-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{name: 'JSON', extensions: ['json']}],
+    });
+    if (canceled || !filePath) return null;
+
+    const snapshot = libraryStore.exportAll();
+    if (!snapshot) return {ok: false, error: 'Could not read the library.'};
+
+    try {
+        fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), 'utf8');
+        return {ok: true, tracks: snapshot.tracks.length, filePath};
+    } catch (error) {
+        return {ok: false, error: error.message};
+    }
+});
+
+ipcMain.handle('library-import', async () => {
+    const {canceled, filePaths} = await dialog.showOpenDialog({
+        title: 'Restore library backup',
+        properties: ['openFile'],
+        filters: [{name: 'JSON', extensions: ['json']}],
+    });
+    if (canceled || filePaths.length === 0) return null;
+
+    try {
+        const payload = JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
+        return libraryStore.importAll(payload);
+    } catch (error) {
+        return {ok: false, error: 'That file could not be read as JSON.'};
+    }
+});
 
 // --- Tray & shortcut settings (request #5) --------------------------------------
 

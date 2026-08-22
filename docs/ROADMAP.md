@@ -80,7 +80,24 @@ earns credibility with people who care about audio.
 
 ---
 
-## Phase 9 — Lyrics, properly
+## Phase 9 — Lyrics, properly ✅ *shipped in v1.6.0*
+
+Every row in the table below is implemented. Notes on how, where it is not
+obvious from the feature name:
+
+- **Provider chain** lives in `src/main/services/lyrics.js` and runs in the main
+  process, so no provider needs a `connect-src` entry in the renderer's CSP.
+  Genius is used to *identify* a track (its API does not expose lyric bodies)
+  and the corrected artist/title is re-queried against lrclib.
+- **Sidecar `.lrc`** files are written next to the audio file, falling back to
+  `<appData>/RhythmDock/lyrics/` when that directory is not writable — plenty of
+  libraries sit on read-only media.
+- **Per-track offset** and the `hasWordTiming` flag are schema v4
+  (`lyrics_prefs`). The offset is a separate table so it survives a refetch.
+- **Full screen** moves the live lyric element into the overlay rather than
+  rendering a second copy, so there is one render path and one tick loop.
+- **The desktop overlay** is a second `BrowserWindow` with its own minimal
+  preload; all timing stays in the player, which already knows the current line.
 
 **Theme: the feature you are already best at, taken further.** Lyrics are
 Rhythm Dock's clearest differentiator. Deepening them is better positioning

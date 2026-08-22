@@ -54,6 +54,11 @@ function getBackupDir() {
     return ensureDir(path.join(getDatabaseDir(), 'backups'));
 }
 
+/** Where user-authored .lrc files are kept when the music folder is not writable. */
+function getLyricsDir() {
+    return ensureDir(path.join(getDataRoot(), 'lyrics'));
+}
+
 /**
  * Directory handed to electron-store as its `cwd`, so settings survive updates for
  * the same reason the database does.
@@ -75,7 +80,7 @@ function getLegacyDatabasePaths() {
         // The path used up to and including v1.3.7.
         path.join(app.getPath('userData'), 'lyrics.db'),
         // Dev builds wrote next to the sources.
-        path.join(__dirname, '..', '..', 'lyrics.db'),
+        path.join(__dirname, '..', '..', '..', 'lyrics.db'),
     ];
 
     // Older builds may have used a differently-named product directory.
@@ -105,6 +110,7 @@ module.exports = {
     getDataRoot,
     getDatabaseDir,
     getBackupDir,
+    getLyricsDir,
     getConfigDir,
     getDatabasePath,
     getLegacyDatabasePaths,

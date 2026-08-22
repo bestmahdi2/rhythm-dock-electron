@@ -15,11 +15,36 @@ let timeDisplayMode = 'remaining';
 let isMuted = false;
 let loopMode = 'none';
 let isShuffled = false;
-let lyrics = {isSynced: false, lines: []};
+let lyrics = {isSynced: false, hasWordTiming: false, lines: []};
 let favoritesPlaylist = [];
 let isMagnifierEnabled = true;
 let lastActiveLyricIndex = -1;
+let lastActiveWordIndex = -1;
 let lyricsOffsets = {};
+let lyricsConfig = null;
+// The lyric exactly as the provider gave it. The editor and the .lrc exporter need the
+// original text; our parsed form has already thrown away the stamps.
+let rawLyricsText = null;
+let lyricsSource = null;
+let isLyricsFullscreen = false;
+// Editor state. `editorLines` is the single source of truth for both modes:
+// [{text, time}] where time is null until the line has been tapped.
+let isLyricsOverlayOpen = false;
+// The last line pushed to the overlay, so the per-frame loop can skip the IPC hop when
+// nothing has changed. At 60fps an unconditional send would be 60 messages a second to
+// render one unchanged line.
+let lastOverlayLine = null;
+let isLyricsEditorOpen = false;
+let editorMode = 'text';
+let editorLines = [];
+let editorCursor = 0;
+let editorClockTimer = null;
+let editorReturnTab = 'player';
+// Where the lyric strip lives when it is not in full screen, so it can be put back
+// exactly where it came from rather than appended to a guess.
+let lyricsHomeParent = null;
+let lyricsHomeNextSibling = null;
+let offsetSaveTimer = null;
 let loadTicket = 0;
 let currentLyricsOffset = 0;
 let playbackVolume = 1.0;
@@ -162,6 +187,47 @@ const translateLanguageEl = document.getElementById('translate-language');
 const translateProviderEl = document.getElementById('translate-provider');
 const translateEndpointEl = document.getElementById('translate-endpoint');
 const translateToggleBtn = document.getElementById('translate-toggle-btn');
+const lyricsFontSizeEl = document.getElementById('lyrics-font-size');
+const lyricsFontSizeValueEl = document.getElementById('lyrics-font-size-value');
+const lyricsLineHeightEl = document.getElementById('lyrics-line-height');
+const lyricsLineHeightValueEl = document.getElementById('lyrics-line-height-value');
+const lyricsFontWeightEl = document.getElementById('lyrics-font-weight');
+const lyricsAlignEl = document.getElementById('lyrics-align');
+const lyricsFontFamilyEl = document.getElementById('lyrics-font-family');
+const lyricsGeniusTokenEl = document.getElementById('lyrics-genius-token');
+const lyricsAutosaveEl = document.getElementById('lyrics-autosave-lrc');
+const lyricsSourceValueEl = document.getElementById('lyrics-source-value');
+const fullscreenLyricsBtn = document.getElementById('fullscreen-lyrics-btn');
+const editLyricsBtn = document.getElementById('edit-lyrics-btn');
+const lyricsOverlayBtn = document.getElementById('lyrics-overlay-btn');
+const lyricsOverlayLabel = document.getElementById('lyrics-overlay-label');
+const lyricsEditorEl = document.getElementById('lyrics-editor');
+const lyricsEditorTitleEl = document.getElementById('lyrics-editor-title');
+const lyricsEditorArtistEl = document.getElementById('lyrics-editor-artist');
+const lyricsEditorCloseBtn = document.getElementById('lyrics-editor-close');
+const lyricsEditorModeTextBtn = document.getElementById('lyrics-editor-mode-text');
+const lyricsEditorModeSyncBtn = document.getElementById('lyrics-editor-mode-sync');
+const lyricsEditorTextPane = document.getElementById('lyrics-editor-text-pane');
+const lyricsEditorSyncPane = document.getElementById('lyrics-editor-sync-pane');
+const lyricsEditorTextarea = document.getElementById('lyrics-editor-textarea');
+const lyricsEditorLinesEl = document.getElementById('lyrics-editor-lines');
+const lyricsEditorTapBtn = document.getElementById('lyrics-editor-tap');
+const lyricsEditorPlayBtn = document.getElementById('lyrics-editor-play');
+const lyricsEditorBackBtn = document.getElementById('lyrics-editor-back');
+const lyricsEditorUndoBtn = document.getElementById('lyrics-editor-undo');
+const lyricsEditorRestartBtn = document.getElementById('lyrics-editor-restart');
+const lyricsEditorClockEl = document.getElementById('lyrics-editor-clock');
+const lyricsEditorStatusEl = document.getElementById('lyrics-editor-status');
+const lyricsEditorSaveBtn = document.getElementById('lyrics-editor-save');
+const lyricsEditorWriteLrcEl = document.getElementById('lyrics-editor-write-lrc');
+const lyricsEditorEmbedEl = document.getElementById('lyrics-editor-embed');
+const lyricsFullscreenEl = document.getElementById('lyrics-fullscreen');
+const lyricsFullscreenBodyEl = document.getElementById('lyrics-fullscreen-body');
+const lyricsFullscreenBackdropEl = document.getElementById('lyrics-fullscreen-backdrop');
+const lyricsFullscreenArtEl = document.getElementById('lyrics-fullscreen-art');
+const lyricsFullscreenTitleEl = document.getElementById('lyrics-fullscreen-title');
+const lyricsFullscreenArtistEl = document.getElementById('lyrics-fullscreen-artist');
+const lyricsFullscreenCloseBtn = document.getElementById('lyrics-fullscreen-close');
 const pauseOnUnplugEl = document.getElementById('pause-on-unplug');
 const roomStatusEl = document.getElementById('room-status');
 const roomSetupEl = document.getElementById('room-setup');
@@ -365,15 +431,33 @@ function displayLyrics(data, ticket) {
     if (ticket !== undefined && ticket !== audio.ticket) return;
 
     lastActiveLyricIndex = -1;
+    lastActiveWordIndex = -1;
     lyricsContainer.innerHTML = '';
     lyricsContainer.classList.toggle('scrolling', !data.isSynced);
+    lyricsContainer.classList.toggle('karaoke', Boolean(data.hasWordTiming));
     if (data.lines.length > 0) {
         const wrapper = (data.isSynced) ? document.createDocumentFragment() : document.createElement('div');
         if (!data.isSynced) wrapper.className = 'lyrics-scroll-wrapper';
         data.lines.forEach(line => {
             const lineEl = document.createElement('p');
             lineEl.className = 'lyrics-line';
-            lineEl.innerHTML = typeof line === 'string' ? line : line.text;
+
+            if (line && Array.isArray(line.words) && line.words.length) {
+                // One span per timed segment, so the tick loop can light them up
+                // individually without re-rendering the line.
+                line.words.forEach((word, index) => {
+                    const wordEl = document.createElement('span');
+                    wordEl.className = 'lyrics-word';
+                    wordEl.dataset.index = String(index);
+                    wordEl.textContent = word.text;
+                    lineEl.appendChild(wordEl);
+                });
+            } else {
+                // textContent, not innerHTML: lyric text is third-party data and has
+                // no business being parsed as markup.
+                lineEl.textContent = typeof line === 'string' ? line : line.text;
+            }
+
             wrapper.appendChild(lineEl);
         });
         lyricsContainer.appendChild(wrapper);
@@ -384,6 +468,582 @@ function displayLyrics(data, ticket) {
         lyricsContainer.appendChild(noLyricsEl);
     }
 };
+
+/**
+ * Word-level (karaoke) highlight within the active line.
+ *
+ * Runs on the same rAF tick as the line highlight but only touches the DOM when the
+ * word actually changes, which on a typical line is a few times a second rather than
+ * sixty. Line-level highlighting alone tells you *which* line; on a slow ballad with
+ * an eight-second line that is not much help.
+ */
+function highlightWords(lineIndex, seek) {
+    if (!lyrics.hasWordTiming || lineIndex < 0) return;
+
+    const line = lyrics.lines[lineIndex];
+    if (!line || !line.words) return;
+
+    let wordIndex = -1;
+    for (let i = line.words.length - 1; i >= 0; i--) {
+        if (seek >= line.words[i].time + currentLyricsOffset) {
+            wordIndex = i;
+            break;
+        }
+    }
+    if (wordIndex === lastActiveWordIndex) return;
+
+    const lineEl = lyricsContainer.children[lineIndex];
+    if (!lineEl) return;
+
+    const wordElements = lineEl.querySelectorAll('.lyrics-word');
+    wordElements.forEach((el, index) => {
+        el.classList.toggle('sung', index <= wordIndex);
+        el.classList.toggle('singing', index === wordIndex);
+    });
+
+    lastActiveWordIndex = wordIndex;
+}
+
+/**
+ * Applies the user's lyric typography to the CSS custom properties the stylesheet
+ * reads. Kept as variables rather than inline styles so the themes, the fit tiers and
+ * the RTL rules all keep working on top of it.
+ *
+ * This matters far more than it sounds: the defaults are tuned for Latin text, and CJK
+ * and Arabic scripts need noticeably more size and line spacing to stay legible.
+ */
+function applyLyricsTypography(typography) {
+    if (!typography) return;
+    const root = document.documentElement.style;
+
+    // The overlay is a separate window with its own stylesheet, so it cannot inherit
+    // these and has to be told.
+    if (isLyricsOverlayOpen) window.api.overlayStyle(typography);
+
+    root.setProperty('--lyric-font-family', typography.fontFamily || 'inherit');
+    root.setProperty('--lyric-font-size', `${typography.fontSize || 15}px`);
+    root.setProperty('--lyric-font-weight', String(typography.fontWeight || 600));
+    root.setProperty('--lyric-line-height', String(typography.lineHeight || 1.4));
+    root.setProperty('--lyric-align', typography.align || 'center');
+}
+
+/** Loads the persisted lyric settings once at startup. */
+async function loadLyricsConfig() {
+    try {
+        lyricsConfig = await window.api.lyricsGetConfig();
+        applyLyricsTypography(lyricsConfig.typography);
+        renderLyricsSettings();
+    } catch (error) {
+        console.error('Could not load lyric settings:', error);
+    }
+    return lyricsConfig;
+}
+
+/** Mirrors the stored lyric settings into the settings panel controls. */
+function renderLyricsSettings() {
+    if (!lyricsConfig) return;
+    const typography = lyricsConfig.typography || {};
+
+    if (lyricsFontSizeEl) lyricsFontSizeEl.value = typography.fontSize ?? 15;
+    if (lyricsFontSizeValueEl) lyricsFontSizeValueEl.textContent = `${typography.fontSize ?? 15}px`;
+    if (lyricsLineHeightEl) lyricsLineHeightEl.value = typography.lineHeight ?? 1.4;
+    if (lyricsLineHeightValueEl) lyricsLineHeightValueEl.textContent = String(typography.lineHeight ?? 1.4);
+    if (lyricsFontWeightEl) lyricsFontWeightEl.value = String(typography.fontWeight ?? 600);
+    if (lyricsAlignEl) lyricsAlignEl.value = typography.align || 'center';
+    if (lyricsFontFamilyEl) lyricsFontFamilyEl.value = typography.fontFamily || '';
+    if (lyricsGeniusTokenEl) lyricsGeniusTokenEl.value = lyricsConfig.geniusToken || '';
+    if (lyricsAutosaveEl) lyricsAutosaveEl.checked = Boolean(lyricsConfig.autoSaveLrc);
+}
+
+/** Shows which source the displayed lyric actually came from. */
+function renderLyricsSource() {
+    if (!lyricsSourceValueEl) return;
+    const labels = {
+        sidecar: '.lrc file',
+        embedded: 'File tags',
+        lrclib: 'LRCLIB',
+        netease: 'NetEase',
+        genius: 'Genius',
+        user: 'Edited',
+        cache: 'Cached',
+    };
+    lyricsSourceValueEl.textContent = lyricsSource ? (labels[lyricsSource] || lyricsSource) : '-';
+}
+
+/**
+ * Repaints a typography change immediately and persists it shortly after.
+ *
+ * The preview has to be instantaneous to be worth anything, but a slider emits an
+ * event per pixel of travel, and each one would otherwise be a settings write.
+ */
+let typographySaveTimer = null;
+
+function updateLyricsTypography(patch) {
+    const typography = {...(lyricsConfig?.typography || {}), ...patch};
+    if (lyricsConfig) lyricsConfig.typography = typography;
+    applyLyricsTypography(typography);
+
+    clearTimeout(typographySaveTimer);
+    typographySaveTimer = setTimeout(async () => {
+        try {
+            lyricsConfig = await window.api.lyricsSetConfig({typography});
+        } catch (error) {
+            console.error('Could not save lyric typography:', error);
+        }
+    }, 300);
+}
+
+/* ==========================================================================
+   Desktop lyrics overlay (Phase 9)
+
+   The strip is a separate window, but the timing stays here: this renderer already
+   runs a per-frame loop that knows which line is current, and a second clock in the
+   overlay would drift against this one within a verse. So the overlay is told what to
+   draw, and owns nothing.
+   ========================================================================== */
+
+/** The text of a line, whether it came from the parser or a translation. */
+function lyricLineText(index) {
+    if (index < 0 || index >= lyrics.lines.length) return '';
+    if (showTranslation && translatedLines && translatedLines[index]) return translatedLines[index];
+    const line = lyrics.lines[index];
+    return typeof line === 'string' ? line : (line?.text || '');
+}
+
+/**
+ * Pushes the current line to the overlay, if it is open and the line has changed.
+ * `force` bypasses the equality check, for the case where the window has just opened
+ * and has never been told anything.
+ */
+function pushOverlayLine(index, force = false) {
+    if (!isLyricsOverlayOpen) return;
+
+    const line = lyricLineText(index);
+    if (!force && line === lastOverlayLine) return;
+    lastOverlayLine = line;
+
+    window.api.overlayUpdate({
+        line,
+        next: lyricLineText(index + 1),
+        title: currentSongData?.title || '',
+        artist: currentSongData?.artist || '',
+        isPlaying,
+        rtl: Boolean(showTranslation && lyricsContainer?.classList.contains('rtl')),
+    });
+}
+
+/** Opens or closes the overlay and reflects the state in the Lyrics menu. */
+async function toggleLyricsOverlay(enabled) {
+    isLyricsOverlayOpen = await window.api.overlayToggle(enabled);
+    renderOverlayMenuState();
+
+    if (isLyricsOverlayOpen) {
+        window.api.overlayStyle(lyricsConfig?.typography || {});
+        pushOverlayLine(lastActiveLyricIndex, true);
+    } else {
+        lastOverlayLine = null;
+    }
+}
+
+function renderOverlayMenuState() {
+    if (lyricsOverlayLabel) {
+        lyricsOverlayLabel.textContent = isLyricsOverlayOpen
+            ? 'Hide Desktop Overlay'
+            : 'Show Desktop Overlay';
+    }
+    lyricsOverlayBtn?.classList.toggle('active', isLyricsOverlayOpen);
+}
+
+/* ==========================================================================
+   Lyrics editor with tap-to-sync (Phase 9)
+
+   Every lyrics-capable player can show an LRC. Almost none can make one, which
+   is why so many tracks have lyrics that are three seconds out and stay that
+   way forever. The model here is deliberately small: a list of lines, each with
+   an optional time, and one operation that stamps the current line with the
+   playhead and advances.
+
+   Timestamps live on the line objects rather than inside the textarea text, so
+   switching to Text mode to fix a typo cannot destroy an hour of syncing.
+   ========================================================================== */
+
+// A tap lands *after* the singer starts the line: the user hears the words, then
+// reacts. Subtracting a fixed reaction allowance puts the stamp where the line
+// actually begins. 180ms is a conservative middle of the usual 150-250ms range.
+const TAP_LATENCY_COMPENSATION = 0.18;
+
+/** `[mm:ss.xx]` for an LRC file. Two-digit centiseconds is what every player reads. */
+function formatLrcStamp(seconds) {
+    const safe = Math.max(0, seconds || 0);
+    const minutes = Math.floor(safe / 60);
+    const secs = Math.floor(safe % 60);
+    const centis = Math.floor((safe - Math.floor(safe)) * 100);
+    return `[${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+        + `.${String(centis).padStart(2, '0')}]`;
+}
+
+/**
+ * Builds the editor's line model from LRC text.
+ *
+ * Deliberately *not* processLyrics: that one is built for playback and, the moment it
+ * sees a single timestamp, returns only the timed lines. In the editor that is data
+ * loss - a half-synced lyric would come back with its untimed lines silently deleted,
+ * which is exactly the file someone opens the editor to finish.
+ *
+ * So this walks line by line and keeps everything: timed lines carry their time,
+ * untimed lines carry null, and ID tags are dropped since they are file metadata
+ * rather than lyrics. Word-level stamps inside a line are left in the text - the
+ * editor works a line at a time and has no business discarding a finer-grained sync
+ * somebody else made.
+ */
+function buildEditorLines(text) {
+    if (!text) return [];
+
+    const lines = [];
+
+    for (const rawLine of String(text).split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || LRC_ID_TAG.test(line)) continue;
+
+        LRC_LINE_STAMP.lastIndex = 0;
+        const stamps = [];
+        let match;
+        while ((match = LRC_LINE_STAMP.exec(line)) !== null) {
+            const start = match.index;
+            const expected = stamps.length ? stamps[stamps.length - 1].end : 0;
+            if (start !== expected) break;
+            stamps.push({
+                time: stampToSeconds(match[1], match[2], match[3]),
+                end: start + match[0].length,
+            });
+        }
+
+        const body = stamps.length ? line.slice(stamps[stamps.length - 1].end).trim() : line;
+        if (!body) continue;
+
+        if (!stamps.length) {
+            lines.push({text: body, time: null});
+            continue;
+        }
+
+        // A repeated-chorus line carries several stamps; each is its own occurrence,
+        // and collapsing them would drop every repeat after the first.
+        for (const stamp of stamps) lines.push({text: body, time: stamp.time});
+    }
+
+    lines.sort((a, b) => {
+        if (a.time == null || b.time == null) return 0;
+        return a.time - b.time;
+    });
+
+    return lines;
+}
+
+/** Serialises the line model back to LRC. Unstamped lines are written bare. */
+function editorLinesToLrc(lines) {
+    return lines
+        .map((line) => (
+            line.time == null ? line.text : `${formatLrcStamp(line.time)}${line.text}`
+        ))
+        .join('\n');
+}
+
+function setEditorStatus(message, kind = '') {
+    if (!lyricsEditorStatusEl) return;
+    lyricsEditorStatusEl.textContent = message || '';
+    lyricsEditorStatusEl.classList.toggle('error', kind === 'error');
+    lyricsEditorStatusEl.classList.toggle('success', kind === 'success');
+}
+
+/** Repaints the sync-mode line list and scrolls the pending line into view. */
+function renderEditorLines() {
+    if (!lyricsEditorLinesEl) return;
+
+    lyricsEditorLinesEl.innerHTML = '';
+
+    if (!editorLines.length) {
+        const empty = document.createElement('div');
+        empty.className = 'lyrics-editor-row';
+        empty.textContent = 'No lines yet - add them in Text mode first.';
+        lyricsEditorLinesEl.appendChild(empty);
+    }
+
+    editorLines.forEach((line, index) => {
+        const row = document.createElement('div');
+        row.className = 'lyrics-editor-row';
+        row.classList.toggle('stamped', line.time != null);
+        row.classList.toggle('current', index === editorCursor);
+
+        const stamp = document.createElement('span');
+        stamp.className = 'lyrics-editor-stamp';
+        stamp.textContent = line.time == null ? '--:--' : formatLrcStamp(line.time).slice(1, -1);
+
+        const text = document.createElement('span');
+        text.className = 'lyrics-editor-row-text';
+        text.textContent = line.text;
+
+        row.appendChild(stamp);
+        row.appendChild(text);
+
+        // Clicking a line moves the cursor there and seeks to its stamp, which is how
+        // you fix one bad line without redoing the whole song.
+        row.addEventListener('click', () => {
+            editorCursor = index;
+            if (line.time != null) audio.seek(Math.max(0, line.time));
+            renderEditorLines();
+        });
+
+        lyricsEditorLinesEl.appendChild(row);
+    });
+
+    const currentRow = lyricsEditorLinesEl.children[editorCursor];
+    currentRow?.scrollIntoView({block: 'center', behavior: 'smooth'});
+
+    if (lyricsEditorTapBtn) {
+        lyricsEditorTapBtn.disabled = editorCursor >= editorLines.length;
+    }
+    if (lyricsEditorUndoBtn) {
+        lyricsEditorUndoBtn.disabled = editorCursor === 0;
+    }
+}
+
+/** Stamps the current line with the playhead and advances. */
+function tapSyncCurrentLine() {
+    if (editorCursor >= editorLines.length) return;
+
+    const time = Math.max(0, (audio.seek() || 0) - TAP_LATENCY_COMPENSATION);
+    editorLines[editorCursor].time = time;
+    editorCursor += 1;
+
+    lyricsEditorTapBtn?.classList.add('tapping');
+    setTimeout(() => lyricsEditorTapBtn?.classList.remove('tapping'), 110);
+
+    renderEditorLines();
+    setEditorStatus(
+        editorCursor >= editorLines.length
+            ? 'Every line is timed. Save when you are happy with it.'
+            : `${editorCursor} of ${editorLines.length} lines timed.`
+    );
+}
+
+/**
+ * Undoes the last tap: steps back one line, clears its stamp, and rewinds the audio
+ * to just before it. Rewinding is the part that makes this usable - without it you
+ * undo a line and the song has already moved past the moment you needed.
+ */
+function undoLastTap() {
+    if (editorCursor === 0) return;
+
+    editorCursor -= 1;
+    const line = editorLines[editorCursor];
+    if (line.time != null) audio.seek(Math.max(0, line.time - 1));
+    line.time = null;
+
+    renderEditorLines();
+    setEditorStatus(`${editorCursor} of ${editorLines.length} lines timed.`);
+}
+
+/** Text mode -> sync mode keeps stamps for lines whose text has not changed. */
+function syncEditorModelFromTextarea() {
+    if (!lyricsEditorTextarea) return;
+
+    const previous = new Map();
+    editorLines.forEach((line) => {
+        if (line.time != null && !previous.has(line.text)) previous.set(line.text, line.time);
+    });
+
+    const rebuilt = buildEditorLines(lyricsEditorTextarea.value);
+    for (const line of rebuilt) {
+        if (line.time == null && previous.has(line.text)) line.time = previous.get(line.text);
+    }
+    editorLines = rebuilt;
+
+    // Resume at the first line still missing a stamp rather than at the top.
+    const firstUnstamped = editorLines.findIndex((line) => line.time == null);
+    editorCursor = firstUnstamped === -1 ? editorLines.length : firstUnstamped;
+}
+
+function setEditorMode(mode) {
+    if (mode === 'sync') syncEditorModelFromTextarea();
+    else if (lyricsEditorTextarea) lyricsEditorTextarea.value = editorLinesToLrc(editorLines);
+
+    editorMode = mode;
+    lyricsEditorTextPane?.classList.toggle('hidden', mode !== 'text');
+    lyricsEditorSyncPane?.classList.toggle('hidden', mode !== 'sync');
+    lyricsEditorModeTextBtn?.classList.toggle('active', mode === 'text');
+    lyricsEditorModeSyncBtn?.classList.toggle('active', mode === 'sync');
+
+    if (mode === 'sync') {
+        renderEditorLines();
+        lyricsEditorLinesEl?.focus();
+    }
+}
+
+function updateEditorClock() {
+    if (lyricsEditorClockEl) lyricsEditorClockEl.textContent = formatTime(audio.seek() || 0);
+    if (lyricsEditorPlayBtn) lyricsEditorPlayBtn.textContent = isPlaying ? 'Pause' : 'Play';
+}
+
+/** Opens the editor over the whole window, seeded with the current lyric. */
+async function openLyricsEditor() {
+    if (!lyricsEditorEl || !currentSongData) return;
+
+    editorLines = buildEditorLines(rawLyricsText || '');
+    const firstUnstamped = editorLines.findIndex((line) => line.time == null);
+    editorCursor = firstUnstamped === -1 ? 0 : firstUnstamped;
+
+    if (lyricsEditorTextarea) lyricsEditorTextarea.value = editorLinesToLrc(editorLines);
+    if (lyricsEditorTitleEl) lyricsEditorTitleEl.textContent = currentSongData.title || '';
+    if (lyricsEditorArtistEl) lyricsEditorArtistEl.textContent = currentSongData.artist || '';
+    if (lyricsEditorWriteLrcEl) lyricsEditorWriteLrcEl.checked = Boolean(lyricsConfig?.autoSaveLrc);
+
+    setEditorStatus(editorLines.length
+        ? `${editorLines.filter((l) => l.time != null).length} of ${editorLines.length} lines timed.`
+        : 'Paste the lyrics to get started.');
+    setEditorMode(editorLines.length ? 'sync' : 'text');
+
+    lyricsEditorEl.classList.remove('hidden');
+    isLyricsEditorOpen = true;
+
+    // The dock is 180px tall; the editor needs the same room the settings tab gets.
+    editorReturnTab = activeTab;
+    await window.api.setActiveTab('settings');
+
+    clearInterval(editorClockTimer);
+    editorClockTimer = setInterval(updateEditorClock, 200);
+    updateEditorClock();
+}
+
+async function closeLyricsEditor() {
+    if (!isLyricsEditorOpen) return;
+
+    lyricsEditorEl?.classList.add('hidden');
+    isLyricsEditorOpen = false;
+    clearInterval(editorClockTimer);
+    editorClockTimer = null;
+
+    await window.api.setActiveTab(editorReturnTab);
+}
+
+/**
+ * Writes the edited lyric out: always to the database, plus an .lrc file and/or the
+ * file's own tags when asked. The result is reported per destination, because
+ * embedding can fail on an unsupported container while the .lrc succeeded, and
+ * "Saved" would then be a lie about half of it.
+ */
+async function saveLyricsFromEditor() {
+    if (editorMode === 'text') syncEditorModelFromTextarea();
+    if (!editorLines.length) {
+        setEditorStatus('There is nothing to save.', 'error');
+        return;
+    }
+
+    const text = editorLinesToLrc(editorLines);
+    setEditorStatus('Saving...');
+
+    try {
+        const result = await window.api.lyricsSave({
+            songKey: getSongIdentifier(),
+            filePath: currentSongData?.filePath,
+            text,
+            saveSidecar: Boolean(lyricsEditorWriteLrcEl?.checked),
+            embed: Boolean(lyricsEditorEmbedEl?.checked),
+            artist: currentSongData?.artist,
+            title: currentSongData?.title,
+        });
+
+        if (!result || !result.ok) {
+            setEditorStatus(result?.error || 'Could not save the lyrics.', 'error');
+            return;
+        }
+
+        const failures = [];
+        if (result.sidecar && !result.sidecar.ok) failures.push(`.lrc: ${result.sidecar.error}`);
+        if (result.embedded && !result.embedded.ok) failures.push(`tags: ${result.embedded.error}`);
+
+        // Repaint the live view from what was just saved, so the user can hear the
+        // result immediately instead of reloading the track to check.
+        rawLyricsText = text;
+        lyricsSource = 'user';
+        lyrics = processLyrics(text);
+        displayLyrics(lyrics, audio.ticket);
+        renderLyricsSource();
+        publishRoomLyrics();
+
+        setEditorStatus(
+            failures.length ? `Saved, but ${failures.join('; ')}` : 'Saved.',
+            failures.length ? 'error' : 'success'
+        );
+    } catch (error) {
+        console.error('Saving lyrics failed:', error);
+        setEditorStatus(error.message || 'Could not save the lyrics.', 'error');
+    }
+}
+
+/**
+ * Enters or leaves full-screen lyrics (Phase 9).
+ *
+ * The lyric element is *moved* between the dock and the overlay rather than being
+ * duplicated. A second copy would need its own render call, its own scroll maths and
+ * its own place in the tick loop, and the two would drift apart the first time either
+ * changed. Moving a live node keeps `lyricsContainer` pointing at the same element, so
+ * every existing code path carries on working untouched.
+ *
+ * Window full-screen is requested alongside, because the dock is 180px tall and an
+ * overlay inside it would not be full-screen in any sense the user means.
+ */
+async function setLyricsFullscreen(enabled) {
+    if (!lyricsFullscreenEl || !lyricsContainer || enabled === isLyricsFullscreen) return;
+
+    if (enabled) {
+        // Remember the exact position, not just the parent: the strip has siblings
+        // (the offset chip, the controls) and order matters to the layout.
+        lyricsHomeParent = lyricsContainer.parentElement;
+        lyricsHomeNextSibling = lyricsContainer.nextSibling;
+
+        lyricsFullscreenBodyEl.appendChild(lyricsContainer);
+        lyricsFullscreenEl.classList.remove('hidden');
+        document.body.classList.add('lyrics-fullscreen-open');
+        renderFullscreenLyricsHeader();
+
+        isLyricsFullscreen = true;
+        await window.api.setFullscreen(true);
+    } else {
+        if (lyricsHomeParent) {
+            lyricsHomeParent.insertBefore(lyricsContainer, lyricsHomeNextSibling);
+        }
+        lyricsFullscreenEl.classList.add('hidden');
+        document.body.classList.remove('lyrics-fullscreen-open');
+
+        isLyricsFullscreen = false;
+        await window.api.setFullscreen(false);
+    }
+
+    // The container's height changed, so the cached fit tier and the scroll offset for
+    // the active line are both stale. Forcing a re-evaluation on the next tick is
+    // cheaper and more reliable than recomputing them here.
+    lastActiveLyricIndex = -1;
+    lastActiveWordIndex = -1;
+}
+
+/** Fills the full-screen header from the current track. */
+function renderFullscreenLyricsHeader() {
+    if (!lyricsFullscreenEl) return;
+
+    const artSrc = albumArtEl?.src || '../assets/images/placeholder.png';
+    if (lyricsFullscreenArtEl) lyricsFullscreenArtEl.src = artSrc;
+    if (lyricsFullscreenBackdropEl) {
+        // CSS.escape is not applicable to a url() value; quoting is what keeps a path
+        // containing brackets or spaces from breaking the declaration.
+        lyricsFullscreenBackdropEl.style.backgroundImage = `url("${artSrc}")`;
+    }
+    if (lyricsFullscreenTitleEl) {
+        lyricsFullscreenTitleEl.textContent = currentSongData?.title || 'No song loaded';
+    }
+    if (lyricsFullscreenArtistEl) {
+        lyricsFullscreenArtistEl.textContent = currentSongData?.artist || '';
+    }
+}
 
 function shuffleArray(array) {
     // Make a copy to avoid modifying the original array reference
@@ -404,34 +1064,138 @@ function reportPlaybackState() {
     });
 }
 
+/**
+ * LRC parser (Phase 9).
+ *
+ * Replaces a parser that handled exactly one shape: `[mm:ss.xx]text`, one stamp per
+ * line, two-digit minutes only. Real .lrc files in the wild are messier, and the
+ * enhanced format the karaoke highlight needs was not understood at all. This handles:
+ *
+ *   - Multiple stamps on one line: `[00:12.00][01:44.00]same chorus line`, which is how
+ *     most databases store a repeated chorus. The old parser kept only the first, so
+ *     the chorus highlighted once and then went dead for the rest of the song.
+ *   - One, two or three digit minutes and two or three digit fractions.
+ *   - The `[offset:±ms]` ID tag, which shifts every stamp. Honouring it is the whole
+ *     point of the tag, and ignoring it is why some files felt uniformly early.
+ *   - Enhanced (word-level) stamps: `[00:12.00]<00:12.00>Hello <00:12.40>world`.
+ *   - Other ID tags (`[ar:]`, `[ti:]`, `[by:]`), which are metadata, not lyrics, and
+ *     were previously rendered as if they were the first line of the song.
+ *
+ * Returns `{isSynced, hasWordTiming, lines}`. For a synced lyric each line is
+ * `{time, text, words}`, where `words` is null unless the line carried word stamps.
+ */
+const LRC_LINE_STAMP = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]/g;
+const LRC_WORD_STAMP = /<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>/g;
+const LRC_ID_TAG = /^\[([a-z]+):([^\]]*)]$/i;
+
+/** `mm`, `ss`, `xx` capture groups to seconds. A 2-digit fraction is centiseconds. */
+function stampToSeconds(minutes, seconds, fraction) {
+    const frac = fraction
+        ? parseInt(fraction, 10) / Math.pow(10, fraction.length)
+        : 0;
+    return parseInt(minutes, 10) * 60 + parseInt(seconds, 10) + frac;
+}
+
+/**
+ * Splits an enhanced-LRC line body into timed word segments.
+ * Returns null when the line has no word stamps, so callers can cheaply tell whether
+ * to render a plain line or a span per word.
+ */
+function parseWordStamps(body, lineTime) {
+    LRC_WORD_STAMP.lastIndex = 0;
+    if (!LRC_WORD_STAMP.test(body)) return null;
+
+    LRC_WORD_STAMP.lastIndex = 0;
+    const words = [];
+    let match;
+    let cursor = 0;
+    let pendingTime = lineTime;
+
+    while ((match = LRC_WORD_STAMP.exec(body)) !== null) {
+        // Text between the previous stamp and this one belongs to the previous stamp.
+        const text = body.slice(cursor, match.index);
+        if (text) words.push({time: pendingTime, text});
+        pendingTime = stampToSeconds(match[1], match[2], match[3]);
+        cursor = match.index + match[0].length;
+    }
+
+    const tail = body.slice(cursor);
+    if (tail) words.push({time: pendingTime, text: tail});
+
+    return words.length ? words : null;
+}
+
 function processLyrics(lyricsText) {
-    if (!lyricsText) return {isSynced: false, lines: []};
+    if (!lyricsText) return {isSynced: false, hasWordTiming: false, lines: []};
 
-    const lines = lyricsText.split('\n');
-    const syncedLyrics = [];
-    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
-    let isSynced = false;
+    const rawLines = String(lyricsText).split(/\r?\n/);
+    const synced = [];
+    const plain = [];
+    let hasWordTiming = false;
+    let globalOffset = 0;
 
-    for (const line of lines) {
-        const match = line.match(timeRegex);
-        if (match) {
-            isSynced = true;
-            const minutes = parseInt(match[1], 10);
-            const seconds = parseInt(match[2], 10);
-            const milliseconds = parseInt(match[3], 10);
-            const text = match[4].trim();
-            const time = minutes * 60 + seconds + milliseconds / 1000;
-            if (text) {
-                syncedLyrics.push({time, text});
+    for (const rawLine of rawLines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        const idTag = line.match(LRC_ID_TAG);
+        if (idTag) {
+            if (idTag[1].toLowerCase() === 'offset') {
+                const parsed = parseInt(idTag[2], 10);
+                // The tag is in milliseconds and is positive when the lyric should
+                // appear *earlier*, which is the opposite sign to our own offset.
+                if (Number.isFinite(parsed)) globalOffset = -parsed / 1000;
             }
+            continue;
+        }
+
+        LRC_LINE_STAMP.lastIndex = 0;
+        const stamps = [];
+        let match;
+        while ((match = LRC_LINE_STAMP.exec(line)) !== null) {
+            // Stamps only count as such while they are still a contiguous prefix;
+            // a bracketed `[laughs]` mid-line is lyric text, not a timestamp.
+            if (match.index !== LRC_LINE_STAMP.lastIndex - match[0].length) break;
+            if (stamps.length && match.index !== stamps[stamps.length - 1].end) break;
+            if (!stamps.length && match.index !== 0) break;
+            stamps.push({
+                time: stampToSeconds(match[1], match[2], match[3]),
+                end: match.index + match[0].length,
+            });
+        }
+
+        if (!stamps.length) {
+            plain.push(line);
+            continue;
+        }
+
+        const body = line.slice(stamps[stamps.length - 1].end).trim();
+        if (!body) continue;
+
+        const cleanText = body.replace(LRC_WORD_STAMP, '').replace(/\s+/g, ' ').trim();
+        if (!cleanText) continue;
+
+        for (const stamp of stamps) {
+            const words = parseWordStamps(body, stamp.time);
+            if (words) hasWordTiming = true;
+            synced.push({time: stamp.time, text: cleanText, words});
         }
     }
 
-    if (isSynced) {
-        return {isSynced: true, lines: syncedLyrics};
+    if (synced.length) {
+        // Repeated-chorus stamps arrive out of order; the tick loop scans backwards
+        // and would find the wrong line if they were not sorted.
+        synced.sort((a, b) => a.time - b.time);
+        if (globalOffset) {
+            for (const line of synced) {
+                line.time += globalOffset;
+                if (line.words) line.words.forEach((word) => { word.time += globalOffset; });
+            }
+        }
+        return {isSynced: true, hasWordTiming, lines: synced};
     }
 
-    return {isSynced: false, lines: lines.filter(line => line.trim() !== '')};
+    return {isSynced: false, hasWordTiming: false, lines: plain};
 }
 
 function sanitizeForApiSearch(artist, title) {
@@ -518,6 +1282,7 @@ function updateUI() {
                     if (currentLyricIndex > -1 && lineElements[currentLyricIndex]) {
                         const activeLineEl = lineElements[currentLyricIndex];
                         activeLineEl.classList.add('active');
+                        lastActiveWordIndex = -1;
                         // Fit before measuring, or the scroll position is computed from
                         // the pre-shrink height and lands slightly off centre.
                         fitActiveLyric(activeLineEl);
@@ -526,7 +1291,10 @@ function updateUI() {
                             activeLineEl.offsetTop - (containerHeight / 2) + (activeLineEl.offsetHeight / 2);
                     }
                     lastActiveLyricIndex = currentLyricIndex;
+                    pushOverlayLine(currentLyricIndex);
                 }
+
+                highlightWords(currentLyricIndex, seek);
             } else {
                 const scrollWrapper = lyricsContainer.firstChild;
                 if (scrollWrapper) {
@@ -563,30 +1331,39 @@ function savePlaybackState() {
     window.api.setStoreValue('lastPlaybackState', state);
 }
 
+/**
+ * Persists the current track's lyric offset.
+ *
+ * The offset now lives in the database, keyed per track (Phase 9), rather than in a
+ * single settings blob that grew without bound and was lost with the settings file.
+ * Writes are debounced because the offset control repeats while held, and each repeat
+ * would otherwise be its own round trip and its own row write.
+ */
 function saveLyricsOffsets() {
-    window.api.setStoreValue('lyricsOffsets', lyricsOffsets);
+    const songId = getSongIdentifier();
+    if (!songId) return;
+
+    // Kept in memory too, so the value survives a track change and back within a
+    // session even if the write has not landed yet.
+    lyricsOffsets[songId] = currentLyricsOffset;
+
+    clearTimeout(offsetSaveTimer);
+    offsetSaveTimer = setTimeout(() => {
+        window.api.lyricsSetOffset(songId, Math.round(currentLyricsOffset * 1000));
+    }, 250);
 }
 
-async function fetchLyrics(artist, title) {
-    const url = `https://lrclib.net/api/search?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
-    try {
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        if (data && data.length > 0 && data[0].syncedLyrics) {
-            return data[0].syncedLyrics;
-        }
-        return null;
-    } catch (error) {
-        console.error('Error fetching lyrics:', error);
-        const firstLine = lyricsContainer.querySelector('.lyrics-line');
-        if (firstLine) {
-            firstLine.textContent = 'Lyrics search failed (Network Error)';
-        }
-        return null;
-    }
-}
-
+/**
+ * Resolves and paints lyrics for a track.
+ *
+ * The fetch() call to lrclib that used to live here is gone: resolution now happens in
+ * the main process, behind a chain of sources (sidecar .lrc, embedded tags, lrclib,
+ * NetEase, Genius). That removes the provider from the renderer's CSP, and means one
+ * provider being down no longer reads to the user as "this song has no lyrics".
+ *
+ * `rawLyricsText` is kept alongside the parsed form because the editor and the LRC
+ * exporter need the original text, not our reconstruction of it.
+ */
 async function searchAndDisplayOnlineLyrics(songData, forceRefetch = false, ticket = audio.ticket) {
     if (!lyricsContainer) return;
     if (ticket !== audio.ticket) return;
@@ -594,39 +1371,52 @@ async function searchAndDisplayOnlineLyrics(songData, forceRefetch = false, tick
     const noLyricsEl = lyricsContainer.querySelector('.lyrics-line');
     if (noLyricsEl) noLyricsEl.textContent = 'Searching for lyrics...';
 
-    let resolved = {isSynced: false, lines: []};
+    let resolved = {isSynced: false, hasWordTiming: false, lines: []};
 
     try {
         const songId = getSongIdentifier();
         if (!songId) {
-            throw new Error("Cannot generate a song identifier to use the database.");
+            throw new Error('Cannot generate a song identifier to use the database.');
         }
 
-        const cachedLyrics = forceRefetch ? null : await window.api.getLyrics(songId);
+        const {artist: cleanArtist, title: cleanTitle} = sanitizeForApiSearch(songData.artist, songData.title);
 
-        if (cachedLyrics) {
-            resolved = processLyrics(cachedLyrics);
-        } else {
-            const {artist: cleanArtist, title: cleanTitle} = sanitizeForApiSearch(songData.artist, songData.title);
-            const onlineLyricsText = await fetchLyrics(cleanArtist, cleanTitle);
+        const result = await window.api.lyricsResolve({
+            songKey: songId,
+            filePath: songData.filePath,
+            artist: cleanArtist || songData.artist,
+            title: cleanTitle || songData.title,
+            album: songData.album || '',
+            durationSeconds: Math.round(audio.duration() || 0),
+            // The file's own tags are a source in their own right, and only the
+            // renderer has already paid to read them.
+            embedded: songData.lyrics || null,
+            forceRefetch,
+        });
 
-            // The network round trip is the slow part, so re-check the ticket here:
-            // by now the user may well have skipped on several tracks.
-            if (ticket !== audio.ticket) return;
+        // The round trip is the slow part, so re-check the ticket: by now the user may
+        // well have skipped several tracks on.
+        if (ticket !== audio.ticket) return;
 
-            if (onlineLyricsText) {
-                resolved = processLyrics(onlineLyricsText);
-                window.api.saveLyrics(songId, onlineLyricsText, {
-                    source: 'lrclib',
-                    isSynced: resolved.isSynced,
-                    artist: songData.artist,
-                    title: songData.title,
-                });
+        if (result && result.ok && result.text) {
+            resolved = processLyrics(result.text);
+            rawLyricsText = result.text;
+            lyricsSource = result.source || null;
+
+            if (Number.isFinite(result.offsetMs) && result.offsetMs !== 0) {
+                currentLyricsOffset = result.offsetMs / 1000;
+                lyricsOffsets[songId] = currentLyricsOffset;
+                updateOffsetDisplay();
             }
+        } else {
+            rawLyricsText = null;
+            lyricsSource = null;
         }
+
+        renderLyricsSource();
     } catch (error) {
         console.error('An error occurred during lyric search:', error);
-        resolved = {isSynced: false, lines: ['Error finding lyrics.']};
+        resolved = {isSynced: false, hasWordTiming: false, lines: ['Error finding lyrics.']};
     } finally {
         // Only commit to the shared `lyrics` state if this load is still the current one.
         if (ticket === audio.ticket) {
@@ -2674,6 +3464,7 @@ async function playTrack(index, options = {}) {
         || (isVideo ? '../assets/images/placeholder-video.png' : '../assets/images/placeholder.png');
     albumArtEl.src = albumArtSrc;
     magnifiedAlbumArtEl.src = albumArtSrc;
+    if (isLyricsFullscreen) renderFullscreenLyricsHeader();
 
     const embedded = processLyrics(songData.lyrics);
     lyrics = embedded;
@@ -2748,8 +3539,18 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTimeDisplay();
 
         const songId = getSongIdentifier();
+        // Prefer the stored per-track offset; fall back to the legacy settings blob so
+        // offsets saved before Phase 9 are not silently forgotten.
         currentLyricsOffset = (songId && lyricsOffsets[songId]) || 0;
         updateOffsetDisplay();
+        if (songId) {
+            window.api.lyricsGetOffset(songId).then((offsetMs) => {
+                if (!offsetMs || songId !== getSongIdentifier()) return;
+                currentLyricsOffset = offsetMs / 1000;
+                lyricsOffsets[songId] = currentLyricsOffset;
+                updateOffsetDisplay();
+            }).catch(() => { /* the in-memory value stands */ });
+        }
     });
 
     audio.on('buffered', () => updateProgressFill(audio.seek(), audio.duration()));
@@ -2836,6 +3637,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (savedOffsets) {
             lyricsOffsets = savedOffsets;
         }
+
+        // Lyric typography has to land before the first line is painted, or the user
+        // sees the default size flash over to theirs.
+        await loadLyricsConfig();
+
+        // The overlay survives a restart if it was open when the app last closed.
+        isLyricsOverlayOpen = await window.api.overlayIsOpen();
+        renderOverlayMenuState();
         const savedFavorites = await window.api.getStoreValue('favoritesPlaylist');
         if (savedFavorites && Array.isArray(savedFavorites)) {
             favoritesPlaylist = savedFavorites;
@@ -3104,6 +3913,70 @@ document.addEventListener('DOMContentLoaded', () => {
         updateLyricsDropdownMenu();
     });
 
+    lyricsOverlayBtn?.addEventListener('click', () => {
+        closeAllMenus();
+        toggleLyricsOverlay();
+    });
+
+    // The strip can be closed from its own button, and the menu label would otherwise
+    // still offer to hide something that is already gone.
+    window.api.onOverlayClosed?.(() => {
+        isLyricsOverlayOpen = false;
+        lastOverlayLine = null;
+        renderOverlayMenuState();
+    });
+
+    // A window that has just opened has missed every push so far.
+    window.api.onOverlayRequestState?.(() => {
+        window.api.overlayStyle(lyricsConfig?.typography || {});
+        pushOverlayLine(lastActiveLyricIndex, true);
+    });
+
+    editLyricsBtn?.addEventListener('click', () => {
+        closeAllMenus();
+        openLyricsEditor();
+    });
+    lyricsEditorCloseBtn?.addEventListener('click', () => closeLyricsEditor());
+    lyricsEditorModeTextBtn?.addEventListener('click', () => setEditorMode('text'));
+    lyricsEditorModeSyncBtn?.addEventListener('click', () => setEditorMode('sync'));
+    lyricsEditorTapBtn?.addEventListener('click', () => tapSyncCurrentLine());
+    lyricsEditorUndoBtn?.addEventListener('click', () => undoLastTap());
+    lyricsEditorPlayBtn?.addEventListener('click', () => playPauseBtn.click());
+    lyricsEditorBackBtn?.addEventListener('click', () => {
+        audio.seek(Math.max(0, (audio.seek() || 0) - 3));
+    });
+    lyricsEditorRestartBtn?.addEventListener('click', () => {
+        editorLines.forEach((line) => { line.time = null; });
+        editorCursor = 0;
+        renderEditorLines();
+        setEditorStatus('Timestamps cleared.');
+    });
+    lyricsEditorSaveBtn?.addEventListener('click', () => saveLyricsFromEditor());
+
+    fullscreenLyricsBtn?.addEventListener('click', () => {
+        closeAllMenus();
+        setLyricsFullscreen(true);
+    });
+    lyricsFullscreenCloseBtn?.addEventListener('click', () => setLyricsFullscreen(false));
+
+    // Double-clicking the lyrics is the gesture people try first, in both directions.
+    lyricsContainer?.addEventListener('dblclick', () => setLyricsFullscreen(!isLyricsFullscreen));
+
+    // The OS can drop us out of full-screen on its own (the macOS green button, F11).
+    // Trusting our own flag alone left the overlay covering a restored dock window.
+    window.api.onFullscreenChanged?.((enabled) => {
+        if (!enabled && isLyricsFullscreen) {
+            if (lyricsHomeParent) {
+                lyricsHomeParent.insertBefore(lyricsContainer, lyricsHomeNextSibling);
+            }
+            lyricsFullscreenEl?.classList.add('hidden');
+            document.body.classList.remove('lyrics-fullscreen-open');
+            isLyricsFullscreen = false;
+            lastActiveLyricIndex = -1;
+            lastActiveWordIndex = -1;
+        }
+    });
+
     refetchLyricsBtn.addEventListener('click', () => {
         if (!currentSongData) {
             // Can't refetch if no song is loaded
@@ -3222,11 +4095,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateOffsetDisplay();
 
         // Save the new offset value
-        const songId = getSongIdentifier();
-        if (songId) {
-            lyricsOffsets[songId] = currentLyricsOffset;
-            saveLyricsOffsets();
-        }
+        saveLyricsOffsets();
     });
 
     // Other UI Listeners
@@ -3378,6 +4247,37 @@ document.addEventListener('DOMContentLoaded', () => {
         saveTranslationConfig();
     });
     translateEndpointEl?.addEventListener('change', saveTranslationConfig);
+
+    // --- Lyric typography & sources (Phase 9) ---
+    // `input` rather than `change` on the sliders: the point of a live preview is that
+    // it is live. The write behind it is debounced in updateLyricsTypography.
+    lyricsFontSizeEl?.addEventListener('input', () => {
+        const fontSize = Number(lyricsFontSizeEl.value);
+        if (lyricsFontSizeValueEl) lyricsFontSizeValueEl.textContent = `${fontSize}px`;
+        updateLyricsTypography({fontSize});
+    });
+    lyricsLineHeightEl?.addEventListener('input', () => {
+        const lineHeight = Number(lyricsLineHeightEl.value);
+        if (lyricsLineHeightValueEl) lyricsLineHeightValueEl.textContent = String(lineHeight);
+        updateLyricsTypography({lineHeight});
+    });
+    lyricsFontWeightEl?.addEventListener('change', () => {
+        updateLyricsTypography({fontWeight: Number(lyricsFontWeightEl.value)});
+    });
+    lyricsAlignEl?.addEventListener('change', () => {
+        updateLyricsTypography({align: lyricsAlignEl.value});
+    });
+    lyricsFontFamilyEl?.addEventListener('change', () => {
+        updateLyricsTypography({fontFamily: lyricsFontFamilyEl.value.trim()});
+    });
+    lyricsGeniusTokenEl?.addEventListener('change', async () => {
+        lyricsConfig = await window.api.lyricsSetConfig({
+            geniusToken: lyricsGeniusTokenEl.value.trim(),
+        });
+    });
+    lyricsAutosaveEl?.addEventListener('change', async () => {
+        lyricsConfig = await window.api.lyricsSetConfig({autoSaveLrc: lyricsAutosaveEl.checked});
+    });
 
     // Pause on headphone removal (#3).
     if (pauseOnUnplugEl) {
@@ -3575,10 +4475,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const applyChange = () => {
             currentLyricsOffset = parseFloat((currentLyricsOffset + adjustment).toFixed(2));
             updateOffsetDisplay();
-            const songId = getSongIdentifier();
-            if (songId) {
-                lyricsOffsets[songId] = currentLyricsOffset;
-            }
+            saveLyricsOffsets();
         };
 
         const startHold = () => {
@@ -3838,7 +4735,40 @@ document.addEventListener('drop', async (event) => {
 window.addEventListener('keydown', (event) => {
     // Escape backs out one layer at a time: menu, then panel, then nothing.
     // It has to run before the INPUT guard so it still works from the search box.
+    // The editor owns the keyboard while it is open: Space taps rather than
+    // toggling playback, and the transport shortcuts would fight the sync flow.
+    if (isLyricsEditorOpen) {
+        if (event.key === 'Escape') {
+            closeLyricsEditor();
+            event.preventDefault();
+            return;
+        }
+        if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT') return;
+        if (editorMode !== 'sync') return;
+
+        if (event.code === 'Space' || event.code === 'Enter' || event.code === 'NumpadEnter') {
+            tapSyncCurrentLine();
+            event.preventDefault();
+        } else if (event.code === 'Backspace') {
+            undoLastTap();
+            event.preventDefault();
+        } else if (event.code === 'KeyP') {
+            playPauseBtn.click();
+            event.preventDefault();
+        } else if (event.code === 'ArrowLeft') {
+            audio.seek(Math.max(0, (audio.seek() || 0) - 3));
+            event.preventDefault();
+        }
+        return;
+    }
+
     if (event.key === 'Escape') {
+        // Full screen is the outermost layer, so it backs out first.
+        if (isLyricsFullscreen) {
+            setLyricsFullscreen(false);
+            event.preventDefault();
+            return;
+        }
         if (document.querySelector('.dropdown-menu.show')) {
             closeAllMenus();
             openMenuTrigger?.focus();
@@ -3896,6 +4826,12 @@ window.addEventListener('keydown', (event) => {
             handled = true;
         } else if (event.code === 'KeyM') {
             volumeBtn.click();
+            handled = true;
+        } else if (event.code === 'KeyF') {
+            setLyricsFullscreen(!isLyricsFullscreen);
+            handled = true;
+        } else if (event.code === 'KeyE') {
+            openLyricsEditor();
             handled = true;
         } else if (event.code === 'BracketRight') {
             setPlaybackRate(parseFloat((playbackRate + 0.05).toFixed(2)));

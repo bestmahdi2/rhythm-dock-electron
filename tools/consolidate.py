@@ -36,25 +36,25 @@ GATHER_JOBS = [
     },
     {
         "name": "Electron Main Process",
-        "search_patterns": ["src/main.js", "src/preload.js", "src/main/**/*.js"],
+        "search_patterns": ["Rhythm Dock/src/main/**/*.js", "Rhythm Dock/src/preload/**/*.js"],
         "output_file": "_electron_main_process.js",
         "comments": {"start": "//", "end": ""},
     },
     {
         "name": "Electron Renderer Scripts",
-        "search_patterns": ["src/renderer/**/*.js"],
+        "search_patterns": ["Rhythm Dock/src/renderer/**/*.js"],
         "output_file": "_electron_renderer_scripts.js",
         "comments": {"start": "//", "end": ""},
     },
     {
         "name": "HTML Views",
-        "search_patterns": ["src/renderer/**/*.html", "server/public/**/*.html"],
+        "search_patterns": ["Rhythm Dock/src/renderer/**/*.html", "server/public/**/*.html"],
         "output_file": "_electron_views.html",
         "comments": {"start": "<!--", "end": "-->"},
     },
     {
         "name": "Stylesheets",
-        "search_patterns": ["src/renderer/**/*.css", "server/public/**/*.css"],
+        "search_patterns": ["Rhythm Dock/src/renderer/**/*.css", "server/public/**/*.css"],
         "output_file": "_electron_styles.css",
         "comments": {"start": "/*", "end": "*/"},
     },
@@ -64,7 +64,7 @@ GATHER_JOBS = [
             "server/src/**/*.js",
             "server/public/**/*.js",
             "server/test/**/*.js",
-            "scripts/**/*.js"
+            "Rhythm Dock/scripts/**/*.js"
         ],
         "output_file": "_server_and_scripts.js",
         "comments": {"start": "//", "end": ""},

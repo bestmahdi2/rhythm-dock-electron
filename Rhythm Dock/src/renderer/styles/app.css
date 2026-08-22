@@ -116,6 +116,15 @@
     --danger: #ef4b52;
     --danger-soft: rgba(239, 75, 82, 0.16);
 
+    /* Lyric typography (Phase 9). Overwritten at runtime from the user's settings;
+       the values here are the defaults the settings panel starts from. Kept on :root
+       so the full-screen view and the desktop overlay inherit them too. */
+    --lyric-font-family: inherit;
+    --lyric-font-size: 15px;
+    --lyric-font-weight: 600;
+    --lyric-line-height: 1.4;
+    --lyric-align: center;
+
     /* Legacy aliases; older rules still reference these names. */
     --icon-color: var(--text);
     --icon-color-dim: var(--text-3);
@@ -1190,7 +1199,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
     height: 100%;
     min-height: 56px;
     padding: var(--sp-2) var(--sp-4) var(--sp-6);
-    text-align: center;
+    text-align: var(--lyric-align);
     overflow-y: auto;
     position: relative;
     line-height: 1.55;
@@ -1214,7 +1223,9 @@ input[type="range"]:hover::-webkit-slider-thumb {
 }
 
 .lyrics-line {
-    font-size: var(--fs-sm);
+    font-family: var(--lyric-font-family);
+    font-size: var(--lyric-font-size);
+    line-height: var(--lyric-line-height);
     font-weight: 500;
     color: var(--text-3);
     opacity: 0.68;
@@ -1230,8 +1241,37 @@ input[type="range"]:hover::-webkit-slider-thumb {
 .lyrics-line.active {
     color: var(--text);
     opacity: 1;
-    font-weight: 680;
+    font-weight: var(--lyric-font-weight);
     letter-spacing: 0.1px;
+}
+
+/* --- Word-level karaoke (enhanced LRC) -------------------------------------
+   Only reachable when the lyric actually carries <mm:ss.xx> word stamps; a
+   plain synced lyric renders as one text node and never enters these rules.
+
+   The unsung remainder of the active line stays dimmed rather than hidden, so
+   the eye can read ahead - a karaoke highlight that reveals text word by word
+   is unreadable at singing speed. */
+.lyrics-word {
+    color: var(--text-3);
+    transition: color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.lyrics-line.active .lyrics-word {
+    color: var(--text-2);
+    opacity: 0.72;
+}
+
+.lyrics-line.active .lyrics-word.sung {
+    color: var(--text);
+    opacity: 1;
+}
+
+/* The word being sung right now. Slightly warmer than merely-sung text, which is
+   what makes the highlight trackable on a long held line. */
+.lyrics-line.active .lyrics-word.singing {
+    color: var(--accent);
+    opacity: 1;
 }
 
 /* Auto-fit tiers, applied only when a line actually overflows. */
@@ -3342,4 +3382,440 @@ select:disabled {
         --text-3: #444a52;
         --text-4: #555b63;
     }
+}
+
+
+/* ==========================================================================
+   Full-screen lyrics (Phase 9)
+
+   Large type, the album art blurred behind it, and no chrome at all beyond a
+   close button that fades in on hover. The lyric strip is moved into
+   .lyrics-fullscreen-body at runtime, so everything below is layout and scale
+   only - the line, active-line, karaoke and RTL rules are the same ones the
+   docked strip uses.
+   ========================================================================== */
+.lyrics-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    -webkit-app-region: drag;
+}
+
+.lyrics-fullscreen.hidden {
+    display: none;
+}
+
+/* The art, blown up and blurred. A scaled-up 300px cover is the whole point:
+   it is meant to read as colour and shape, not as an image. */
+.lyrics-fullscreen-backdrop {
+    position: absolute;
+    inset: -8%;
+    background-position: center;
+    background-size: cover;
+    filter: blur(56px) saturate(1.35);
+    transform: scale(1.15);
+    opacity: 0.55;
+    transition: opacity var(--dur-slow) var(--ease);
+}
+
+/* Without this the lyric sits on top of whatever colour the cover happens to
+   be, and light album art makes the text unreadable. */
+.lyrics-fullscreen-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.72) 45%,
+    rgba(0, 0, 0, 0.85) 100%);
+}
+
+:root[data-theme="daylight"] .lyrics-fullscreen-scrim,
+:root[data-theme="paper"] .lyrics-fullscreen-scrim,
+:root[data-theme="sky"] .lyrics-fullscreen-scrim,
+:root[data-theme="sand"] .lyrics-fullscreen-scrim,
+:root[data-theme="rose"] .lyrics-fullscreen-scrim {
+    background: linear-gradient(to bottom,
+    rgba(255, 255, 255, 0.62) 0%,
+    rgba(255, 255, 255, 0.78) 45%,
+    rgba(255, 255, 255, 0.9) 100%);
+}
+
+.lyrics-fullscreen-close {
+    position: absolute;
+    top: var(--sp-4);
+    right: var(--sp-4);
+    z-index: 2;
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: var(--radius-full, 999px);
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+    -webkit-app-region: no-drag;
+}
+
+/* Chrome that appears when the pointer moves and fades when it does not. */
+.lyrics-fullscreen:hover .lyrics-fullscreen-close,
+.lyrics-fullscreen-close:focus-visible {
+    opacity: 1;
+}
+
+.lyrics-fullscreen-close:hover {
+    color: var(--text);
+    background: var(--surface-2, rgba(255, 255, 255, 0.08));
+}
+
+.lyrics-fullscreen-close svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+
+.lyrics-fullscreen-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    padding: var(--sp-6) var(--sp-8) 0;
+    opacity: 0.82;
+}
+
+.lyrics-fullscreen-art {
+    width: 62px;
+    height: 62px;
+    border-radius: var(--radius-2, 8px);
+    object-fit: cover;
+    box-shadow: var(--shadow-2);
+}
+
+.lyrics-fullscreen-meta {
+    min-width: 0;
+}
+
+.lyrics-fullscreen-title {
+    font-size: var(--fs-md, 0.95rem);
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-fullscreen-artist {
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-fullscreen-body {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 max(var(--sp-8), 8vw);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+}
+
+/* Scale, rather than a second set of type rules: the user's chosen size, weight,
+   alignment and font all still apply, just larger. clamp() keeps a 34px setting
+   from overflowing a small display. */
+.lyrics-fullscreen-body .lyrics-container {
+    height: 100%;
+    max-height: none;
+}
+
+.lyrics-fullscreen-body .lyrics-line {
+    font-size: clamp(1rem, calc(var(--lyric-font-size) * 2.1), 3.2rem);
+    margin: calc(var(--sp-2) + 0.25vh) 0;
+}
+
+/* The auto-fit tiers exist for a 60px strip. In full screen there is room, and
+   letting them fire made long lines shrink for no reason. */
+.lyrics-fullscreen-body .lyrics-line.active.fit-sm,
+.lyrics-fullscreen-body .lyrics-line.active.fit-xs,
+.lyrics-fullscreen-body .lyrics-line.active.fit-xxs {
+    font-size: clamp(1rem, calc(var(--lyric-font-size) * 2.1), 3.2rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lyrics-fullscreen-backdrop {
+        transition: none;
+    }
+}
+
+
+/* ==========================================================================
+   Lyrics editor with tap-to-sync (Phase 9)
+   ========================================================================== */
+.lyrics-editor {
+    position: fixed;
+    inset: 0;
+    z-index: 950;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    -webkit-app-region: no-drag;
+}
+
+.lyrics-editor.hidden {
+    display: none;
+}
+
+.lyrics-editor-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
+}
+
+.lyrics-editor-titles {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.lyrics-editor-title {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-editor-artist {
+    font-size: var(--fs-2xs);
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-editor-modes {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    background: var(--surface-2, rgba(255, 255, 255, 0.06));
+    -webkit-app-region: no-drag;
+}
+
+.lyrics-editor-mode {
+    padding: 4px 12px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-3);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.lyrics-editor-mode.active {
+    background: var(--accent);
+    color: var(--on-accent);
+}
+
+.lyrics-editor-close {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+}
+
+.lyrics-editor-close:hover {
+    color: var(--text);
+    background: var(--surface-2, rgba(255, 255, 255, 0.08));
+}
+
+.lyrics-editor-close svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.lyrics-editor-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+}
+
+.lyrics-editor-pane.hidden {
+    display: none;
+}
+
+.lyrics-editor-textarea {
+    flex: 1 1 auto;
+    min-height: 0;
+    resize: none;
+    padding: var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-2, 8px);
+    background: var(--surface);
+    color: var(--text);
+    font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+    font-size: var(--fs-2xs);
+    line-height: 1.6;
+}
+
+.lyrics-editor-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.lyrics-editor-transport {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+.lyrics-editor-transport .settings-value {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The line list. The line awaiting a tap is pinned visually rather than by
+   scroll position alone, because during a fast verse the user is watching this
+   one row and nothing else. */
+.lyrics-editor-lines {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-2, 8px);
+    background: var(--surface);
+    padding: var(--sp-2) 0;
+}
+
+.lyrics-editor-lines:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.lyrics-editor-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-3);
+    padding: 3px var(--sp-3);
+    font-size: var(--fs-2xs);
+    color: var(--text-3);
+    cursor: pointer;
+}
+
+.lyrics-editor-row:hover {
+    background: var(--surface-2, rgba(255, 255, 255, 0.05));
+}
+
+.lyrics-editor-row.stamped {
+    color: var(--text-2);
+}
+
+.lyrics-editor-row.current {
+    background: var(--accent-soft, rgba(0, 0, 0, 0.12));
+    color: var(--text);
+    font-weight: 650;
+}
+
+.lyrics-editor-stamp {
+    flex: 0 0 auto;
+    min-width: 54px;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--text-4);
+}
+
+.lyrics-editor-row.stamped .lyrics-editor-stamp {
+    color: var(--accent);
+}
+
+.lyrics-editor-row-text {
+    flex: 1 1 auto;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.lyrics-editor-tap {
+    flex: 0 0 auto;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+    border: 0;
+    border-radius: var(--radius-2, 8px);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 90ms var(--ease), filter var(--dur) var(--ease);
+}
+
+.lyrics-editor-tap:active,
+.lyrics-editor-tap.tapping {
+    transform: scale(0.985);
+    filter: brightness(1.08);
+}
+
+.lyrics-editor-tap:disabled {
+    background: var(--surface-2, rgba(255, 255, 255, 0.06));
+    color: var(--text-4);
+    cursor: default;
+}
+
+.lyrics-editor-tap-hint {
+    font-size: var(--fs-3xs);
+    font-weight: 600;
+    opacity: 0.72;
+}
+
+.lyrics-editor-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-4) var(--sp-3);
+    border-top: 1px solid var(--line);
+}
+
+.lyrics-editor-status {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-3xs);
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lyrics-editor-status.error {
+    color: var(--danger);
+}
+
+.lyrics-editor-status.success {
+    color: var(--accent);
 }

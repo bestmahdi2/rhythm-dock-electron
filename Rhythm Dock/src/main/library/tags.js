@@ -207,9 +207,50 @@ function write(filePath, tags = {}, cover) {
     }
 }
 
+/**
+ * Embeds a lyric into the file's own tags (Phase 9).
+ *
+ * Separate from `write()` because it is called from the lyrics editor rather than the
+ * tag editor, and because it must touch nothing else: a user who has just spent ten
+ * minutes tapping out an LRC should not risk their carefully curated album artist.
+ *
+ * The same copy-edit-rename dance applies, for the same reason. taglib maps `lyrics`
+ * onto the right frame per container (USLT for ID3v2, LYRICS for Vorbis comments,
+ * the lyrics atom for MP4).
+ */
+function writeLyrics(filePath, lyricsText) {
+    const lib = getTaglib();
+    if (!lib) return {ok: false, error: 'Tag editing is unavailable in this build.'};
+    if (!isWritable(filePath)) {
+        return {ok: false, error: `${path.extname(filePath) || 'This format'} cannot be written.`};
+    }
+    if (!fs.existsSync(filePath)) return {ok: false, error: 'The file no longer exists.'};
+
+    const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.rdtmp`);
+
+    let file = null;
+    try {
+        fs.copyFileSync(filePath, tempPath);
+        file = lib.File.createFromPath(tempPath);
+        file.tag.lyrics = String(lyricsText || '') || null;
+        file.save();
+        file.dispose();
+        file = null;
+
+        fs.renameSync(tempPath, filePath);
+        return {ok: true, filePath};
+    } catch (error) {
+        return {ok: false, error: error.message || 'Could not embed the lyrics.'};
+    } finally {
+        try { file?.dispose(); } catch { /* already disposed */ }
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    }
+}
+
 module.exports = {
     read,
     write,
+    writeLyrics,
     isWritable,
     WRITABLE_EXTENSIONS,
     TEXT_FIELDS,

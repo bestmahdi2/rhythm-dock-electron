@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <!-- No network, no inline script, no images beyond data URIs. The overlay renders
+         text the main window has already fetched and vetted; it needs nothing else. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'none';">
+    <title>Rhythm Dock — Lyrics</title>
+    <link rel="stylesheet" href="styles/overlay.css"/>
+</head>
+<body>
+<div id="overlay" class="overlay">
+    <!-- The whole strip is the drag handle; the buttons opt back out of it. -->
+    <div class="overlay-lines">
+        <p id="overlay-line" class="overlay-line">Rhythm Dock</p>
+        <p id="overlay-next" class="overlay-next"></p>
+    </div>
+
+    <div class="overlay-controls">
+        <button id="overlay-prev" class="overlay-btn" title="Previous" aria-label="Previous">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
+        </button>
+        <button id="overlay-play" class="overlay-btn" title="Play / pause" aria-label="Play or pause">
+            <svg id="overlay-play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+        </button>
+        <button id="overlay-next-btn" class="overlay-btn" title="Next" aria-label="Next">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"></path></svg>
+        </button>
+
+        <span class="overlay-divider"></span>
+
+        <button id="overlay-lock" class="overlay-btn" title="Click-through" aria-label="Toggle click-through">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm3 12a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"></path></svg>
+        </button>
+        <button id="overlay-close" class="overlay-btn" title="Close" aria-label="Close overlay">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+    </div>
+</div>
+
+<script src="js/overlay.js"></script>
+</body>
+</html>

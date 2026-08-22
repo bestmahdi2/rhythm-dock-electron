@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8"/>
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data: file:; connect-src 'self' https://lrclib.net;">
-    <link rel="stylesheet" href="styles.css"/>
+          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data: file:; connect-src 'self';">
+    <link rel="stylesheet" href="styles/app.css"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Rhythm Dock</title>
 </head>
@@ -424,6 +424,57 @@
                 </button>
             </section>
 
+            <!-- Lyrics ------------------------------------------------------ -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
+                        Lyrics
+                    </span>
+                    <span id="lyrics-source-value" class="settings-value">-</span>
+                </div>
+                <span class="settings-hint">Typography applies to the lyric strip, the full-screen view and the desktop overlay.</span>
+                <div class="settings-row">
+                    <label for="lyrics-font-size">Size</label>
+                    <input type="range" id="lyrics-font-size" class="settings-range"
+                           min="11" max="34" step="1"/>
+                    <span id="lyrics-font-size-value" class="settings-value">15px</span>
+                </div>
+                <div class="settings-row">
+                    <label for="lyrics-line-height">Spacing</label>
+                    <input type="range" id="lyrics-line-height" class="settings-range"
+                           min="1" max="2.4" step="0.05"/>
+                    <span id="lyrics-line-height-value" class="settings-value">1.4</span>
+                </div>
+                <div class="settings-row">
+                    <label for="lyrics-font-weight">Weight</label>
+                    <select id="lyrics-font-weight" class="settings-select">
+                        <option value="400">Regular</option>
+                        <option value="500">Medium</option>
+                        <option value="600">Semibold</option>
+                        <option value="700">Bold</option>
+                        <option value="800">Extrabold</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <label for="lyrics-align">Alignment</label>
+                    <select id="lyrics-align" class="settings-select">
+                        <option value="center">Centre</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                    </select>
+                </div>
+                <input type="text" id="lyrics-font-family" class="settings-input full"
+                       placeholder="Font family - blank to use the app font"/>
+                <span class="settings-hint">Sources are tried in order until one has the song: your own .lrc file, the file's tags, then the online databases.</span>
+                <input type="password" id="lyrics-genius-token" class="settings-input full"
+                       placeholder="Genius API token (optional, improves matching)"/>
+                <label class="settings-check">
+                    <input type="checkbox" id="lyrics-autosave-lrc"/>
+                    <span>Save an .lrc file beside the track when I edit lyrics</span>
+                </label>
+            </section>
+
             <!-- Lyrics translation ---------------------------------------- -->
             <section class="settings-block">
                 <div class="settings-block-head">
@@ -742,6 +793,21 @@
         <span id="manual-scroll-label">Enable Manual Scroll</span>
     </button>
 
+    <button class="dropdown-item" id="lyrics-overlay-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7v2H8v2h8v-2h-2v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12H3V5h18v10z"></path></svg>
+        <span id="lyrics-overlay-label">Show Desktop Overlay</span>
+    </button>
+    <button class="dropdown-item" id="edit-lyrics-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path></svg>
+        <span>Edit &amp; Sync Lyrics</span>
+        <kbd class="menu-key">E</kbd>
+    </button>
+    <button class="dropdown-item" id="fullscreen-lyrics-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"></path></svg>
+        <span>Full-Screen Lyrics</span>
+        <kbd class="menu-key">F</kbd>
+    </button>
+
     <hr class="dropdown-divider">
     <button class="dropdown-item" id="refetch-lyrics-btn" role="menuitem">
         <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
@@ -778,10 +844,102 @@
     </button>
 </div>
 
-<script src="audio/engine.js"></script>
-<script src="audio/equalizer.js"></script>
-<script src="audio/devices.js"></script>
-<script src="timer.js"></script>
-<script src="renderer.js"></script>
+<!-- ====================================================================
+     Lyrics editor with tap-to-sync (Phase 9)
+
+     Two modes over one piece of state. "Text" is a plain textarea for pasting
+     or fixing words; "Sync" walks the same lines one at a time while the track
+     plays, stamping each one as you tap. Switching between them never loses
+     stamps, because the stamps live in the line model, not in the textarea.
+     ==================================================================== -->
+<div id="lyrics-editor" class="lyrics-editor hidden" role="dialog"
+     aria-modal="true" aria-label="Edit and sync lyrics">
+    <div class="lyrics-editor-head">
+        <div class="lyrics-editor-titles">
+            <div id="lyrics-editor-title" class="lyrics-editor-title">No song loaded</div>
+            <div id="lyrics-editor-artist" class="lyrics-editor-artist"></div>
+        </div>
+        <div class="lyrics-editor-modes" role="tablist">
+            <button id="lyrics-editor-mode-text" class="lyrics-editor-mode active"
+                    role="tab">Text</button>
+            <button id="lyrics-editor-mode-sync" class="lyrics-editor-mode"
+                    role="tab">Sync</button>
+        </div>
+        <button id="lyrics-editor-close" class="lyrics-editor-close"
+                title="Close (Esc)" aria-label="Close editor">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+    </div>
+
+    <div id="lyrics-editor-text-pane" class="lyrics-editor-pane">
+        <textarea id="lyrics-editor-textarea" class="lyrics-editor-textarea" spellcheck="false"
+                  placeholder="Paste or type the lyrics, one line per line. Existing timestamps are kept."></textarea>
+        <span class="settings-hint">One line per lyric line. Blank lines are ignored. Switch to Sync to time them.</span>
+    </div>
+
+    <div id="lyrics-editor-sync-pane" class="lyrics-editor-pane hidden">
+        <div class="lyrics-editor-transport">
+            <button id="lyrics-editor-play" class="settings-button" title="Play / pause (P)">Play</button>
+            <button id="lyrics-editor-back" class="settings-button" title="Back 3 seconds">-3s</button>
+            <span id="lyrics-editor-clock" class="settings-value">0:00</span>
+            <button id="lyrics-editor-undo" class="settings-button" title="Undo last tap (Backspace)">Undo</button>
+            <button id="lyrics-editor-restart" class="settings-button danger" title="Clear every timestamp">Clear</button>
+        </div>
+        <div id="lyrics-editor-lines" class="lyrics-editor-lines" tabindex="0"></div>
+        <button id="lyrics-editor-tap" class="lyrics-editor-tap">
+            Tap on the beat<span class="lyrics-editor-tap-hint">Space or Enter</span>
+        </button>
+    </div>
+
+    <div class="lyrics-editor-foot">
+        <span id="lyrics-editor-status" class="lyrics-editor-status"></span>
+        <label class="settings-check">
+            <input type="checkbox" id="lyrics-editor-write-lrc"/>
+            <span>.lrc file</span>
+        </label>
+        <label class="settings-check">
+            <input type="checkbox" id="lyrics-editor-embed"/>
+            <span>Embed in tags</span>
+        </label>
+        <button id="lyrics-editor-save" class="settings-button primary">Save</button>
+    </div>
+</div>
+
+<!-- ====================================================================
+     Full-screen lyrics (Phase 9)
+
+     A sibling of the main container rather than a child, so the dock's own
+     layout rules, drag regions and tab sizing have no say over it. The lyric
+     strip itself is *moved* in here on entry and moved back on exit, which
+     keeps a single element, a single render path and a single tick loop -
+     duplicating them was how the two views drifted out of sync.
+     ==================================================================== -->
+<div id="lyrics-fullscreen" class="lyrics-fullscreen hidden" role="dialog"
+     aria-modal="true" aria-label="Full-screen lyrics">
+    <div id="lyrics-fullscreen-backdrop" class="lyrics-fullscreen-backdrop"></div>
+    <div class="lyrics-fullscreen-scrim"></div>
+
+    <button id="lyrics-fullscreen-close" class="lyrics-fullscreen-close"
+            title="Exit full screen (Esc)" aria-label="Exit full screen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+    </button>
+
+    <div class="lyrics-fullscreen-head">
+        <img id="lyrics-fullscreen-art" class="lyrics-fullscreen-art"
+             src="../assets/images/placeholder.png" alt=""/>
+        <div class="lyrics-fullscreen-meta">
+            <div id="lyrics-fullscreen-title" class="lyrics-fullscreen-title">No song loaded</div>
+            <div id="lyrics-fullscreen-artist" class="lyrics-fullscreen-artist"></div>
+        </div>
+    </div>
+
+    <div id="lyrics-fullscreen-body" class="lyrics-fullscreen-body"></div>
+</div>
+
+<script src="js/audio/engine.js"></script>
+<script src="js/audio/equalizer.js"></script>
+<script src="js/audio/devices.js"></script>
+<script src="js/timer.js"></script>
+<script src="js/renderer.js"></script>
 </body>
 </html>

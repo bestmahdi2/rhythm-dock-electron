@@ -1,0 +1,182 @@
+/* ==========================================================================
+   Desktop lyrics overlay (Phase 9)
+
+   Standalone rather than sharing app.css: that file is 3,000 lines of dock
+   layout, ten themes and panel chrome, none of which this window renders. What
+   it does need is the user's lyric typography, which the main window pushes
+   over as custom properties on :root.
+
+   The window is transparent, so everything visible here is drawn by this file.
+   The pill has to be legible over an arbitrary desktop - a photo wallpaper, a
+   white document, a video - which is why the plate is dark and the text carries
+   its own shadow rather than relying on the backdrop.
+   ========================================================================== */
+:root {
+    --lyric-font-family: inherit;
+    --lyric-font-size: 15px;
+    --lyric-font-weight: 700;
+    --lyric-line-height: 1.35;
+    --lyric-align: center;
+
+    --overlay-plate: rgba(12, 15, 20, 0.62);
+    --overlay-text: #f4f6f8;
+    --overlay-text-dim: rgba(244, 246, 248, 0.58);
+    --overlay-accent: #35d07f;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system,
+    'Helvetica Neue', Arial, sans-serif;
+    /* Text selection on a floating strip only ever happens by accident. */
+    user-select: none;
+    cursor: default;
+}
+
+.overlay {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 6px;
+    padding: 14px 18px 10px;
+    border-radius: 16px;
+    background: var(--overlay-plate);
+    backdrop-filter: blur(18px) saturate(1.3);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    -webkit-app-region: drag;
+}
+
+.overlay-lines {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    text-align: var(--lyric-align);
+    overflow: hidden;
+}
+
+.overlay-line {
+    margin: 0;
+    max-width: 100%;
+    font-family: var(--lyric-font-family);
+    /* Scaled up from the docked size: this is read from across a desk, at a glance,
+       while the user is doing something else. */
+    font-size: clamp(15px, calc(var(--lyric-font-size) * 1.5), 40px);
+    font-weight: var(--lyric-font-weight);
+    line-height: var(--lyric-line-height);
+    color: var(--overlay-text);
+    /* Survives a light wallpaper showing through the plate. */
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+    overflow-wrap: break-word;
+    word-break: break-word;
+    transition: opacity 220ms ease;
+}
+
+/* The line after the current one, at a glance. Small enough to ignore, present
+   enough to sing from. */
+.overlay-next {
+    margin: 0;
+    max-width: 100%;
+    font-family: var(--lyric-font-family);
+    font-size: clamp(11px, calc(var(--lyric-font-size) * 0.95), 22px);
+    font-weight: 500;
+    color: var(--overlay-text-dim);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.overlay-line.idle {
+    color: var(--overlay-text-dim);
+    font-weight: 500;
+}
+
+/* Controls are hidden until the pointer arrives. The point of the overlay is the
+   lyric; buttons sitting there permanently would be noise on every wallpaper. */
+.overlay-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 160ms ease;
+    -webkit-app-region: no-drag;
+}
+
+.overlay:hover .overlay-controls,
+.overlay-controls:focus-within {
+    opacity: 1;
+}
+
+.overlay-btn {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--overlay-text-dim);
+    cursor: pointer;
+    transition: color 140ms ease, background 140ms ease;
+}
+
+.overlay-btn:hover {
+    color: var(--overlay-text);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.overlay-btn:focus-visible {
+    outline: 2px solid var(--overlay-accent);
+    outline-offset: 1px;
+}
+
+.overlay-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+}
+
+.overlay-btn.active {
+    color: var(--overlay-accent);
+}
+
+.overlay-divider {
+    width: 1px;
+    height: 14px;
+    margin: 0 4px;
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* Click-through mode: the plate fades back so it reads as "not interactive", and
+   the controls stop appearing on hover since the pointer is not really here. */
+.overlay.click-through {
+    background: rgba(12, 15, 20, 0.34);
+}
+
+.overlay.click-through:hover .overlay-controls {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .overlay-line,
+    .overlay-controls,
+    .overlay-btn {
+        transition: none;
+    }
+}

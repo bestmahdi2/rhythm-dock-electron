@@ -47,6 +47,20 @@ contextBridge.exposeInMainWorld('api', {
     onLibraryUpdated: (callback) => ipcRenderer.on('library-updated', (_e, payload) => callback(payload)),
     onScanProgress: (callback) => ipcRenderer.on('scan-progress', (_e, payload) => callback(payload)),
     onScanTruncated: (callback) => ipcRenderer.on('scan-truncated', (_e, payload) => callback(payload)),
+    onScanComplete: (callback) => ipcRenderer.on('scan-complete', (_e, payload) => callback(payload)),
+
+    // --- Persistent library & play statistics (Phase 7) ---
+    libraryRoots: () => ipcRenderer.invoke('library-roots'),
+    libraryStats: () => ipcRenderer.invoke('library-stats'),
+    libraryView: (view, limit) => ipcRenderer.invoke('library-view', view, limit),
+    libraryAddRoot: () => ipcRenderer.invoke('library-add-root'),
+    libraryRemoveRoot: (rootId) => ipcRenderer.invoke('library-remove-root', rootId),
+    libraryRescan: (rootId) => ipcRenderer.invoke('library-rescan', rootId ?? null),
+    libraryRecheckMissing: () => ipcRenderer.invoke('library-recheck-missing'),
+    libraryRecordPlay: (filePath, listenedMs) => ipcRenderer.send('library-record-play', filePath, listenedMs),
+    libraryRecordSkip: (filePath, listenedMs) => ipcRenderer.send('library-record-skip', filePath, listenedMs),
+    libraryExport: () => ipcRenderer.invoke('library-export'),
+    libraryImport: () => ipcRenderer.invoke('library-import'),
 
     // --- File operations for the file dropdown (#13) ---
     openPath: (filePath) => ipcRenderer.invoke('open-path', filePath),
@@ -69,6 +83,29 @@ contextBridge.exposeInMainWorld('api', {
     translateLyrics: (payload) => ipcRenderer.invoke('translate-lyrics', payload),
     getTranslationConfig: () => ipcRenderer.invoke('get-translation-config'),
     setTranslationConfig: (config) => ipcRenderer.invoke('set-translation-config', config),
+
+    // --- Lyrics (Phase 9) ---
+    lyricsResolve: (request) => ipcRenderer.invoke('lyrics:resolve', request),
+    lyricsSave: (payload) => ipcRenderer.invoke('lyrics:save', payload),
+    lyricsGetOffset: (songKey) => ipcRenderer.invoke('lyrics:get-offset', songKey),
+    lyricsSetOffset: (songKey, offsetMs) => ipcRenderer.invoke('lyrics:set-offset', {songKey, offsetMs}),
+    lyricsGetConfig: () => ipcRenderer.invoke('lyrics:get-config'),
+    lyricsSetConfig: (config) => ipcRenderer.invoke('lyrics:set-config', config),
+
+    // --- Window / full-screen lyrics (Phase 9) ---
+    setFullscreen: (enabled) => ipcRenderer.invoke('window:set-fullscreen', enabled),
+    isFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
+    onFullscreenChanged: (callback) => ipcRenderer.on(
+        'window:fullscreen-changed', (_e, enabled) => callback(enabled)
+    ),
+
+    // --- Desktop lyrics overlay (Phase 9) ---
+    overlayToggle: (enabled) => ipcRenderer.invoke('overlay:toggle', enabled),
+    overlayIsOpen: () => ipcRenderer.invoke('overlay:is-open'),
+    overlayUpdate: (payload) => ipcRenderer.send('overlay:update', payload),
+    overlayStyle: (payload) => ipcRenderer.send('overlay:style', payload),
+    onOverlayRequestState: (callback) => ipcRenderer.on('overlay:request-state', () => callback()),
+    onOverlayClosed: (callback) => ipcRenderer.on('overlay:closed', () => callback()),
 
     // --- Tag editor ---
     readTags: (filePath) => ipcRenderer.invoke('read-tags', filePath),
