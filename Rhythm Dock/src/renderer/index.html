@@ -45,6 +45,14 @@
 
             <span class="titlebar-sep" aria-hidden="true"></span>
 
+            <button id="lock-btn" title="Lock the controls (Ctrl+L)">
+                <svg id="lock-open-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm6-9h-1V6A5 5 0 0 0 7.1 5.5a1 1 0 0 0 1.94.5A3 3 0 0 1 15 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"></path>
+                </svg>
+                <svg id="lock-closed-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
+                    <path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM9 8V6a3 3 0 0 1 6 0v2H9z"></path>
+                </svg>
+            </button>
             <button id="pin-btn" title="Keep on top">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"></path>
@@ -150,7 +158,7 @@
                         <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
                     </svg>
                 </button>
-                <button id="loop-btn" title="Loop">
+                <button id="loop-btn" title="Repeat: off → all → one">
                     <svg id="loop-off-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
                         <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
                     </svg>
@@ -160,6 +168,11 @@
                     <svg id="loop-one-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
                         <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v2.5H13z"></path>
                     </svg>
+                </button>
+                <!-- A-B repeat: one button cycling set-A -> set-B -> clear, which
+                     is cheaper to learn than two buttons and a clear. -->
+                <button id="ab-repeat-btn" title="A-B repeat — loop a section. Click to set the start, again for the end, again to clear. (Repeat whole tracks is the loop button.)">
+                    <span id="ab-repeat-label" class="ab-label">A-B</span>
                 </button>
                 <button id="like-btn" title="Add to favourites">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -244,6 +257,99 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
                     <span id="toggle-magnifier-label">Disable Magnifier</span>
                 </button>
+            </section>
+
+            <!-- Library --------------------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6zm16-4H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"></path></svg>
+                        Library
+                    </span>
+                    <span id="library-stats" class="settings-value">Empty</span>
+                </div>
+                <span class="settings-hint">Folders are remembered and rescanned incrementally — only changed files are re-read.</span>
+
+                <div id="library-roots" class="library-roots"></div>
+
+                <div class="settings-row">
+                    <button id="library-add-root" class="settings-button primary">Add Folder</button>
+                    <button id="library-rescan-all" class="settings-button">Rescan All</button>
+                    <button id="library-recheck" class="settings-button" title="Look for tracks that were missing and have come back">Find Missing</button>
+                </div>
+                <div class="settings-row">
+                    <button id="library-export" class="settings-button">Back Up</button>
+                    <button id="library-import" class="settings-button">Restore</button>
+                </div>
+                <span id="library-status" class="settings-hint"></span>
+            </section>
+
+            <!-- Audio ----------------------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path></svg>
+                        Audio
+                    </span>
+                </div>
+
+                <div class="settings-row">
+                    <label for="output-device">Output</label>
+                    <select id="output-device" class="settings-select"></select>
+                </div>
+
+                <span class="settings-hint">Also play on — mirror the same audio to more devices at once. Use the delay to line up a slower Bluetooth device.</span>
+                <div id="extra-outputs" class="extra-outputs"></div>
+
+                <div class="settings-row">
+                    <label for="crossfade-slider">Crossfade</label>
+                    <input type="range" id="crossfade-slider" min="0" max="12000" step="500" value="0"/>
+                    <span id="crossfade-value" class="settings-value">Off</span>
+                </div>
+
+                <div class="settings-row">
+                    <label for="balance-slider">Balance</label>
+                    <input type="range" id="balance-slider" min="-1" max="1" step="0.05" value="0"/>
+                    <span id="balance-value" class="settings-value">Centre</span>
+                </div>
+
+                <label class="settings-check">
+                    <input type="checkbox" id="gapless-toggle" checked/>
+                    <span>Gapless playback — buffer the next track early</span>
+                </label>
+                <label class="settings-check">
+                    <input type="checkbox" id="preserve-pitch-toggle" checked/>
+                    <span>Keep pitch when changing speed</span>
+                </label>
+                <label class="settings-check">
+                    <input type="checkbox" id="limiter-toggle" checked/>
+                    <span>Safety limiter — stops volume boost clipping</span>
+                </label>
+                <label class="settings-check">
+                    <input type="checkbox" id="skip-silence-toggle"/>
+                    <span>Skip silence at the start and end of tracks</span>
+                </label>
+                <label class="settings-check">
+                    <input type="checkbox" id="mono-toggle"/>
+                    <span>Mono downmix</span>
+                </label>
+                <label class="settings-check">
+                    <input type="checkbox" id="swap-toggle"/>
+                    <span>Swap left and right channels</span>
+                </label>
+
+                <div class="settings-row">
+                    <label for="replaygain-mode">Volume levelling</label>
+                    <select id="replaygain-mode" class="settings-select">
+                        <option value="album">Album gain (keeps album dynamics)</option>
+                        <option value="track">Track gain (better for shuffle)</option>
+                    </select>
+                </div>
+                <label class="settings-check">
+                    <input type="checkbox" id="replaygain-toggle" checked/>
+                    <span>Apply ReplayGain tags when a file has them</span>
+                </label>
+                <span class="settings-hint">Rhythm Dock reads existing ReplayGain tags but does not calculate them — files without the tags play unchanged.</span>
             </section>
 
             <!-- Equalizer ------------------------------------------------- -->
@@ -341,6 +447,18 @@
                        placeholder="https://your-server/translate"/>
             </section>
 
+            <!-- Shortcuts ------------------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zM11 8h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"></path></svg>
+                        Keyboard &amp; Mouse
+                    </span>
+                </div>
+                <span class="settings-hint">Shortcuts work whenever the player has focus and you are not typing in a field.</span>
+                <div id="shortcuts-list" class="shortcuts-list"></div>
+            </section>
+
             <!-- Sharing --------------------------------------------------- -->
             <section class="settings-block">
                 <div class="settings-block-head">
@@ -402,6 +520,7 @@
                 </svg>
             </button>
         </div>
+        <div id="library-view-chips" class="chip-row library-view-chips"></div>
         <div id="playlist-results" class="playlist-results"></div>
         <div id="playlist-status" class="playlist-status"></div>
     </div>

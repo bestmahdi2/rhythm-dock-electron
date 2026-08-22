@@ -569,7 +569,13 @@ label,
    3. TITLE BAR
    -------------------------------------------------------------------------- */
 
+/* The panels cover the whole shell, and they are no-drag. That silently removed
+   the only draggable strip in the window whenever a tab was open, so the app
+   could not be moved from anywhere except the player. The bar now sits above
+   them, and the panels start below it. */
 .header-bar {
+    position: relative;
+    z-index: 1500;
     display: flex;
     align-items: center;
     gap: var(--sp-3);
@@ -1116,8 +1122,11 @@ label,
     box-shadow: var(--shadow-2);
 }
 
+/* :focus-within used to keep this open long after the pointer left, because the
+   slider held focus until something else took it -- so the popup sat over the UI
+   until an unrelated click. A drag latch closes on pointerup instead. */
 .volume-control-wrapper:hover .volume-slider-popup,
-.volume-control-wrapper:focus-within .volume-slider-popup {
+.volume-control-wrapper.dragging .volume-slider-popup {
     display: block;
 }
 
@@ -1661,12 +1670,16 @@ input[type="range"]:hover::-webkit-slider-thumb {
 .tab-panel,
 .playlist-panel {
     position: absolute;
-    inset: 0;
+    /* Clears the title bar, which stays visible and draggable in every tab. */
+    top: calc(var(--ctl-md) + var(--sp-3));
+    right: 0;
+    bottom: 0;
+    left: 0;
     z-index: 1400;
 
     display: flex;
     flex-direction: column;
-    padding: var(--sp-5) var(--sp-5) 46px;
+    padding: var(--sp-4) var(--sp-5) 46px;
 
     background-color: var(--panel-bg);
     backdrop-filter: blur(24px) saturate(160%);
@@ -2413,6 +2426,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
    settings rows rather than as menu items. */
 
 .settings-action {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--sp-4);
@@ -2467,22 +2481,269 @@ input[type="range"]:hover::-webkit-slider-thumb {
     fill: var(--accent);
 }
 
-/* A trailing dot makes on/off legible without reading the label. */
+/* These rows are toggles, so they get a switch. A dot said "on or off" but not
+   "you can change this"; a switch says both, and matches what the rest of the
+   settings panel already uses. Drawn with pseudo-elements because the row has to
+   stay a <button> -- the existing handlers and label rewrites depend on it. */
 .settings-action::after {
     content: '';
     flex-shrink: 0;
-    width: 8px;
-    height: 8px;
+    width: 34px;
+    height: 19px;
+    border-radius: var(--r-pill);
+    background: var(--surface-3);
+    box-shadow: inset 0 0 0 1px var(--line);
+    transition: background-color var(--dur) var(--ease);
+}
+
+.settings-action::before {
+    content: '';
+    order: 1;
+    position: absolute;
+    right: calc(var(--sp-3) + 17px);
+    width: 15px;
+    height: 15px;
     border-radius: 50%;
-    background: transparent;
-    box-shadow: inset 0 0 0 1.5px var(--line-strong);
-    transition: background-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    transition: transform var(--dur) var(--ease-out);
 }
 
 .settings-action.active::after {
     background: var(--accent);
-    box-shadow: inset 0 0 0 1.5px var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.settings-action.active::before {
+    transform: translateX(15px);
+}
+
+/* The A-B button is a text pill rather than a glyph: no icon reads as "loop
+   between two points", and the label doubles as the state readout. */
+#ab-repeat-btn .ab-label {
+    font-size: var(--fs-3xs);
+    font-weight: 750;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    color: inherit;
+}
+
+#ab-repeat-btn.active {
+    color: var(--accent);
+    background-color: var(--accent-soft);
+}
+
+/* --- Lock ----------------------------------------------------------------
+   Everything is inert except the lock button. Done with pointer-events rather
+   than by disabling handlers one at a time: it cannot be forgotten when a new
+   control is added, and it covers drags and wheels as well as clicks. */
+
+.container.locked > *:not(.header-bar),
+.container.locked .header-bar > *:not(.window-controls),
+.container.locked .window-controls > *:not(#lock-btn) {
+    pointer-events: none;
+}
+
+.container.locked {
+    /* The window itself stays draggable; only the controls are frozen. */
+    -webkit-app-region: drag;
+}
+
+.container.locked #lock-btn {
+    pointer-events: auto;
+    color: var(--accent);
+    background-color: var(--accent-soft);
+}
+
+/* A hairline frame is enough of a reminder without dimming content that the
+   user still wants to read. */
+.container.locked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1.5px var(--accent-ring);
+    pointer-events: none;
+    z-index: 2600;
+}
+
+/* --- Simultaneous outputs ------------------------------------------------- */
+
+.extra-outputs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    margin: var(--sp-2) 0 var(--sp-3);
+}
+
+.output-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+}
+
+.output-row-check {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-top: 0;
+}
+
+.output-row-check span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.output-delay {
+    flex: 0 0 74px;
+    width: 74px;
+}
+
+.output-delay:disabled {
+    opacity: 0.35;
+}
+
+/* --- Library views ------------------------------------------------------- */
+
+.library-view-chips {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-bottom: var(--sp-3);
+    padding-bottom: 2px;
+    scrollbar-width: none;
+}
+
+.library-view-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.library-view-chips .chip {
+    flex-shrink: 0;
+}
+
+/* --- Shortcuts guide ------------------------------------------------------ */
+
+.shortcuts-list {
+    display: flex;
+    flex-direction: column;
+    margin-top: var(--sp-2);
+}
+
+.shortcut-group {
+    margin: var(--sp-4) 0 var(--sp-1);
+    font-size: var(--fs-3xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.shortcut-group:first-child {
+    margin-top: 0;
+}
+
+.shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-4);
+    padding: var(--sp-2) 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.shortcut-row:last-child {
+    border-bottom: none;
+}
+
+.shortcut-desc {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-2xs);
+    color: var(--text-2);
+}
+
+.shortcut-key {
+    flex-shrink: 0;
+    padding: 2px var(--sp-3);
+    font-family: inherit;
+    font-size: var(--fs-3xs);
+    font-weight: 650;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: var(--r-xs);
+    white-space: nowrap;
+}
+
+/* --- Library roots ----------------------------------------------------------
+   A list of folders, each with its own scan and remove action. Kept dense: this
+   is a settings list, not a browsing surface. */
+
+.library-roots {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    margin: var(--sp-3) 0;
+}
+
+.library-root {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+}
+
+.library-root-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Long paths truncate from the *left*, because the folder name at the end is
+   what identifies it -- not the drive letter at the start. */
+.library-root-path {
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
+}
+
+.library-root-meta {
+    font-size: var(--fs-3xs);
+    color: var(--text-4);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.library-root-empty {
+    padding: var(--sp-4) var(--sp-3);
+    font-size: var(--fs-2xs);
+    color: var(--text-4);
+    text-align: center;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--r-sm);
+}
+
+.settings-hint.ok {
+    color: var(--accent);
+}
+
+.settings-hint.error {
+    color: var(--danger);
 }
 
 /* --- Tag editor -------------------------------------------------------------
@@ -2956,6 +3217,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .container.vertical-mode .tab-panel,
 .container.vertical-mode .playlist-panel {
+    top: calc(var(--ctl-sm) + var(--sp-2));
     padding: var(--sp-3) var(--sp-3) 34px;
     border-radius: var(--r-lg);
 }

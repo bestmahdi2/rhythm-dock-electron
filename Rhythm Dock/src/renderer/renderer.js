@@ -271,6 +271,19 @@ function showVolumeFeedback(volume) {
 }
 
 /**
+ * Brief confirmation over the album art. Reuses the volume overlay rather than
+ * adding a second floating surface -- in a 380px window there is only room for
+ * one, and the user is already looking at that spot when they change something.
+ */
+function showToast(message, ms = 1400) {
+    if (!volumeOverlay || !volumeOverlayText) return;
+    volumeOverlayText.textContent = message;
+    volumeOverlay.classList.add('show');
+    clearTimeout(volumeOverlayTimeout);
+    volumeOverlayTimeout = setTimeout(() => volumeOverlay.classList.remove('show'), ms);
+}
+
+/**
  * Updates the loop button's icon, tooltip, and active state based on the current loopMode.
  */
 function updateLoopButtonUI() {
@@ -526,6 +539,10 @@ function updateUI() {
             }
         }
     }
+
+    // Accrues listened time for the play/skip decision in finishListen().
+    tickListen(isPlaying);
+
     requestAnimationFrame(updateUI);
 }
 
@@ -883,6 +900,624 @@ function applyRoomControl({action, value}) {
     // Answer immediately rather than waiting for the next throttled tick, so the
     // member who pressed the button sees it respond at once.
     publishRoomState();
+}
+
+// --- Audio engine settings (Phase 8) ---------------------------------------------
+//
+// These all map one-to-one onto AudioEngine setters. They live together here so
+// that loading them at startup and persisting them on change is one loop rather
+// than a dozen scattered listeners.
+
+const AUDIO_SETTINGS = [
+    {key: 'crossfadeMs',       fallback: 0,     apply: (v) => audio.setCrossfade(v)},
+    {key: 'gapless',           fallback: true,  apply: (v) => audio.setGapless(v)},
+    {key: 'preservePitch',     fallback: true,  apply: (v) => audio.setPreservePitch(v)},
+    {key: 'limiterEnabled',    fallback: true,  apply: (v) => audio.setLimiter(v)},
+    {key: 'replayGainEnabled', fallback: true,  apply: (v) => audio.setReplayGainEnabled(v)},
+    {key: 'skipSilence',       fallback: false, apply: (v) => audio.setSkipSilence(v)},
+    {key: 'monoMix',           fallback: false, apply: (v) => audio.setMonoMix(v)},
+    {key: 'swapChannels',      fallback: false, apply: (v) => audio.setSwapChannels(v)},
+    {key: 'audioBalance',      fallback: 0,     apply: (v) => audio.setBalance(v)},
+    {key: 'outputDeviceId',    fallback: '',    apply: (v) => audio.setOutputDevice(v)},
+];
+
+/** Which ReplayGain value to prefer. Album is the better default -- see below. */
+let replayGainMode = 'album';
+
+async function loadAudioSettings() {
+    for (const setting of AUDIO_SETTINGS) {
+        const stored = await window.api.getStoreValue(setting.key);
+        const value = stored === undefined || stored === null ? setting.fallback : stored;
+        try {
+            setting.apply(value);
+        } catch (error) {
+            console.warn(`[audio] Could not apply ${setting.key}:`, error);
+        }
+    }
+    replayGainMode = (await window.api.getStoreValue('replayGainMode')) || 'album';
+}
+
+function saveAudioSetting(key, value) {
+    window.api.setStoreValue(key, value);
+}
+
+/**
+ * Applies the ReplayGain carried in the track's tags.
+ *
+ * Album gain is preferred over track gain because normalising every track of an
+ * album independently flattens the dynamics between them -- the quiet interlude
+ * before the loud finale is *meant* to be quiet. Track gain is the right choice
+ * for shuffled playlists, so it is a setting rather than a constant.
+ */
+function applyReplayGainFor(songData) {
+    const gain = songData?.replayGain;
+    if (!gain) {
+        audio.setReplayGain(0);
+        return;
+    }
+    const preferred = replayGainMode === 'track'
+        ? (gain.track ?? gain.album)
+        : (gain.album ?? gain.track);
+    audio.setReplayGain(Number.isFinite(preferred) ? preferred : 0);
+}
+
+/**
+ * Tells the engine what is coming next, so it can buffer it before the current
+ * track ends. Without this, gapless and crossfade have nothing to fade into.
+ */
+function updateNextTrackHint() {
+    if (!playlist.length) {
+        audio.setNextTrack(null);
+        return;
+    }
+    if (loopMode === 'one') {
+        // Repeating one track needs no handoff, and preloading it would waste a
+        // descriptor on a file that is already open.
+        audio.setNextTrack(null);
+        return;
+    }
+
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < playlist.length) {
+        audio.setNextTrack(playlist[nextIndex]);
+    } else if (loopMode === 'all' && playlist.length > 1) {
+        audio.setNextTrack(playlist[0]);
+    } else {
+        audio.setNextTrack(null);
+    }
+}
+
+// --- A-B repeat ------------------------------------------------------------------
+
+const abButton = document.getElementById('ab-repeat-btn');
+const abLabel = document.getElementById('ab-repeat-label');
+
+// null -> waiting for A -> waiting for B -> looping -> null
+let pendingLoopStart = null;
+
+function renderAbState() {
+    if (!abButton) return;
+    const {start, end} = audio.getLoop();
+    const looping = start != null && end != null;
+
+    abButton.classList.toggle('active', looping || pendingLoopStart != null);
+    if (abLabel) {
+        abLabel.textContent = looping ? 'A-B' : (pendingLoopStart != null ? 'A' : 'A-B');
+    }
+    abButton.title = looping
+        ? `Looping ${formatTime(start)}-${formatTime(end)}. Click to clear.`
+        : (pendingLoopStart != null
+            ? `Loop starts at ${formatTime(pendingLoopStart)}. Click again to set the end.`
+            : 'A-B repeat: click to set the loop start');
+}
+
+/** One button, three states. Cheaper to learn than two buttons and a clear. */
+function cycleAbRepeat() {
+    const {start} = audio.getLoop();
+
+    if (start != null) {
+        audio.clearLoop();
+        pendingLoopStart = null;
+    } else if (pendingLoopStart == null) {
+        pendingLoopStart = audio.seek();
+    } else {
+        const end = audio.seek();
+        // A backwards selection is a mis-click, not an instruction.
+        if (end > pendingLoopStart + 0.5) {
+            audio.setLoop(pendingLoopStart, end);
+        }
+        pendingLoopStart = null;
+    }
+    renderAbState();
+}
+
+// --- Output devices ----------------------------------------------------------------
+
+/**
+ * Populates the output picker.
+ *
+ * Device *labels* are only exposed once the page has been granted media
+ * permission, which a music player never asks for. So unlabelled devices are
+ * shown positionally rather than hidden -- an unhelpful name still beats an
+ * empty list.
+ */
+async function populateOutputDevices() {
+    const select = document.getElementById('output-device');
+    if (!select || !navigator.mediaDevices?.enumerateDevices) return;
+
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter((device) => device.kind === 'audiooutput');
+        const current = await window.api.getStoreValue('outputDeviceId') || '';
+
+        select.innerHTML = '';
+        const systemOption = document.createElement('option');
+        systemOption.value = '';
+        systemOption.textContent = 'System default';
+        select.appendChild(systemOption);
+
+        outputs.forEach((device, index) => {
+            if (!device.deviceId || device.deviceId === 'default') return;
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `Output ${index + 1}`;
+            select.appendChild(option);
+        });
+
+        select.value = current;
+    } catch (error) {
+        console.warn('[audio] Could not enumerate output devices:', error);
+    }
+}
+
+// --- Simultaneous outputs ----------------------------------------------------------
+//
+// The list of extra devices to mirror onto, plus each one's delay. The engine
+// keeps the audio itself aligned; these numbers exist purely to compensate for
+// the different latencies of the devices themselves.
+
+/** Renders the checkbox + delay row for every available output device. */
+async function renderExtraOutputs() {
+    const host = document.getElementById('extra-outputs');
+    if (!host || !navigator.mediaDevices?.enumerateDevices) return;
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter((device) => device.kind === 'audiooutput'
+        && device.deviceId && device.deviceId !== 'default');
+    const primary = document.getElementById('output-device')?.value || '';
+    const active = new Map(audio.listOutputs().map((o) => [o.deviceId, o.delayMs]));
+
+    host.innerHTML = '';
+
+    if (!outputs.length) {
+        const empty = document.createElement('div');
+        empty.className = 'library-root-empty';
+        empty.textContent = 'No other output devices were found.';
+        host.appendChild(empty);
+        return;
+    }
+
+    outputs.forEach((device, index) => {
+        // Mirroring the primary output onto itself would double it.
+        if (device.deviceId === primary) return;
+
+        const row = document.createElement('div');
+        row.className = 'output-row';
+
+        const label = document.createElement('label');
+        label.className = 'settings-check output-row-check';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = active.has(device.deviceId);
+
+        const name = document.createElement('span');
+        name.textContent = device.label || `Output ${index + 1}`;
+
+        label.append(checkbox, name);
+
+        const delay = document.createElement('input');
+        delay.type = 'range';
+        delay.min = '0';
+        delay.max = '500';
+        delay.step = '10';
+        delay.value = String(active.get(device.deviceId) ?? 0);
+        delay.className = 'output-delay';
+        delay.title = 'Delay this output to line it up with your slowest device';
+        delay.disabled = !checkbox.checked;
+
+        const readout = document.createElement('span');
+        readout.className = 'settings-value';
+        readout.textContent = `${delay.value} ms`;
+
+        checkbox.addEventListener('change', async () => {
+            if (checkbox.checked) {
+                const result = await audio.addOutput(device.deviceId, {
+                    delayMs: Number(delay.value),
+                });
+                if (!result.ok) {
+                    checkbox.checked = false;
+                    showToast(result.error || 'Could not open that device.', 2500);
+                }
+            } else {
+                audio.removeOutput(device.deviceId);
+            }
+            delay.disabled = !checkbox.checked;
+            persistExtraOutputs();
+        });
+
+        delay.addEventListener('input', () => {
+            readout.textContent = `${delay.value} ms`;
+            audio.setOutputDelay(device.deviceId, Number(delay.value));
+        });
+        delay.addEventListener('change', persistExtraOutputs);
+
+        row.append(label, delay, readout);
+        host.appendChild(row);
+    });
+}
+
+function persistExtraOutputs() {
+    window.api.setStoreValue('extraOutputs', audio.listOutputs());
+}
+
+/**
+ * Reconnects the extra outputs saved last session.
+ *
+ * Device ids are not stable across reboots on every platform, so a saved output
+ * that no longer resolves is dropped quietly rather than reported -- an unplugged
+ * speaker is not an error worth interrupting startup for.
+ */
+async function restoreExtraOutputs() {
+    const saved = await window.api.getStoreValue('extraOutputs');
+    if (!Array.isArray(saved) || !saved.length) return;
+
+    for (const entry of saved) {
+        if (!entry?.deviceId) continue;
+        await audio.addOutput(entry.deviceId, {delayMs: entry.delayMs || 0});
+    }
+}
+
+// --- Lock ---------------------------------------------------------------------------
+//
+// Blocks every control except the lock button itself, so the dock can sit under a
+// cursor -- or on a screen edge -- without a stray click changing the track. The
+// blocking is done in CSS with pointer-events, which is both simpler and more
+// complete than trying to intercept every handler.
+
+let isLocked = false;
+
+function setLocked(locked) {
+    isLocked = Boolean(locked);
+    containerEl.classList.toggle('locked', isLocked);
+
+    const button = document.getElementById('lock-btn');
+    button?.classList.toggle('active', isLocked);
+    button?.setAttribute('title', isLocked ? 'Unlock the controls (Ctrl+L)' : 'Lock the controls (Ctrl+L)');
+
+    const open = document.getElementById('lock-open-icon');
+    const shut = document.getElementById('lock-closed-icon');
+    if (open) open.style.display = isLocked ? 'none' : 'block';
+    if (shut) shut.style.display = isLocked ? 'block' : 'none';
+
+    window.api.setStoreValue('isLocked', isLocked);
+    showToast(isLocked ? 'Controls locked' : 'Controls unlocked');
+}
+
+/** Wires the audio card. Called once from the DOM-ready block. */
+function initAudioPanel() {
+    const bind = (id, event, handler) =>
+        document.getElementById(id)?.addEventListener(event, handler);
+
+    const crossfade = document.getElementById('crossfade-slider');
+    const crossfadeValue = document.getElementById('crossfade-value');
+    if (crossfade) {
+        const render = () => {
+            const ms = Number(crossfade.value);
+            if (crossfadeValue) crossfadeValue.textContent = ms < 120 ? 'Off' : `${(ms / 1000).toFixed(1)}s`;
+        };
+        crossfade.addEventListener('input', () => {
+            audio.setCrossfade(Number(crossfade.value));
+            render();
+        });
+        crossfade.addEventListener('change', () => saveAudioSetting('crossfadeMs', Number(crossfade.value)));
+        render();
+    }
+
+    const balance = document.getElementById('balance-slider');
+    const balanceValue = document.getElementById('balance-value');
+    if (balance) {
+        const render = () => {
+            const value = Number(balance.value);
+            if (!balanceValue) return;
+            balanceValue.textContent = Math.abs(value) < 0.02
+                ? 'Centre'
+                : `${value < 0 ? 'L' : 'R'} ${Math.round(Math.abs(value) * 100)}%`;
+        };
+        balance.addEventListener('input', () => {
+            audio.setBalance(Number(balance.value));
+            render();
+        });
+        balance.addEventListener('change', () => saveAudioSetting('audioBalance', Number(balance.value)));
+        render();
+    }
+
+    const toggles = [
+        ['gapless-toggle', 'gapless', (v) => audio.setGapless(v)],
+        ['preserve-pitch-toggle', 'preservePitch', (v) => audio.setPreservePitch(v)],
+        ['limiter-toggle', 'limiterEnabled', (v) => audio.setLimiter(v)],
+        ['replaygain-toggle', 'replayGainEnabled', (v) => audio.setReplayGainEnabled(v)],
+        ['skip-silence-toggle', 'skipSilence', (v) => audio.setSkipSilence(v)],
+        ['mono-toggle', 'monoMix', (v) => audio.setMonoMix(v)],
+        ['swap-toggle', 'swapChannels', (v) => audio.setSwapChannels(v)],
+    ];
+
+    for (const [id, key, apply] of toggles) {
+        bind(id, 'change', (event) => {
+            apply(event.target.checked);
+            saveAudioSetting(key, event.target.checked);
+        });
+    }
+
+    bind('replaygain-mode', 'change', (event) => {
+        replayGainMode = event.target.value;
+        saveAudioSetting('replayGainMode', replayGainMode);
+        applyReplayGainFor(currentSongData);
+    });
+
+    bind('output-device', 'change', async (event) => {
+        const ok = await audio.setOutputDevice(event.target.value);
+        if (ok) saveAudioSetting('outputDeviceId', event.target.value);
+        // The new primary must disappear from the mirror list, or it would be
+        // played twice.
+        renderExtraOutputs();
+    });
+
+    abButton?.addEventListener('click', cycleAbRepeat);
+    audio.on('loopchange', renderAbState);
+    renderAbState();
+
+    document.getElementById('lock-btn')?.addEventListener('click', () => setLocked(!isLocked));
+
+    const refreshDevices = () => {
+        populateOutputDevices();
+        renderExtraOutputs();
+    };
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshDevices);
+    refreshDevices();
+}
+
+/** Reflects the loaded settings into the controls. */
+async function syncAudioPanelControls() {
+    const set = (id, prop, value) => {
+        const el = document.getElementById(id);
+        if (el) el[prop] = value;
+    };
+
+    set('crossfade-slider', 'value', audio.crossfadeMs);
+    set('balance-slider', 'value', audio.balance);
+    set('gapless-toggle', 'checked', audio.gapless);
+    set('preserve-pitch-toggle', 'checked', audio.preservePitch);
+    set('limiter-toggle', 'checked', audio.limiterEnabled);
+    set('replaygain-toggle', 'checked', audio.replayGainEnabled);
+    set('skip-silence-toggle', 'checked', audio.skipSilence);
+    set('mono-toggle', 'checked', audio.monoMix);
+    set('swap-toggle', 'checked', audio.swapChannels);
+    set('replaygain-mode', 'value', replayGainMode);
+
+    document.getElementById('crossfade-slider')?.dispatchEvent(new Event('input'));
+    document.getElementById('balance-slider')?.dispatchEvent(new Event('input'));
+}
+
+// --- Listening statistics (Phase 7) ----------------------------------------------
+//
+// A play count is only worth having if it means something. Letting twenty
+// seconds run while hunting for another track is not a play, and neither is
+// scrubbing to the end. So a listen is recorded as:
+//
+//   played   - reached the end, or heard >= 50% / >= 4 minutes of it
+//   skipped  - left early, having heard at least 5 seconds
+//   ignored  - anything shorter, which is almost always mis-clicking
+//
+// The thresholds mirror Last.fm's scrobbling rules, so the counters here will
+// agree with a scrobbler if one is ever added (roadmap Phase 14).
+
+const PLAY_THRESHOLD_RATIO = 0.5;
+const PLAY_THRESHOLD_MS = 4 * 60 * 1000;
+const SKIP_FLOOR_MS = 5000;
+
+// The track currently being measured, and how much of it has actually elapsed.
+let statsTrackPath = null;
+let statsListenedMs = 0;
+let statsLastTick = 0;
+let statsRecorded = false;
+
+/** Starts measuring a new track, closing off the previous one as a skip. */
+function beginListen(filePath) {
+    finishListen({reason: 'switch'});
+    statsTrackPath = filePath || null;
+    statsListenedMs = 0;
+    statsLastTick = Date.now();
+    statsRecorded = false;
+}
+
+/**
+ * Accumulates elapsed wall-clock time while playing. Called from the UI loop.
+ * Wall clock rather than `audio.seek()` because seeking backwards to replay a
+ * chorus should add to the listened time, not subtract from it.
+ */
+function tickListen(isPlaying) {
+    const now = Date.now();
+    if (isPlaying && statsTrackPath && statsLastTick) {
+        const delta = now - statsLastTick;
+        // A delta larger than a couple of seconds means the machine slept or the
+        // loop stalled; counting it would inflate the total.
+        if (delta > 0 && delta < 2000) statsListenedMs += delta;
+    }
+    statsLastTick = now;
+}
+
+/** Closes off the current track and records it as a play, a skip, or nothing. */
+function finishListen({reason = 'end', durationMs = 0} = {}) {
+    if (!statsTrackPath || statsRecorded) return;
+
+    const path = statsTrackPath;
+    const listened = statsListenedMs;
+    const total = durationMs || (audio.duration() * 1000) || 0;
+
+    const qualifies = reason === 'end'
+        || listened >= PLAY_THRESHOLD_MS
+        || (total > 0 && listened >= total * PLAY_THRESHOLD_RATIO);
+
+    if (qualifies) {
+        window.api.libraryRecordPlay(path, listened, reason === 'end');
+    } else if (listened >= SKIP_FLOOR_MS) {
+        window.api.libraryRecordSkip(path, listened);
+    }
+
+    statsRecorded = true;
+    statsTrackPath = null;
+    statsListenedMs = 0;
+}
+
+// --- Library management UI (Phase 7) ---------------------------------------------
+
+const libraryRootsEl = document.getElementById('library-roots');
+const libraryStatsEl = document.getElementById('library-stats');
+const libraryStatusEl = document.getElementById('library-status');
+
+function setLibraryStatus(message, kind = '') {
+    if (!libraryStatusEl) return;
+    libraryStatusEl.textContent = message || '';
+    libraryStatusEl.className = `settings-hint ${kind}`.trim();
+}
+
+/** Renders the roots list and the counters. */
+async function renderLibraryPanel() {
+    if (!libraryRootsEl) return;
+
+    const [roots, stats] = await Promise.all([
+        window.api.libraryRoots(),
+        window.api.libraryStats(),
+    ]);
+
+    libraryRootsEl.innerHTML = '';
+
+    if (!roots.length) {
+        const empty = document.createElement('div');
+        empty.className = 'library-root-empty';
+        empty.textContent = 'No folders yet. Add one to build your library.';
+        libraryRootsEl.appendChild(empty);
+    }
+
+    for (const root of roots) {
+        const row = document.createElement('div');
+        row.className = 'library-root';
+
+        const text = document.createElement('div');
+        text.className = 'library-root-text';
+
+        const name = document.createElement('span');
+        name.className = 'library-root-path';
+        name.textContent = root.path;
+        name.title = root.path;
+
+        const meta = document.createElement('span');
+        meta.className = 'library-root-meta';
+        meta.textContent = root.lastScanAt
+            ? `${root.liveCount} tracks · scanned ${new Date(root.lastScanAt).toLocaleDateString()}`
+            : `${root.liveCount} tracks · never scanned`;
+
+        text.append(name, meta);
+
+        const rescan = document.createElement('button');
+        rescan.className = 'chip';
+        rescan.textContent = 'Rescan';
+        rescan.addEventListener('click', () => rescanLibrary(root.id));
+
+        const remove = document.createElement('button');
+        remove.className = 'chip danger';
+        remove.textContent = 'Remove';
+        remove.title = 'Forget this folder. Play counts and ratings are kept.';
+        remove.addEventListener('click', async () => {
+            await window.api.libraryRemoveRoot(root.id);
+            renderLibraryPanel();
+        });
+
+        row.append(text, rescan, remove);
+        libraryRootsEl.appendChild(row);
+    }
+
+    if (libraryStatsEl) {
+        libraryStatsEl.textContent = stats.tracks
+            ? `${stats.tracks.toLocaleString()} tracks · ${stats.artists.toLocaleString()} artists`
+              + ` · ${stats.plays.toLocaleString()} plays`
+              + (stats.missing ? ` · ${stats.missing} missing` : '')
+            : 'Empty';
+    }
+}
+
+async function rescanLibrary(rootId) {
+    setLibraryStatus('Scanning...');
+    const result = await window.api.libraryRescan(rootId);
+    await renderLibraryPanel();
+    setLibraryStatus(
+        result?.restored
+            ? `Scan finished. ${result.restored} missing track(s) came back.`
+            : 'Scan finished.',
+        'ok'
+    );
+}
+
+/** Wires the library card. Called once from the DOM-ready block. */
+function initLibraryPanel() {
+    document.getElementById('library-add-root')?.addEventListener('click', async () => {
+        setLibraryStatus('Scanning...');
+        await window.api.libraryAddRoot();
+        await renderLibraryPanel();
+        setLibraryStatus('Folder added.', 'ok');
+    });
+
+    document.getElementById('library-rescan-all')?.addEventListener('click', () => rescanLibrary(null));
+
+    document.getElementById('library-recheck')?.addEventListener('click', async () => {
+        const restored = await window.api.libraryRecheckMissing();
+        await renderLibraryPanel();
+        setLibraryStatus(
+            restored ? `${restored} track(s) found again.` : 'No missing tracks were found.',
+            restored ? 'ok' : ''
+        );
+    });
+
+    document.getElementById('library-export')?.addEventListener('click', async () => {
+        const result = await window.api.libraryExport();
+        if (!result) return;
+        setLibraryStatus(
+            result.ok ? `Exported ${result.tracks} tracks.` : (result.error || 'Export failed.'),
+            result.ok ? 'ok' : 'error'
+        );
+    });
+
+    document.getElementById('library-import')?.addEventListener('click', async () => {
+        const result = await window.api.libraryImport();
+        if (!result) return;
+        await renderLibraryPanel();
+        setLibraryStatus(
+            result.ok ? `Merged ${result.imported} tracks.` : (result.error || 'Import failed.'),
+            result.ok ? 'ok' : 'error'
+        );
+    });
+
+    window.api.onScanComplete?.(({total, reparsed, missing}) => {
+        renderLibraryPanel();
+        setLibraryStatus(
+            `${total} files · ${reparsed} re-read`
+            + (missing ? ` · ${missing} now missing` : ''),
+            'ok'
+        );
+    });
+
+    renderLibraryPanel();
 }
 
 // --- Tag editor ------------------------------------------------------------------
@@ -1493,7 +2128,8 @@ function togglePlaylistPanel(force) {
         togglePlaylistLabel.textContent = isPlaylistVisible ? 'Hide Playlist' : 'Show Playlist';
     }
     if (isPlaylistVisible) {
-        renderQueue();
+        renderLibraryViewChips();
+        renderActiveLibraryView();
         // Deferred so the CSS transition has started before focus scrolls the panel.
         setTimeout(() => librarySearchInput?.focus(), 60);
     }
@@ -1503,6 +2139,70 @@ function togglePlaylistPanel(force) {
  * Builds one row. Rows are plain buttons rather than a list + delegation because each
  * needs its own secondary actions, and the counts here are small.
  */
+// --- Queue manipulation --------------------------------------------------------
+//
+// Three insert positions, because "add to queue" alone is not enough: you want a
+// track next without losing what you queued, or you want it at the very front.
+// Both lists are kept in step -- `playlist` is what plays, `originalPlaylist` is
+// the pre-shuffle order that un-shuffling restores -- or the queue would silently
+// revert the moment shuffle was toggled.
+
+const QUEUE_POSITIONS = {
+    NEXT: 'next',
+    END: 'end',
+    FIRST: 'first',
+};
+
+function enqueue(filePath, position = QUEUE_POSITIONS.END) {
+    if (!filePath) return;
+
+    // A track already queued is moved rather than duplicated: two copies of the
+    // same file in a queue is almost never what anyone meant.
+    const existing = playlist.indexOf(filePath);
+    if (existing !== -1 && existing !== currentIndex) {
+        playlist.splice(existing, 1);
+        if (existing < currentIndex) currentIndex--;
+    }
+
+    let index;
+    if (position === QUEUE_POSITIONS.FIRST) {
+        index = 0;
+    } else if (position === QUEUE_POSITIONS.NEXT) {
+        index = playlist.length ? currentIndex + 1 : 0;
+    } else {
+        index = playlist.length;
+    }
+
+    playlist.splice(index, 0, filePath);
+    if (index <= currentIndex && playlist.length > 1) currentIndex++;
+
+    if (!originalPlaylist.includes(filePath)) originalPlaylist.push(filePath);
+
+    // What plays after this track may have changed, so what should be buffered has
+    // changed with it.
+    updateNextTrackHint();
+    publishRoomLibrary();
+    if (isPlaylistVisible) renderActiveLibraryView();
+
+    showToast({
+        [QUEUE_POSITIONS.FIRST]: 'Moved to the top of the queue',
+        [QUEUE_POSITIONS.NEXT]: 'Playing next',
+        [QUEUE_POSITIONS.END]: 'Added to the queue',
+    }[position]);
+}
+
+/** The three queue actions, ready to hand to makeRow(). */
+function queueActions(filePath) {
+    return [
+        {label: '\u2191', title: 'Move to the top of the queue',
+            onClick: () => enqueue(filePath, QUEUE_POSITIONS.FIRST)},
+        {label: '\u23ed', title: 'Play next',
+            onClick: () => enqueue(filePath, QUEUE_POSITIONS.NEXT)},
+        {label: '+', title: 'Add to the end of the queue',
+            onClick: () => enqueue(filePath, QUEUE_POSITIONS.END)},
+    ];
+}
+
 function makeRow({title, subtitle, badge, active, onPlay, actions = []}) {
     const row = document.createElement('div');
     row.className = 'playlist-row' + (active ? ' active' : '');
@@ -1597,12 +2297,219 @@ function removeFromQueue(index) {
     savePlaybackState();
 }
 
+// --- Shortcuts guide -------------------------------------------------------------
+//
+// Nearly every control in the app has a keyboard equivalent and none of them were
+// written down anywhere, which meant they effectively did not exist. Generated
+// from a table rather than hand-written markup so a new shortcut is one line.
+
+const SHORTCUT_GROUPS = [
+    {
+        title: 'Playback',
+        items: [
+            ['Space', 'Play or pause'],
+            ['\u2190 / \u2192', 'Seek back / forward 5 seconds'],
+            ['Ctrl + \u2190 / \u2192', 'Previous / next track'],
+            ['\u2191 / \u2193', 'Volume up / down'],
+            ['M', 'Mute'],
+            ['S', 'Shuffle'],
+            ['R', 'Repeat: off \u2192 all \u2192 one'],
+            ['L', 'Like the current track'],
+        ],
+    },
+    {
+        title: 'Speed',
+        items: [
+            ['[', 'Slower'],
+            [']', 'Faster'],
+            ['\\', 'Back to normal speed'],
+            ['Scroll on the speed pill', 'Nudge up or down'],
+        ],
+    },
+    {
+        title: 'Lyrics',
+        items: [
+            ['- / +', 'Shift lyrics earlier / later by 0.1s'],
+            ['T', 'Toggle translation'],
+        ],
+    },
+    {
+        title: 'Mouse',
+        items: [
+            ['Scroll on album art', 'Volume'],
+            ['Scroll on the volume button', 'Volume'],
+            ['Shift + scroll', 'Fine volume steps'],
+            ['Scroll on the progress bar', 'Seek'],
+            ['Ctrl + click the volume button', 'Toggle the equalizer'],
+            ['Click the remaining time', 'Switch to total duration'],
+            ['Drag a file or folder in', 'Play it'],
+        ],
+    },
+    {
+        title: 'Window',
+        items: [
+            ['Ctrl + L', 'Lock / unlock all controls'],
+            ['Esc', 'Close a menu, then return to the player'],
+            ['O', 'Open a folder'],
+            ['P', 'Pin on top'],
+            ['V', 'Switch horizontal / vertical'],
+        ],
+    },
+];
+
+function initShortcutsPanel() {
+    const host = document.getElementById('shortcuts-list');
+    if (!host || host.childElementCount) return;
+
+    for (const group of SHORTCUT_GROUPS) {
+        const heading = document.createElement('div');
+        heading.className = 'shortcut-group';
+        heading.textContent = group.title;
+        host.appendChild(heading);
+
+        for (const [keys, description] of group.items) {
+            const row = document.createElement('div');
+            row.className = 'shortcut-row';
+
+            const label = document.createElement('span');
+            label.className = 'shortcut-desc';
+            label.textContent = description;
+
+            const key = document.createElement('kbd');
+            key.className = 'shortcut-key';
+            key.textContent = keys;
+
+            row.append(label, key);
+            host.appendChild(row);
+        }
+    }
+}
+
+// --- Library views ---------------------------------------------------------------
+//
+// The Library tab only ever showed the current queue, so everything the app knew
+// about -- liked songs, what was played recently, what gets played most -- was
+// unreachable. These are the lists Phase 7's database made possible; the chips
+// switch between them, and search still overrides whichever is selected.
+
+let activeLibraryView = 'queue';
+
+const LIBRARY_VIEWS = [
+    {id: 'queue',           label: 'Queue'},
+    {id: 'liked',           label: 'Liked'},
+    {id: 'recently-played', label: 'Recent'},
+    {id: 'most-played',     label: 'Most Played'},
+    {id: 'recently-added',  label: 'Added'},
+];
+
+function renderLibraryViewChips() {
+    const bar = document.getElementById('library-view-chips');
+    if (!bar) return;
+
+    if (bar.childElementCount === 0) {
+        for (const view of LIBRARY_VIEWS) {
+            const chip = document.createElement('button');
+            chip.className = 'chip';
+            chip.dataset.view = view.id;
+            chip.textContent = view.label;
+            chip.addEventListener('click', () => setLibraryView(view.id));
+            bar.appendChild(chip);
+        }
+    }
+
+    bar.querySelectorAll('.chip').forEach((chip) => {
+        chip.classList.toggle('active', chip.dataset.view === activeLibraryView);
+    });
+}
+
+function setLibraryView(view) {
+    activeLibraryView = view;
+    renderLibraryViewChips();
+
+    // Switching view is an explicit choice; a stale search term would silently
+    // override it and look like the chip did nothing.
+    if (librarySearchInput) librarySearchInput.value = '';
+
+    renderActiveLibraryView();
+}
+
+/** Draws whichever view is selected. */
+async function renderActiveLibraryView() {
+    if (!playlistResults) return;
+
+    if (activeLibraryView === 'queue') {
+        renderQueue();
+        return;
+    }
+
+    if (activeLibraryView === 'liked') {
+        renderLikedSongs();
+        return;
+    }
+
+    const rows = await window.api.libraryView(activeLibraryView, 100);
+    playlistResults.innerHTML = '';
+
+    if (!rows || rows.length === 0) {
+        setPlaylistStatus(
+            activeLibraryView === 'recently-added'
+                ? 'Nothing yet. Add a folder in Settings.'
+                : 'Nothing here yet — play some music first.'
+        );
+        return;
+    }
+
+    setPlaylistStatus(`${rows.length} track${rows.length === 1 ? '' : 's'}`);
+
+    rows.forEach((track, index) => {
+        playlistResults.appendChild(makeRow({
+            title: track.title || track.basename,
+            subtitle: track.artist,
+            badge: track.playCount > 0 ? `${track.playCount}` : undefined,
+            // Playing from a list should queue the whole list, not just the one
+            // row -- otherwise playback stops dead after a single track.
+            onPlay: () => loadPlaylistAndPlay(rows.map((row) => row.filePath), index),
+            actions: queueActions(track.filePath),
+        }));
+    });
+}
+
+/** The liked-songs list, which lives in settings rather than the database. */
+function renderLikedSongs() {
+    playlistResults.innerHTML = '';
+
+    if (!favoritesPlaylist.length) {
+        setPlaylistStatus('No liked songs yet. Press the heart on a track you like.');
+        return;
+    }
+
+    setPlaylistStatus(`${favoritesPlaylist.length} liked song${favoritesPlaylist.length === 1 ? '' : 's'}`);
+
+    favoritesPlaylist.forEach((filePath, index) => {
+        playlistResults.appendChild(makeRow({
+            title: filePath.split(/[\\/]/).pop(),
+            active: filePath === playlist[currentIndex],
+            onPlay: () => loadPlaylistAndPlay([...favoritesPlaylist], index),
+            actions: [...queueActions(filePath), {
+                label: '\u00d7',
+                title: 'Remove from liked songs',
+                onClick: () => {
+                    favoritesPlaylist.splice(index, 1);
+                    window.api.setStoreValue('favoritesPlaylist', favoritesPlaylist);
+                    updateLikeButtonUI();
+                    renderLikedSongs();
+                },
+            }],
+        }));
+    });
+}
+
 /** Renders search results: artists first, then individual tracks. */
 async function runLibrarySearch(query) {
     if (!playlistResults) return;
 
     if (!query || query.trim().length === 0) {
-        renderQueue();
+        renderActiveLibraryView();
         return;
     }
 
@@ -1713,6 +2620,9 @@ async function playTrack(index, options = {}) {
 
     const filePath = playlist[index];
 
+    // Close off the outgoing track's listen before the new one starts.
+    beginListen(filePath);
+
     // Guard against null/undefined entries in a restored playlist.
     if (typeof filePath !== 'string' || !filePath) {
         console.error(`Invalid playlist entry at index ${index}:`, filePath, '- skipping.');
@@ -1746,6 +2656,11 @@ async function playTrack(index, options = {}) {
     currentSongData = songData;
     currentSound = audio;
 
+    // ReplayGain is per track, so it is applied as each one loads rather than once
+    // at startup.
+    applyReplayGainFor(songData);
+    updateNextTrackHint();
+
     // A track change while the editor is open must reload it, or Save would
     // write the previous track's form into the new file.
     if (activeTab === 'tags') loadTagsForCurrentTrack();
@@ -1768,7 +2683,7 @@ async function playTrack(index, options = {}) {
     refreshExclusionState(filePath);
     publishRoomState();
     publishRoomLyrics();
-    if (isPlaylistVisible) renderQueue();
+    if (isPlaylistVisible) renderActiveLibraryView();
 
     // Upgrade the displayed artist/title using the full parser. getMetadata() returns
     // raw tags and falls back to the bare filename; this applies the sibling-name and
@@ -1785,7 +2700,7 @@ async function playTrack(index, options = {}) {
     }
 }
 
-async function loadPlaylistAndPlay(files) {
+async function loadPlaylistAndPlay(files, startIndex = 0) {
     if (!files || files.length === 0) return;
 
     // Request #13: honour the per-directory exclusion list. Excluded tracks stay on
@@ -1806,8 +2721,13 @@ async function loadPlaylistAndPlay(files) {
     playlist = isShuffled ? shuffleArray(usable) : [...usable];
     publishRoomLibrary();
 
-    if (isPlaylistVisible) renderQueue();
-    playTrack(0);
+    if (isPlaylistVisible) renderActiveLibraryView();
+
+    // Shuffling reorders the list, so the requested track has to be found again by
+    // path rather than by its position in the original array.
+    const wanted = files[startIndex] ?? usable[0];
+    const index = Math.max(0, playlist.indexOf(wanted));
+    playTrack(index);
 }
 
 // --- App Entry Point & Event Listeners ---
@@ -1837,6 +2757,7 @@ document.addEventListener('DOMContentLoaded', () => {
     audio.on('ended', () => {
         // Park the lyrics on the last line instead of leaving them mid-scroll.
         lastActiveLyricIndex = -1;
+        finishListen({reason: 'end'});
         advanceAfterEnd();
     });
 
@@ -1891,6 +2812,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // starting at full blast and being corrected a frame later (#22).
         audio.setVolume(playbackVolume, {immediate: true});
         audio.setMuted(isMuted);
+
+        // Phase 8 output-stage settings must be applied before setRate(), which
+        // reads engine.preservePitch. Wrapped for the same reason as the panel
+        // initialisers above: audio preferences failing to load must not stop the
+        // session, the volume and the last track from being restored.
+        try {
+            await loadAudioSettings();
+            await syncAudioPanelControls();
+            await restoreExtraOutputs();
+            setLocked(Boolean(await window.api.getStoreValue('isLocked')));
+        } catch (error) {
+            console.error('[init] Audio settings failed to load:', error);
+        }
 
         const savedRate = await window.api.getStoreValue('playbackRate');
         playbackRate = audio.setRate(typeof savedRate === 'number' ? savedRate : 1.0);
@@ -2086,12 +3020,38 @@ document.addEventListener('DOMContentLoaded', () => {
         window.api.setStoreValue('lastVolume', playbackVolume);
     });
 
-    volumeBtn.addEventListener('click', () => {
+    volumeBtn.addEventListener('click', (event) => {
+        // Ctrl-click is a shortcut to the equalizer, which is otherwise three
+        // clicks away in Settings. The volume button is the natural home for it:
+        // it is the only always-visible control that is already about level.
+        if (event.ctrlKey || event.metaKey) {
+            if (eqEnabledEl) {
+                eqEnabledEl.checked = !eqEnabledEl.checked;
+                eqEnabledEl.dispatchEvent(new Event('change'));
+                showToast(eqEnabledEl.checked ? 'Equalizer on' : 'Equalizer off');
+            }
+            return;
+        }
+
         isMuted = !isMuted;
         audio.setMuted(isMuted);
         updateVolumeUI();
         showVolumeFeedback(isMuted ? 0 : playbackVolume);
     });
+
+    // The popup opens on hover, but a drag that leaves the button would otherwise
+    // close it mid-gesture. Pointer capture keeps it open until the drag ends --
+    // and, unlike the old :focus-within rule, it releases on pointerup instead of
+    // pinning the popup open until something else took focus (issue #4).
+    if (volumeSlider) {
+        const wrapper = volumeSlider.closest('.volume-control-wrapper');
+        volumeSlider.addEventListener('pointerdown', () => {
+            wrapper?.classList.add('dragging');
+        });
+        const release = () => wrapper?.classList.remove('dragging');
+        window.addEventListener('pointerup', release);
+        window.addEventListener('pointercancel', release);
+    }
 
     volumeBoostBtn.addEventListener('click', () => {
         const isBoosting = !(parseFloat(volumeSlider.max) > 1.0);
@@ -2290,6 +3250,8 @@ document.addEventListener('DOMContentLoaded', () => {
         loopMode = modes[(currentModeIndex + 1) % modes.length];
 
         updateLoopButtonUI();
+        // What comes next just changed, so what should be buffered has too.
+        updateNextTrackHint();
     });
 
     // Speed control (#19 / #23).
@@ -2311,8 +3273,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Tabs, EQ, timer, translation (requests #14, #25, #26, #15, #3) ------
 
-    buildEqualizerUI();
-    initTagEditor();
+    // Each panel is initialised independently.
+    //
+    // These used to be four bare calls in a row, so if any one of them threw --
+    // a missing element, a renamed id, a half-applied update -- the rest of the
+    // DOMContentLoaded body never ran. That is what turned one ReferenceError
+    // into a dead progress bar, an artist stuck on "Loading...", lyrics that
+    // never scrolled and no restored session: a single failure took the whole
+    // startup path with it. A failure in one panel is now contained to that
+    // panel, and says so in the console.
+    for (const [name, init] of [
+        ['equalizer', buildEqualizerUI],
+        ['tag editor', initTagEditor],
+        ['library', initLibraryPanel],
+        ['audio', initAudioPanel],
+        ['shortcuts', initShortcutsPanel],
+    ]) {
+        try {
+            init();
+        } catch (error) {
+            console.error(`[init] The ${name} panel failed to start:`, error);
+        }
+    }
 
     tabPager?.querySelectorAll('.tab-dot').forEach((dot) => {
         dot.addEventListener('click', () => setActiveTab(dot.dataset.tab));
@@ -2708,7 +3690,7 @@ document.addEventListener('DOMContentLoaded', () => {
         librarySearchInput.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
                 librarySearchInput.value = '';
-                renderQueue();
+                renderActiveLibraryView();
                 togglePlaylistPanel(false);
             }
         });
@@ -2745,24 +3727,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Global Volume Scroll ---
+    // Wheel-to-change-volume, scoped to two targets: the album art and the volume
+    // button.
+    //
+    // This used to be an *exclusion* list on the whole window, which meant the
+    // wheel changed the volume anywhere the list had not thought of -- including
+    // the Library, Tags and Settings panels, where it made them impossible to
+    // scroll. An allow-list cannot rot the same way: a new panel is scrollable by
+    // default rather than by remembering to exempt it.
+    const VOLUME_WHEEL_TARGETS = '#album-art-wrapper, .volume-control-wrapper';
+
     containerEl.addEventListener('wheel', (event) => {
-        // Define selectors for areas that have their own scroll behavior and should be ignored.
-        const ignoredSelectors = [
-            '#progress-bar',
-            '.volume-container',
-            '.lyrics-controls',
-            '.lyrics-container',
-            '.settings-drawer',
-            '.dropdown-menu',
-            'input[type="range"]'
-        ];
+        if (!event.target.closest(VOLUME_WHEEL_TARGETS)) return;
 
-        // Check if the scroll event originated from within an ignored area.
-        if (ignoredSelectors.some(selector => event.target.closest(selector))) {
-            return; // If so, do nothing and let the element handle its own scroll.
-        }
-
-        // If the scroll is in a "safe" area, control the main volume.
         event.preventDefault();
 
         const isFineControl = event.shiftKey;
@@ -2790,10 +3767,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- Global Event Listeners ---
 
-// Close dropdowns on outside click. Clicks inside a menu are excluded so that a
-// non-dismissing row (the version readout, a label) does not shut the menu.
+// Closes dropdowns on any click except the ones that should not dismiss.
+//
+// The previous version exempted the whole menu so that the version readout would
+// not shut it -- but that also meant picking an item left the menu hanging open,
+// which is wrong for every menu anywhere. Only the genuinely non-actionable rows
+// are exempt now; choosing an item closes the menu, as it should.
 window.addEventListener('click', (event) => {
-    if (event.target.closest?.('.dropdown-menu')) return;
+    const insideMenu = event.target.closest?.('.dropdown-menu');
+    if (insideMenu) {
+        const inert = event.target.closest('.version-display, .menu-label');
+        if (inert) return;
+    }
     closeAllMenus();
 });
 
@@ -2867,6 +3852,18 @@ window.addEventListener('keydown', (event) => {
         }
     }
 
+    // Ctrl+L locks and unlocks. Deliberately before the INPUT guard and before the
+    // lock check itself, since it has to remain the one working control.
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
+        setLocked(!isLocked);
+        event.preventDefault();
+        return;
+    }
+
+    // While locked, every other shortcut is ignored too -- a lock that only
+    // blocked the mouse would not be a lock.
+    if (isLocked) return;
+
     if (event.target.tagName === 'INPUT') return; // Ignore inputs
 
     let handled = false;
@@ -2917,7 +3914,11 @@ window.addEventListener('keydown', (event) => {
 
 // Save state periodically and before closing
 setInterval(savePlaybackState, 5000);
-window.addEventListener('beforeunload', savePlaybackState);
+window.addEventListener('beforeunload', () => {
+    savePlaybackState();
+    // Quitting mid-track still counts, if enough of it was heard.
+    finishListen({reason: 'quit'});
+});
 
 // API Listeners from Main Process
 window.api.onMediaKey((command) => {

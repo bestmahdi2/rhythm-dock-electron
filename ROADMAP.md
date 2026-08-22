@@ -270,3 +270,83 @@ Worth stating, because a roadmap is also a list of what you are declining:
 - **A mobile app.** A different codebase, a different store, a different
   release cadence. The Phase 14 remote-control web UI gets you most of the
   value for a fraction of the cost.
+
+---
+
+## Phase 9.5 — Edge dock, discovery and streaming
+
+Added after Phase 8 from user requests. Three of the original seven were built
+immediately (simultaneous outputs, control lock, queue insert positions); these
+are the three that need a phase of their own.
+
+### Edge-docked mini mode
+
+**Effort: L.** Not hard in any one place, but it touches the main process, the
+window manager, and the renderer at once, and every OS disagrees about the
+rules.
+
+| Piece | Description |
+|---|---|
+| Magnetic snapping | Drag near a screen edge and the window latches to it. `screen.getDisplayNearestPoint()` gives the work area; the snap itself is a threshold check on `will-move`. |
+| Collapsed strip | ~28px wide against the wall: play/pause, next, and the title scrolling vertically. Everything else hides. |
+| Hover expansion | Pointer enters, the window animates out to full vertical mode, still anchored to the wall. Leaves, it collapses again — with a delay, or it flickers as the cursor crosses it. |
+| Vertical drag along the wall | Free movement on Y, locked on X. |
+| Wall switching | Drag past the midpoint and it re-latches to the opposite edge. |
+| Shortcut | Toggle in and out of edge mode from the keyboard. |
+| Multi-monitor | Which display's edge? The one the window is on, not the primary. This is where most implementations break. |
+
+**The hard part is hover.** An Electron window only receives mouse events inside
+its own bounds, so a 28px strip cannot detect a cursor approaching it. Two
+options, and the choice shapes everything else:
+
+1. **Keep the window full-size and transparent**, painting only the strip. Hover
+   works natively. Costs: a large always-on-top transparent window, and
+   `setIgnoreMouseEvents` juggling so clicks pass through the invisible part.
+2. **Genuinely resize to 28px** and poll `screen.getCursorScreenPoint()` at
+   ~60ms while docked. Cheap and reliable; a timer runs whenever docked.
+
+Option 2 is the more honest fit for a lightweight dock. Option 1 gives smoother
+animation. Worth prototyping both before committing.
+
+macOS caveat: an always-on-top window over a full-screen Space needs
+`setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true})`, or the dock
+vanishes exactly when a user in full-screen video most wants it.
+
+### Recommendations
+
+**Effort: L–XL.** Feasible, but only after Phase 7 has accumulated real history —
+a recommender with no play counts has nothing to recommend from.
+
+| Piece | Description |
+|---|---|
+| Offline similarity | Artist, genre, year, BPM and key (Phase 15) as a feature vector; nearest-neighbour over the local library. No network, no accounts. |
+| Learned weighting | Skips are the strongest signal available and the most underused: a track skipped twice in its first 30 seconds should stop appearing. Weight the vector from play/skip ratios per feature. |
+| Session radio | "Keep playing things like this" — build a rolling queue instead of a static list. |
+| Online enrichment | Last.fm or ListenBrainz similar-artists to reach beyond what is already owned. Optional, off by default. |
+| Explanation | Say *why* a track was picked ("similar tempo, same era"). Unexplained recommendations feel broken when they miss. |
+
+Start with the offline version. It is a few hundred lines over data Phase 7
+already stores, it works with no account and no network, and it is genuinely
+useful before any of the clever parts exist.
+
+### Streaming from URLs
+
+**Effort: XL, and partly not possible as described.** Worth being precise about
+which parts are which, because the three services behave very differently.
+
+| Source | Status |
+|---|---|
+| **Direct audio URLs** and podcast/radio streams | **Buildable now, cleanly.** The playback path already streams; it needs URL sources in the queue, a disk cache, and an expiry sweep. This is the honest version of the feature. |
+| **YouTube** | Technically possible with `yt-dlp`, but extracting audio breaks YouTube's Terms of Service. It also breaks whenever YouTube changes, meaning a permanent maintenance burden and support load. Shipping it in a signed, distributed binary is a materially different risk from running it yourself. |
+| **Spotify** | **Not possible.** The Web API returns 30-second preview clips, never full audio. Full playback requires the Web Playback SDK, which is Premium-only, runs in an embedded player you cannot pipe into your own audio graph, and would bypass every feature in this app — no EQ, no crossfade, no simultaneous outputs. There is no version of this that works. |
+
+If the goal is "play a link a friend sent me", the achievable shape is: accept
+direct audio URLs and podcast feeds, and for the rest, resolve the *metadata*
+from the link (artist and title) and offer to play the matching local file. That
+is genuinely useful and does not put a ToS violation inside a distributed
+binary.
+
+**Cache design**, whichever sources are supported: content-addressed by URL hash,
+a size ceiling as well as the two-day expiry (a ceiling is what actually stops a
+cache filling a disk), swept on startup rather than on a timer, and "keep this
+one" promoting a file out of the cache into the library.

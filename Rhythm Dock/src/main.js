@@ -396,6 +396,49 @@ ipcMain.on('save-lyrics', (_event, songKey, lyricsText, details) => {
 
 ipcMain.handle('get-store-value', (_event, key) => store.get(key));
 ipcMain.on('set-store-value', (_event, key, value) => store.set(key, value));
+/**
+ * Extracts ReplayGain from parsed tags (Phase 8).
+ *
+ * music-metadata normalises the common cases into `common.replaygain_*`, but a
+ * large amount of real-world music carries the values only as raw Vorbis comments
+ * or ID3 TXXX frames, so the native tag list is checked as a fallback. Album gain
+ * is preferred when present: normalising each track of an album independently
+ * flattens the dynamics the mastering engineer put between them.
+ */
+function readReplayGain(metadata) {
+    const common = metadata?.common || {};
+
+    const fromCommon = (value) => {
+        if (value == null) return null;
+        if (typeof value === 'number') return value;
+        if (typeof value.dB === 'number') return value.dB;
+        const parsed = parseFloat(String(value.ratio ?? value));
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    let album = fromCommon(common.replaygain_album_gain);
+    let track = fromCommon(common.replaygain_track_gain);
+
+    if (album == null || track == null) {
+        for (const tags of Object.values(metadata?.native || {})) {
+            for (const tag of tags) {
+                const id = String(tag.id || '').toUpperCase();
+                const raw = typeof tag.value === 'string'
+                    ? tag.value
+                    : (tag.value?.description ?? tag.value?.text ?? '');
+                const parsed = parseFloat(String(raw));
+                if (!Number.isFinite(parsed)) continue;
+
+                if (album == null && id.includes('REPLAYGAIN_ALBUM_GAIN')) album = parsed;
+                if (track == null && id.includes('REPLAYGAIN_TRACK_GAIN')) track = parsed;
+            }
+        }
+    }
+
+    if (album == null && track == null) return null;
+    return {album, track};
+}
+
 ipcMain.handle('get-metadata', async (_event, filePath) => {
     try {
         const metadata = await mm.parseFile(filePath);
@@ -411,7 +454,8 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             title: title || path.basename(filePath),
             artist: artist || 'Unknown Artist',
             cover,
-            lyrics: lyrics ? lyrics[0] : null
+            lyrics: lyrics ? lyrics[0] : null,
+            replayGain: readReplayGain(metadata)
         };
     } catch (error) {
         console.error("Failed to parse metadata:", error);
@@ -421,7 +465,8 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             title: path.basename(filePath),
             artist: 'Unknown Artist',
             cover: null,
-            lyrics: null
+            lyrics: null,
+            replayGain: null
         };
     }
 });
