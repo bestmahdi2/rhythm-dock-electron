@@ -1,89 +1,224 @@
 # Rhythm Dock
 
-> A lightweight, feature-rich music player built with Electron.
+> A compact, feature-rich desktop music player built with Electron.
 
-Rhythm Dock is a compact, minimal music player designed to stay out of your way while providing powerful features like synced lyrics, playlist management, and multiple layouts.
+Rhythm Dock is a dock-sized player that stays out of your way: a 380x180 strip
+with album art, transport, and live synced lyrics. When you need more, it
+expands into a library, a tag editor, and a settings panel - then folds back
+down.
+
+Runs on **Windows**, **macOS**, and **Linux** (Ubuntu/Debian, Fedora/RHEL, and
+anything that runs an AppImage).
 
 ---
 
-## Download & Installation
+## Download
 
-You can download the latest version for Windows from the GitHub Releases page.
+[**Latest release**](https://github.com/bestmahdi2/rhythm-dock-electron/releases/latest)
 
-[**➡️ Download Latest Release**](https://github.com/bestmahdi2/rhythm-dock-electron/releases/latest)
+| Platform | File | Notes |
+| --- | --- | --- |
+| Windows 10/11 | `Rhythm Dock Setup <version>-x64.exe` | One-click installer. `-ia32` for 32-bit. |
+| Windows (no install) | `Rhythm Dock Portable <version>-x64.exe` | Runs from anywhere; settings still go to `%APPDATA%`. |
+| macOS (Apple Silicon) | `Rhythm Dock-<version>-arm64.dmg` | See *Unsigned builds* below. |
+| macOS (Intel) | `Rhythm Dock-<version>-x64.dmg` | See *Unsigned builds* below. |
+| Ubuntu / Debian | `Rhythm Dock-<version>-x64.deb` | `sudo apt install ./Rhythm*.deb` |
+| Fedora / RHEL | `Rhythm Dock-<version>-x64.rpm` | `sudo dnf install ./Rhythm*.rpm` |
+| Any Linux | `Rhythm Dock-<version>-x64.AppImage` | `chmod +x` then run. No root needed. |
 
-Simply download the `.exe` installer for your system (either `x64` for 64-bit or `ia32` for 32-bit) and run it.
+### Unsigned builds
+
+The releases are not code-signed, because signing certificates cost money and
+this is a hobby project. Each OS reacts differently:
+
+- **macOS** quarantines the app. After dragging it to Applications:
+  ```bash
+  xattr -dr com.apple.quarantine "/Applications/Rhythm Dock.app"
+  ```
+- **Windows** shows a SmartScreen warning. *More info -> Run anyway*.
+- **Linux** does not care.
 
 ---
 
 ## Features
 
-- **Broad Format Support**: Plays a variety of audio formats including MP3, WAV, FLAC, and M4A.
-- **Flexible Music Loading**:
-    - Open individual files or entire folders.
-    - Drag-and-drop files and folders directly onto the player.
-- **Rich Lyric Support**:
-    - Automatically fetches and displays synced (LRC) lyrics from lrclib.net.
-    - Reads lyrics embedded in the audio file's metadata.
-    - Caches lyrics in a local database for instant offline access.
-    - Manually adjust lyrics timing with an offset control.
-- **Advanced Playback Controls**:
-    - Standard controls: Play, Pause, Next, Previous.
-    - Shuffle playlist.
-    - Loop modes: Off, Loop All, and Loop Single Track.
-- **Dynamic User Interface**:
-    - **Switchable Layouts**: Instantly toggle between a standard horizontal view and a compact vertical view.
-    - **Always-on-Top**: Pin the window to keep it visible above all other applications.
-- **Deep System Integration**:
-    - **Taskbar Media Controls**: Control playback directly from the Windows taskbar.
-    - **Global Media Keys**: Use your keyboard's media keys (Play/Pause, Next, Previous) to control the player even when it's in the background.
-    - **File Association**: Set Rhythm Dock as the default player for `.mp3` files.
+### Playback
+- MP3, M4A, FLAC, WAV, OGG, Opus, AAC, WMA, AIFF, and MP4 audio.
+- Open files or whole folders; drag and drop anywhere on the window.
+- Shuffle, and three loop modes (off / all / single).
+- Playback speed from 0.5x to 2x, adjustable by scrolling the speed pill or
+  with `[` and `]`.
+- 10-band equalizer with presets and a preamp.
+- Volume boost past 100% for quiet recordings.
+- Auto-pause when headphones are unplugged.
+- Sleep timer, with an option to let the current song finish first.
 
-## Technology Stack
+### Lyrics
+- Fetches synced (LRC) lyrics from [lrclib.net](https://lrclib.net), falls back
+  to lyrics embedded in the file's tags.
+- Cached locally in SQLite, so a track you have played once works offline.
+- Per-track timing offset in 0.1s steps.
+- Live translation (Google, or your own LibreTranslate instance), with proper
+  right-to-left rendering for Arabic and Persian.
+- Manual scroll mode when you want to read ahead.
 
-- **Framework**: [Electron](https://www.electronjs.org/)
-- **Audio Engine**: [Howler.js](https://howlerjs.com/)
-- **Metadata Parsing**: [music-metadata](https://github.com/Borewit/music-metadata)
-- **Database**: [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) for lyrics caching
-- **Settings Persistence**: [electron-store](https://github.com/sindresorhus/electron-store)
-- **Packaging**: [electron-builder](https://www.electron.build/)
+### Library
+- Recursive folder scanning with artist/title resolution that scores evidence
+  from the tags, the filename, the folder name, *and* sibling filenames - the
+  last of these is what makes `03. Artist - Title [320kbps].mp3` resolve
+  correctly.
+- Fuzzy search across artists and songs.
+- Liked songs, and per-folder exclusions.
+
+### Tag editor
+- Edit title, artist, album artist, album, track/disc numbers, year, genre and
+  comment.
+- Replace or remove embedded album art.
+- Writes MP3, FLAC, M4A/MP4, OGG, Opus, WAV, AIFF and WMA.
+- Writes go through a temp file and an atomic rename, so an interrupted save
+  cannot corrupt your music.
+
+### Interface
+- **10 themes** - five dark (Midnight, Graphite, Ocean, Plum, Ember) and five
+  light (Daylight, Paper, Sky, Sand, Rose).
+- Horizontal dock or narrow vertical strip.
+- Adjustable window opacity, always-on-top pinning, minimise to tray.
+- Album art magnifier on hover.
+- Full keyboard control, with `Esc` backing out one layer at a time.
+
+### System integration
+- Global media keys and taskbar transport controls.
+- File associations for every supported audio format, on all three platforms.
+- Tray icon that adapts to light and dark system themes.
+
+### Listen together
+- Host a room and share a six-character code; guests follow your playback,
+  lyrics and theme in real time.
+- Optional room password, and a toggle for whether guests can control playback.
+- Requires the companion server in [`server/`](./server) - see
+  [SERVER-SETUP.md](./SERVER-SETUP.md).
 
 ---
 
-## Development Setup
+## Building from source
 
-To run the project locally, follow these steps:
+### Prerequisites
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd rhythm-dock-electron
-    ```
+| Requirement | Why |
+| --- | --- |
+| Node.js 20+ | Runtime and build tooling. |
+| Python 3.9+ | `node-gyp`, for the native dependency. |
+| A C++ toolchain | Same. MSVC Build Tools on Windows, Xcode CLT on macOS, `build-essential` on Linux. |
 
-2.  **Install dependencies:**
-    This command will also trigger the `postinstall` script to correctly configure native dependencies for Electron.
-    ```bash
-    npm install
-    ```
+**`better-sqlite3` is a native module.** This is the single most important
+constraint on the build: it must be compiled against the exact Electron
+version and target architecture. That means **electron-builder cannot
+cross-compile** - a Windows installer has to be produced on Windows, a `.dmg`
+on macOS, and so on. The [GitHub Actions workflow](./.github/workflows/release.yml)
+does this with a three-runner matrix; do the same locally, or just push a tag.
 
-3.  **Run the application in development mode:**
-    ```bash
-    npm start
-    ```
+### Setup
 
-4.  **Build the application for distribution:**
-    The following commands will create installers in the `dist/` directory.
+```bash
+git clone https://github.com/bestmahdi2/rhythm-dock-electron.git
+cd "rhythm-dock-electron/Rhythm Dock"
 
-    - **Build for both 32-bit and 64-bit Windows:**
-      ```bash
-      npm run dist:win
-      ```
+make install     # or: npm install
+make start       # or: npm start
+```
 
-    - **Build for your current architecture only (e.g., just 64-bit):**
-      ```bash
-      npm run dist
-      ```
+`make help` lists every target. `make doctor` reports which build tools are
+missing on your machine.
+
+### Packaging
+
+Output lands in `dist/`.
+
+```bash
+make             # build for the platform you are on
+
+make win         # Windows: NSIS installer (x64 + ia32) and a portable exe
+make win64       #   x64 only
+make win32       #   ia32 only
+
+make mac         # macOS: dmg + zip, both architectures
+make mac-arm64   #   Apple Silicon only
+make mac-x64     #   Intel only
+
+make linux       # Linux: AppImage + deb + rpm + tar.gz
+make appimage    #   AppImage only
+make deb         #   Debian/Ubuntu only
+make rpm         #   Fedora/RHEL only
+```
+
+The equivalent npm scripts (`npm run dist:win`, `dist:mac`, `dist:linux`, ...)
+work identically if you would rather not use `make`.
+
+### Platform-specific build notes
+
+**Windows.** Nothing unusual. If `npm install` fails on `better-sqlite3`,
+install the *Desktop development with C++* workload from the Visual Studio
+Build Tools and retry.
+
+**macOS.** `make mac` builds both architectures, but the arm64 slice needs a
+native rebuild that an Intel host cannot produce and vice versa. On a single
+machine, prefer `make mac-arm64` or `make mac-x64`. Builds are unsigned;
+`CSC_IDENTITY_AUTO_DISCOVERY=false` is set in CI so electron-builder does not
+try to notarise and fail the job.
+
+**Linux.** The `rpm` target needs `rpmbuild` on the *build* host even when you
+are on Debian or Ubuntu:
+
+```bash
+# Debian / Ubuntu
+sudo apt install rpm libarchive-tools fakeroot
+
+# Fedora
+sudo dnf install rpm-build fakeroot
+```
+
+Runtime dependencies for the deb and rpm packages are declared in
+`package.json` and pulled in automatically on install. The AppImage bundles
+everything and needs none of them.
+
+---
+
+## Project layout
+
+```
+Rhythm Dock/
+|- Makefile              Build entry points
+|- src/
+|  |- main.js            Electron main process, IPC surface
+|  |- preload.js         The renderer's only bridge to the system
+|  |- main/
+|  |  |- library/        Scanning, metadata resolution, tag read/write
+|  |  |- database.js     SQLite lyrics cache
+|  |  |- room-client.js  translate.js  tray.js
+|  |  |- shortcuts.js    window-state.js  paths.js
+|  |- renderer/
+|     |- index.html      Markup for every panel
+|     |- styles.css      Design tokens and all ten themes
+|     |- renderer.js     UI logic
+|     |- audio/          Playback engine, equalizer, device handling
+|- server/               Optional "listen together" relay
+|- scripts/              Icon generation
+```
+
+---
+
+## Technology
+
+- [Electron](https://www.electronjs.org/) - application shell
+- [music-metadata](https://github.com/Borewit/music-metadata) - tag reading
+- [node-taglib-sharp](https://github.com/benrr101/node-taglib-sharp) - tag writing
+- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) - lyrics cache
+- [electron-store](https://github.com/sindresorhus/electron-store) - settings
+- [ws](https://github.com/websockets/ws) - room transport
+- [electron-builder](https://www.electron.build/) - packaging
+
+---
 
 ## License
 
-This project is licensed under the ISC License. See the [LICENSE](LICENSE) file for details.
+ISC. See [license.md](./license.md).

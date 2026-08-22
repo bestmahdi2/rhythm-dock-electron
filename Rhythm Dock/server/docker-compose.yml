@@ -1,0 +1,38 @@
+services:
+  rhythm-server:
+    build: .
+    container_name: rhythm-dock-server
+    restart: unless-stopped
+
+    # Bound to localhost only: nginx terminates TLS and proxies in. Publishing this
+    # directly would expose an unencrypted WebSocket to the internet.
+    ports:
+      - "127.0.0.1:8420:8420"
+
+    environment:
+      PORT: 8420
+      # Shared secret required to CREATE a room. Joining only needs the room code.
+      # Without this, anyone who finds your server can use it as a free relay.
+      CREATE_SECRET: "${CREATE_SECRET:?set CREATE_SECRET in .env}"
+      MAX_ROOMS: "${MAX_ROOMS:-50}"
+
+    # The process is stateless; a read-only root filesystem costs nothing and removes
+    # a whole class of attack.
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    security_opt:
+      - no-new-privileges:true
+
+    # A relay is memory-bound under load; cap it so a burst cannot take down the VPS.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

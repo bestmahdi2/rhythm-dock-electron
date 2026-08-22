@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#121212"/>
+    <title>Rhythm Dock — Room</title>
+    <link rel="stylesheet" href="client.css"/>
+</head>
+<body>
+
+<!-- Join screen -->
+<section id="join-screen" class="screen active">
+    <div class="join-card">
+        <div class="logo"></div>
+        <h1>Rhythm Dock</h1>
+        <p class="subtitle">Join a listening room</p>
+
+        <input id="join-code" class="field" type="text" inputmode="latin" autocapitalize="characters"
+               autocomplete="off" spellcheck="false" maxlength="6" placeholder="ROOM CODE"/>
+        <input id="join-name" class="field" type="text" autocomplete="nickname"
+               maxlength="40" placeholder="Your name"/>
+        <input id="join-password" class="field hidden" type="password"
+               autocomplete="off" placeholder="Room password"/>
+
+        <button id="join-button" class="primary-button">Join Room</button>
+        <p id="join-error" class="error"></p>
+    </div>
+</section>
+
+<!-- Player screen -->
+<section id="player-screen" class="screen">
+    <header class="top-bar">
+        <div class="room-meta">
+            <span id="room-code-label" class="room-code"></span>
+            <span id="role-badge" class="badge"></span>
+        </div>
+        <button id="members-button" class="icon-button" aria-label="Members">
+            <svg viewBox="0 0 24 24">
+                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"></path>
+            </svg>
+        </button>
+    </header>
+
+    <main class="player">
+        <div id="artwork" class="artwork"><div class="artwork-disc"></div></div>
+
+        <h2 id="track-title" class="track-title">Nothing playing</h2>
+        <p id="track-artist" class="track-artist"></p>
+
+        <div class="progress-area">
+            <div id="progress-track" class="progress-track">
+                <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <div class="times">
+                <span id="time-current">0:00</span>
+                <span id="sync-indicator" class="sync-indicator" title="Clock offset"></span>
+                <span id="time-total">0:00</span>
+            </div>
+        </div>
+
+        <div id="transport" class="transport">
+            <button id="prev-button" class="icon-button" aria-label="Previous">
+                <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
+            </button>
+            <button id="play-button" class="play-button" aria-label="Play">
+                <svg viewBox="0 0 24 24"><path id="play-icon-path" d="M8 5v14l11-7z"></path></svg>
+            </button>
+            <button id="next-button" class="icon-button" aria-label="Next">
+                <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zm10-12h2v12h-2z"></path></svg>
+            </button>
+        </div>
+
+        <!-- Listeners get a local volume control: it affects only their own device,
+             so it is available even in listen-only mode. -->
+        <div class="volume-row">
+            <svg class="volume-icon" viewBox="0 0 24 24">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"></path>
+            </svg>
+            <input id="volume" type="range" min="0" max="1" step="0.01" value="1"/>
+        </div>
+
+        <div id="lyrics" class="lyrics"></div>
+    </main>
+
+    <nav class="bottom-tabs">
+        <button class="tab active" data-view="player">Player</button>
+        <button class="tab" data-view="queue">Queue</button>
+        <button class="tab" data-view="lyrics">Lyrics</button>
+    </nav>
+
+    <div id="queue-panel" class="panel">
+        <div class="panel-head">
+            <h3>Queue</h3>
+            <button id="close-queue" class="icon-button" aria-label="Close">
+                <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+            </button>
+        </div>
+        <div id="queue-list" class="list"></div>
+    </div>
+
+    <div id="members-panel" class="panel">
+        <div class="panel-head">
+            <h3>In this room</h3>
+            <button id="close-members" class="icon-button" aria-label="Close">
+                <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+            </button>
+        </div>
+        <div id="members-list" class="list"></div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+</section>
+
+<audio id="audio-element" preload="auto" crossorigin="anonymous"></audio>
+<script src="client.js"></script>
+</body>
+</html>

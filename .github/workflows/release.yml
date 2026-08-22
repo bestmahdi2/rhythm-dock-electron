@@ -1,22 +1,50 @@
 # .github/workflows/release.yml
 
-name: Build and Release for Windows
+name: Build and Release
 
-# This workflow runs when you push a tag that starts with 'v' (e.g., v1.1.8)
+# Runs when you push a tag that starts with 'v' (e.g. v1.4.0).
+# Can also be started by hand from the Actions tab.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # A single job to build the app and create the release
-  build-and-release:
-    name: Build and Release Windows
-    # This job will run only on a Windows virtual machine
-    runs-on: windows-latest
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # One platform failing should not throw away the artifacts from the others.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            script: dist:win
+            artifacts: |
+              Rhythm Dock/dist/*.exe
+              Rhythm Dock/dist/*.exe.blockmap
+
+          - os: macos-latest
+            name: macOS
+            script: dist:mac
+            artifacts: |
+              Rhythm Dock/dist/*.dmg
+              Rhythm Dock/dist/*.zip
+
+          - os: ubuntu-latest
+            name: Linux
+            script: dist:linux
+            artifacts: |
+              Rhythm Dock/dist/*.AppImage
+              Rhythm Dock/dist/*.deb
+              Rhythm Dock/dist/*.rpm
+              Rhythm Dock/dist/*.tar.gz
 
     steps:
       - name: Checkout Code
@@ -27,19 +55,75 @@ jobs:
         with:
           node-version: '20'
 
+      # rpmbuild is not on the ubuntu runner by default, which is one of the reasons
+      # the Linux build never produced anything. libarchive-tools provides bsdtar,
+      # which electron-builder shells out to when packing the .rpm payload.
+      - name: Install Linux build tooling
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm libarchive-tools fakeroot
+
+      # better-sqlite3 is a native module. Prebuilt binaries exist for common
+      # platform/arch pairs but not all of them, so the toolchain has to be present.
+      - name: Setup Python (node-gyp)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install Dependencies
         run: npm install
         working-directory: './Rhythm Dock'
 
-      - name: Build Windows Application (x64 & ia32)
-        run: npm run dist:win
+      # macOS builds both x64 and arm64. The arm64 slice needs its own native rebuild.
+      - name: Rebuild native modules
+        run: npx electron-builder install-app-deps
         working-directory: './Rhythm Dock'
 
+      - name: Build ${{ matrix.name }}
+        run: npm run ${{ matrix.script }}
+        working-directory: './Rhythm Dock'
+        env:
+          # Unsigned builds. Without this, electron-builder tries to notarise on macOS
+          # and fails the job outright when no certificate is configured.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm-dock-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only cut a release for an actual tag push, not for a manual test run.
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact directories
+        run: |
+          mkdir -p release
+          find artifacts -type f \( \
+            -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o \
+            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' \
+          \) -exec cp {} release/ \;
+          ls -lh release
+
       - name: Create and Publish Release
-        # This single step creates the release and uploads the .exe files
         uses: ncipollo/release-action@v1
         with:
-          # The 'artifact' property finds and uploads all matching files
-          artifact: './Rhythm Dock/dist/*.exe'
+          artifacts: 'release/*'
           token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false # Set to false if you want to publish automatically
+          draft: false
+          generateReleaseNotes: true
+          allowUpdates: true

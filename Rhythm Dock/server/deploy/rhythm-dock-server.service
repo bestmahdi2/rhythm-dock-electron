@@ -1,0 +1,51 @@
+# /etc/systemd/system/rhythm-dock-server.service
+#
+# For running without Docker. Assumes the repo is at /opt/rhythm-dock and
+# `npm install --omit=dev` has been run inside server/.
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now rhythm-dock-server
+
+[Unit]
+Description=Rhythm Dock room server
+Documentation=https://github.com/bestmahdi2/rhythm-dock-electron
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rhythm
+Group=rhythm
+WorkingDirectory=/opt/rhythm-dock/server
+ExecStart=/usr/bin/node src/index.js
+
+Environment=NODE_ENV=production
+Environment=PORT=8420
+Environment=HOST=127.0.0.1
+# Put CREATE_SECRET in this file rather than here, so it stays out of `systemctl show`.
+EnvironmentFile=/etc/rhythm-dock.env
+
+Restart=always
+RestartSec=5
+
+# --- Hardening. The server reads no files outside its own directory and writes none. ---
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+MemoryMax=512M
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rhythm-dock
+
+[Install]
+WantedBy=multi-user.target

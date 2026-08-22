@@ -1,6 +1,6 @@
 {
   "name": "rhythm-dock-electron",
-  "version": "1.3.7",
+  "version": "1.4.0",
   "description": "A lightweight, feature-rich music player.",
   "main": "src/main.js",
   "homepage": "https://github.com/bestmahdi2/rhythm-dock-electron",
@@ -10,59 +10,164 @@
   },
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder",
-    "build:win64": "electron-builder --win --x64",
-    "build:win32": "electron-builder --win --ia32",
-    "dist:win": "npm run build:win64 && npm run build:win32",
+    "icons": "node scripts/generate-icons.js",
+    "prebuild": "npm run icons",
+    "rebuild": "electron-builder install-app-deps",
+    "dist": "npm run icons && electron-builder",
+    "dist:current": "npm run icons && electron-builder --publish never",
+    "build:win64": "npm run icons && electron-builder --win --x64",
+    "build:win32": "npm run icons && electron-builder --win --ia32",
+    "dist:win": "npm run icons && electron-builder --win --x64 --ia32",
+    "build:mac:x64": "npm run icons && electron-builder --mac --x64",
+    "build:mac:arm64": "npm run icons && electron-builder --mac --arm64",
+    "dist:mac": "npm run icons && electron-builder --mac --x64 --arm64",
+    "build:linux:appimage": "npm run icons && electron-builder --linux AppImage --x64",
+    "build:linux:deb": "npm run icons && electron-builder --linux deb --x64",
+    "build:linux:rpm": "npm run icons && electron-builder --linux rpm --x64",
+    "dist:linux": "npm run icons && electron-builder --linux --x64",
+    "dist:all": "npm run dist:win && npm run dist:mac && npm run dist:linux",
     "postinstall": "electron-builder install-app-deps",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": {
     "name": "Masterous",
+    "email": "masterous@alibadiee.ir",
     "url": "https://alibadiee.ir"
   },
   "license": "ISC",
   "dependencies": {
     "better-sqlite3": "^12.2.0",
     "electron-store": "^7.0.0",
-    "howler": "^2.2.4",
-    "music-metadata": "^7.14.0"
+    "music-metadata": "^7.14.0",
+    "node-taglib-sharp": "^5.2.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
     "electron": "^31.2.1",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.33.5"
   },
   "build": {
     "appId": "com.masterous.rhythmdock",
     "productName": "Rhythm Dock",
+    "copyright": "Copyright © 2025 Masterous",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
     "files": [
       "src/**/*",
+      "!src/**/*.map",
       "node_modules/**/*"
     ],
     "asarUnpack": [
-      "**/src/assets/**"
+      "**/src/assets/**",
+      "**/node_modules/better-sqlite3/**"
     ],
+    "npmRebuild": true,
+    "buildDependenciesFromSource": false,
     "fileAssociations": [
       {
         "ext": "mp3",
         "name": "MP3 Audio File",
-        "description": "Audio file",
+        "description": "MP3 audio",
         "role": "Viewer",
-        "icon": "src/assets/icons/icon.ico"
+        "mimeType": "audio/mpeg",
+        "icon": "build/icons/filetypes/mp3"
       },
       {
         "ext": "m4a",
         "name": "M4A Audio File",
-        "description": "Audio file",
+        "description": "MPEG-4 audio",
         "role": "Viewer",
-        "icon": "src/assets/icons/icon.ico"
+        "mimeType": "audio/mp4",
+        "icon": "build/icons/filetypes/m4a"
+      },
+      {
+        "ext": "flac",
+        "name": "FLAC Audio File",
+        "description": "Free Lossless Audio Codec",
+        "role": "Viewer",
+        "mimeType": "audio/flac",
+        "icon": "build/icons/filetypes/flac"
+      },
+      {
+        "ext": "wav",
+        "name": "WAV Audio File",
+        "description": "Waveform audio",
+        "role": "Viewer",
+        "mimeType": "audio/wav",
+        "icon": "build/icons/filetypes/wav"
+      },
+      {
+        "ext": "ogg",
+        "name": "OGG Audio File",
+        "description": "Ogg Vorbis audio",
+        "role": "Viewer",
+        "mimeType": "audio/ogg",
+        "icon": "build/icons/filetypes/ogg"
+      },
+      {
+        "ext": "opus",
+        "name": "Opus Audio File",
+        "description": "Opus audio",
+        "role": "Viewer",
+        "mimeType": "audio/opus",
+        "icon": "build/icons/filetypes/opus"
+      },
+      {
+        "ext": "aac",
+        "name": "AAC Audio File",
+        "description": "Advanced Audio Coding",
+        "role": "Viewer",
+        "mimeType": "audio/aac",
+        "icon": "build/icons/filetypes/aac"
+      },
+      {
+        "ext": "wma",
+        "name": "WMA Audio File",
+        "description": "Windows Media audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-ms-wma",
+        "icon": "build/icons/filetypes/wma"
+      },
+      {
+        "ext": "aiff",
+        "name": "AIFF Audio File",
+        "description": "Audio Interchange File Format",
+        "role": "Viewer",
+        "mimeType": "audio/aiff",
+        "icon": "build/icons/filetypes/aiff"
+      },
+      {
+        "ext": "mp4",
+        "name": "MP4 Media File",
+        "description": "MPEG-4 media",
+        "role": "Viewer",
+        "mimeType": "video/mp4",
+        "icon": "build/icons/filetypes/mp4"
       }
     ],
     "win": {
-      "target": "nsis",
-      "icon": "src/assets/icons/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons/icon.ico",
       "artifactName": "${productName} Setup ${version}-${arch}.${ext}"
     },
     "nsis": {
@@ -71,7 +176,161 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "runAfterFinish": true
-    }
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "menuCategory": false
+    },
+    "portable": {
+      "artifactName": "${productName} Portable ${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icons/icon.icns",
+      "category": "public.app-category.music",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Not used.",
+        "LSMultipleInstancesProhibited": true
+      },
+      "minimumSystemVersion": "10.15",
+      "notarize": false
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons/linux",
+      "category": "AudioVideo;Audio;Player",
+      "synopsis": "A lightweight, feature-rich music player",
+      "desktop": {
+        "Name": "Rhythm Dock",
+        "GenericName": "Music Player",
+        "Comment": "A lightweight, feature-rich music player",
+        "StartupWMClass": "Rhythm Dock",
+        "Terminal": "false",
+        "Type": "Application",
+        "Categories": "AudioVideo;Audio;Player;Music;",
+        "Keywords": "music;audio;player;mp3;flac;lyrics;",
+        "MimeType": "audio/mpeg;audio/mp4;audio/flac;audio/wav;audio/x-wav;audio/ogg;audio/opus;audio/aac;audio/x-ms-wma;audio/aiff;audio/x-aiff;video/mp4;"
+      },
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "maintainer": "Masterous <masterous@alibadiee.ir>",
+      "description": "A lightweight, feature-rich music player with synced lyrics, an equalizer and a tag editor.",
+      "mimeTypes": [
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/flac",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/ogg",
+        "audio/opus",
+        "audio/aac",
+        "audio/x-ms-wma",
+        "audio/aiff",
+        "audio/x-aiff",
+        "video/mp4"
+      ]
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libsecret-1-0"
+      ],
+      "fpm": [
+        "--deb-field",
+        "Suggests: ffmpeg"
+      ]
+    },
+    "rpm": {
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "libXtst",
+        "xdg-utils",
+        "at-spi2-core",
+        "libsecret"
+      ],
+      "fpm": [
+        "--rpm-rpmbuild-define",
+        "_build_id_links none"
+      ]
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "extraResources": [
+      {
+        "from": "build/icons",
+        "to": "build/icons",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

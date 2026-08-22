@@ -3,307 +3,666 @@
 <head>
     <meta charset="UTF-8"/>
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data:; connect-src 'self' https://lrclib.net;">
+          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data: file:; connect-src 'self' https://lrclib.net;">
     <link rel="stylesheet" href="styles.css"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Rhythm Dock</title>
 </head>
 <body>
 <div id="container" class="container">
+
+    <!-- ====================================================================
+         TITLE BAR
+         The old bar carried eight equally-weighted icons, so nothing read as
+         primary. It now carries only what belongs to the *window* plus two
+         menu entry points; everything else moved to where it is used.
+         ==================================================================== -->
     <div class="header-bar">
         <div id="filename" class="filename">No song loaded</div>
+
         <div class="window-controls">
             <div class="dropdown">
-                <button class="dropdown-toggle" id="play-dropdown-btn" title="Playback Options">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M7 10l5 5 5-5z"></path>
-                    </svg>
+                <button class="dropdown-toggle" id="speed-btn" title="Playback speed — scroll to nudge, [ and ]">
+                    <span id="speed-label" class="speed-label">1x</span>
                 </button>
             </div>
 
             <div class="dropdown">
-                <button class="dropdown-toggle" id="file-dropdown-btn" title="File Options">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"></path>
-                    </svg>
-                </button>
-            </div>
-
-            <div class="dropdown">
-                <button class="dropdown-toggle" id="lyrics-dropdown-btn" title="Lyrics Options">
-                    <svg viewBox="0 0 24 24">
+                <button class="dropdown-toggle" id="lyrics-dropdown-btn" title="Lyrics">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path>
                     </svg>
                 </button>
             </div>
 
             <div class="dropdown">
-                <button class="dropdown-toggle" id="app-dropdown-btn" title="App Settings">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"></path>
+                <button class="dropdown-toggle" id="app-dropdown-btn" title="App menu">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path>
                     </svg>
                 </button>
             </div>
 
-            <button id="pin-btn" title="Pin Window">
-                <svg viewBox="0 0 24 24">
+            <span class="titlebar-sep" aria-hidden="true"></span>
+
+            <button id="pin-btn" title="Keep on top">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"></path>
                 </svg>
             </button>
 
             <button id="minimize-btn" title="Minimize">
-                <svg viewBox="0 0 24 24">
-                    <path d="M20 14H4v-4h16"></path>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 12.75h12v-1.5H6z"></path>
                 </svg>
             </button>
 
             <button id="close-btn" title="Close">
-                <svg viewBox="0 0 24 24">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
                 </svg>
             </button>
         </div>
     </div>
 
+    <!-- ====================================================================
+         NOW PLAYING
+         ==================================================================== -->
     <div class="content-wrapper">
         <div id="album-art-wrapper">
-            <img id="album-art" src="../assets/images/placeholder.png" alt="Album Art"/>
+            <img id="album-art" src="../assets/images/placeholder.png" alt="Album art"/>
             <div id="volume-overlay" class="volume-overlay">
                 <span id="volume-overlay-text">100%</span>
             </div>
             <div id="magnifier-popup" class="magnifier-popup">
-                <img id="magnified-album-art" src="../assets/images/placeholder.png" alt="Magnified Album Art"/>
+                <img id="magnified-album-art" src="../assets/images/placeholder.png" alt=""/>
             </div>
         </div>
+
         <div class="main-controls">
             <div class="track-info">
                 <div id="title">No song loaded</div>
                 <div id="artist">Open a file or folder</div>
             </div>
             <div class="sliders">
-                <input id="progress-bar" type="range" min="0" value="0" step="0.1"/>
+                <!-- The wrapper exists to give the 4px bar a ~24px hit area for
+                     wheel-seek and middle-click seek. -->
+                <div id="progress-wrapper" class="progress-wrapper">
+                    <div class="progress-track">
+                        <div id="progress-buffered" class="progress-buffered"></div>
+                    </div>
+                    <input id="progress-bar" type="range" min="0" value="0" step="0.1"
+                           aria-label="Seek"/>
+                </div>
                 <div class="time-display">
                     <span id="time-current">0:00</span>
-                    <span id="time-remaining">-0:00</span>
+                    <span id="speed-indicator" class="speed-indicator"></span>
+                    <span id="time-remaining" title="Click to switch between remaining and total">-0:00</span>
                 </div>
             </div>
         </div>
 
+        <!-- Transport is split into two rows of four: the things you press
+             while listening on top, the things you press about the track
+             underneath. Play/pause is the only filled control anywhere. -->
         <div class="side-controls">
             <div class="playback-buttons">
                 <button id="prev-btn" title="Previous">
-                    <svg viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path>
                     </svg>
                 </button>
-                <button id="play-pause-btn" title="Play/Pause">
-                    <svg id="play-icon" viewBox="0 0 24 24">
+                <button id="play-pause-btn" title="Play / Pause (Space)">
+                    <svg id="play-icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M8 5v14l11-7z"></path>
                     </svg>
-                    <svg id="pause-icon" viewBox="0 0 24 24" style="display: none;">
+                    <svg id="pause-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
                         <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path>
                     </svg>
                 </button>
                 <button id="next-btn" title="Next">
-                    <svg viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M16 6h2v12h-2zm-4.5 6l-8.5 6V6z"></path>
                     </svg>
                 </button>
                 <div class="volume-control-wrapper">
-                    <button id="volume-btn" title="Mute/Unmute Volume">
-                        <svg id="volume-icon" viewBox="0 0 24 24">
+                    <button id="volume-btn" title="Mute / Unmute — scroll anywhere to change volume">
+                        <svg id="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>
                         </svg>
-                        <svg id="volume-mute-icon" style="display: none;" viewBox="0 0 24 24">
+                        <svg id="volume-mute-icon" style="display: none;" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path>
                         </svg>
                     </button>
                     <div class="volume-slider-popup">
-                        <input id="volume-slider" type="range" min="0" max="1" value="1" step="0.01"/>
+                        <input id="volume-slider" type="range" min="0" max="1" value="1" step="0.01"
+                               aria-label="Volume"/>
                     </div>
                 </div>
             </div>
+
             <div class="utility-buttons">
-                <button id="like-btn" title="Add to Favorites">
-                    <svg viewBox="0 0 24 24">
+                <!-- Shuffle and loop were buried two clicks deep inside a
+                     chevron menu. They are modes you toggle constantly, so they
+                     belong on the surface where their state is visible. -->
+                <button id="shuffle-btn" title="Shuffle">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
+                    </svg>
+                </button>
+                <button id="loop-btn" title="Loop">
+                    <svg id="loop-off-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
+                        <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
+                    </svg>
+                    <svg id="loop-all-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
+                        <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
+                    </svg>
+                    <svg id="loop-one-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
+                        <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v2.5H13z"></path>
+                    </svg>
+                </button>
+                <button id="like-btn" title="Add to favourites">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path>
                     </svg>
                 </button>
-                <button id="open-file-btn" title="Open File(s)">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"></path>
-                    </svg>
-                </button>
-                <button id="open-folder-btn" class="control-btn" title="Open Folder (O)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                         viewBox="0 0 16 16">
-                        <path fill-rule="evenodd"
-                              d="M5 11.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm-3 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm0 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm0 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-                    </svg>
-                </button>
+                <div class="dropdown">
+                    <button class="dropdown-toggle" id="file-dropdown-btn" title="Track and file actions">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- ====================================================================
+         LYRICS
+         The offset chip is an overlay anchored bottom-right; the text column
+         reserves matching padding so overlap is structurally impossible.
+         ==================================================================== -->
     <div class="lyrics-section">
         <div id="lyrics-container" class="lyrics-container"></div>
-        <div class="lyrics-controls">
-            <button id="lyrics-offset-minus-btn" title="Decrease Lyrics Delay (-0.1s)">
-                <svg viewBox="0 0 24 24">
+        <div class="lyrics-controls" id="lyrics-controls">
+            <button id="lyrics-offset-minus-btn" title="Lyrics earlier (-0.1s)">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M19 13H5v-2h14v2z"></path>
                 </svg>
             </button>
             <span id="lyrics-offset-display">0.0s</span>
-            <button id="lyrics-offset-plus-btn" title="Increase Lyrics Delay (+0.1s)">
-                <svg viewBox="0 0 24 24">
+            <button id="translate-toggle-btn" title="Translate lyrics">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"></path>
+                </svg>
+            </button>
+            <button id="lyrics-offset-plus-btn" title="Lyrics later (+0.1s)">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
                 </svg>
             </button>
         </div>
     </div>
 
-    <div id="settings-drawer" class="settings-drawer">
-        <button id="close-settings-drawer-btn" class="close-drawer-btn" title="Close Settings">
-            <svg viewBox="0 0 24 24">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
-            </svg>
-        </button>
-        <div class="settings-content">
-            <div class="setting-item">
-                <label for="transparency-slider">Opacity</label>
-                <input type="range" id="transparency-slider" min="0.3" max="1.0" step="0.05" value="0.85">
-                <span id="transparency-value">85%</span>
+    <!-- ====================================================================
+         SETTINGS TAB
+         Grouped into titled cards. Three unlabelled dots gave no clue what
+         they switched between, so the pager is now a labelled tab bar.
+         ==================================================================== -->
+    <div id="tab-settings" class="tab-panel">
+        <div class="panel-head">
+            <span class="panel-title">Settings</span>
+            <span id="version-menu-display" class="settings-value">...</span>
+        </div>
+
+        <div class="settings-scroll">
+
+            <!-- Appearance ------------------------------------------------ -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path></svg>
+                        Appearance
+                    </span>
+                </div>
+                <span class="settings-hint">Ten palettes — five dark, five light. Picking one sets the whole app.</span>
+
+                <div id="theme-grid" class="theme-grid"></div>
+
+                <div class="settings-row">
+                    <label for="transparency-slider">Opacity</label>
+                    <input type="range" id="transparency-slider" min="0.3" max="1.0" step="0.05" value="0.85"/>
+                    <span id="transparency-value" class="settings-value">85%</span>
+                </div>
+
+                <button class="settings-action" id="light-mode-btn">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5h-1v3h2V2h-1zm0 17h-1v3h2v-3h-1zM4.2 5.6 2.8 7l2.1 2.1L6.3 7.7 4.2 5.6zm13.5 13.5-1.4 1.4 2.1 2.1 1.4-1.4-2.1-2.1zM2 11v2h3v-2H2zm17 0v2h3v-2h-3zM4.9 19.1l2.1-2.1-1.4-1.4-2.1 2.1 1.4 1.4zM17.7 6.3l2.1-2.1-1.4-1.4-2.1 2.1 1.4 1.4z"></path></svg>
+                    <span id="light-mode-label">Enable Light Mode</span>
+                </button>
+
+                <button class="settings-action" id="toggle-magnifier-btn">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
+                    <span id="toggle-magnifier-label">Disable Magnifier</span>
+                </button>
+            </section>
+
+            <!-- Equalizer ------------------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path></svg>
+                        Equalizer
+                    </span>
+                    <label class="switch">
+                        <input type="checkbox" id="eq-enabled" aria-label="Enable equalizer"/>
+                        <span class="switch-track"></span>
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <label for="eq-preset">Preset</label>
+                    <select id="eq-preset" class="settings-select"></select>
+                </div>
+                <div id="eq-bands" class="eq-bands"></div>
+                <div class="settings-row">
+                    <label for="eq-preamp">Preamp</label>
+                    <input type="range" id="eq-preamp" min="-12" max="12" step="0.5" value="0"/>
+                    <span id="eq-preamp-value" class="settings-value">0 dB</span>
+                </div>
+            </section>
+
+            <!-- Sleep / work timer ---------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61 1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0 0 12 4a9 9 0 1 0 7.03 3.39zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"></path></svg>
+                        Sleep Timer
+                    </span>
+                    <span id="timer-readout" class="settings-value">Off</span>
+                </div>
+                <span class="settings-hint">Pause playback after a set time.</span>
+
+                <div id="timer-presets" class="chip-row"></div>
+                <div class="settings-row">
+                    <input type="number" id="timer-custom" class="settings-input"
+                           min="1" max="600" placeholder="Minutes" aria-label="Custom minutes"/>
+                    <button id="timer-start" class="settings-button primary">Start</button>
+                    <button id="timer-cancel" class="settings-button">Cancel</button>
+                </div>
+                <label class="settings-check">
+                    <input type="checkbox" id="timer-finish-track"/>
+                    <span>Finish the current song first</span>
+                </label>
+            </section>
+
+            <!-- Playback -------------------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a9 9 0 0 0-9 9v7a3 3 0 0 0 3 3h3v-8H5v-2a7 7 0 0 1 14 0v2h-4v8h3a3 3 0 0 0 3-3v-7a9 9 0 0 0-9-9z"></path></svg>
+                        Playback
+                    </span>
+                </div>
+                <label class="settings-check">
+                    <input type="checkbox" id="pause-on-unplug"/>
+                    <span>Pause when headphones are removed</span>
+                </label>
+
+                <button class="settings-action" id="volume-boost-btn">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm7 1.66L8.24 9H5v6h3.24L10 16.34V10.66zM14 12c0-1.28-.68-2.4-1.7-3.03v6.06c1.02-.63 1.7-1.75 1.7-3.03zM16.5 12c0 2.08-1.27 3.86-3.08 4.63v-9.26C15.23 8.14 16.5 9.92 16.5 12z"></path></svg>
+                    <span id="volume-boost-label">Enable Volume Boost</span>
+                </button>
+
+                <button class="settings-action" id="minimize-tray-btn">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16v-2H4v2zM4 13h16v-2H4v2zM4 6v2h16V6H4z"></path></svg>
+                    <span id="minimize-tray-label">Enable Minimize to Tray</span>
+                </button>
+            </section>
+
+            <!-- Lyrics translation ---------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"></path></svg>
+                        Lyrics Translation
+                    </span>
+                </div>
+                <div class="settings-row">
+                    <label for="translate-language">Language</label>
+                    <select id="translate-language" class="settings-select"></select>
+                </div>
+                <div class="settings-row">
+                    <label for="translate-provider">Provider</label>
+                    <select id="translate-provider" class="settings-select">
+                        <option value="google">Google (no setup)</option>
+                        <option value="libre">LibreTranslate (self-hosted)</option>
+                    </select>
+                </div>
+                <input type="text" id="translate-endpoint" class="settings-input full"
+                       placeholder="https://your-server/translate"/>
+            </section>
+
+            <!-- Sharing --------------------------------------------------- -->
+            <section class="settings-block">
+                <div class="settings-block-head">
+                    <span class="settings-title">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A3 3 0 1 0 6 15c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92z"></path></svg>
+                        Listen Together
+                    </span>
+                    <span id="room-status" class="settings-value">Offline</span>
+                </div>
+
+                <div id="room-setup">
+                    <span class="settings-hint">Host a room, or join one with a six-character code.</span>
+                    <input type="text" id="room-server" class="settings-input full"
+                           placeholder="Server — https://music.example.com"/>
+                    <input type="password" id="room-secret" class="settings-input full"
+                           placeholder="Server secret (hosting only)"/>
+                    <input type="text" id="room-name" class="settings-input full"
+                           placeholder="Your display name"/>
+                    <input type="password" id="room-password" class="settings-input full"
+                           placeholder="Room password (optional)"/>
+                    <label class="settings-check">
+                        <input type="checkbox" id="room-everyone-controls" checked/>
+                        <span>Everyone can control playback</span>
+                    </label>
+                    <div class="settings-row">
+                        <button id="room-host-btn" class="settings-button primary">Start Room</button>
+                    </div>
+                    <div class="settings-row">
+                        <input type="text" id="room-join-code" class="settings-input"
+                               maxlength="6" placeholder="Room code"/>
+                        <button id="room-join-btn" class="settings-button">Join</button>
+                    </div>
+                </div>
+
+                <div id="room-active" class="hidden">
+                    <div class="room-code-display">
+                        <span id="room-code-value">------</span>
+                        <button id="room-copy-link" class="settings-button">Copy Link</button>
+                    </div>
+                    <div id="room-members" class="room-members"></div>
+                    <div class="settings-row">
+                        <button id="room-leave-btn" class="settings-button danger">Leave Room</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         LIBRARY TAB
+         ==================================================================== -->
+    <div id="playlist-panel" class="playlist-panel">
+        <div class="playlist-header">
+            <input id="library-search-input" class="library-search-input" type="search"
+                   placeholder="Search artists and songs..." autocomplete="off"/>
+            <button id="close-playlist-btn" class="close-drawer-btn" title="Back to player">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
+                </svg>
+            </button>
+        </div>
+        <div id="playlist-results" class="playlist-results"></div>
+        <div id="playlist-status" class="playlist-status"></div>
+    </div>
+
+    <!-- ====================================================================
+         TAG EDITOR TAB
+         Writes back to the file itself, so it is deliberately explicit: nothing
+         is saved until Save is pressed, and the status line always says what
+         happened.
+         ==================================================================== -->
+    <div id="tab-tags" class="tab-panel">
+        <div class="panel-head">
+            <span class="panel-title">Edit Tags</span>
+            <span id="tags-format" class="settings-value"></span>
+        </div>
+
+        <div class="settings-scroll">
+            <div id="tags-empty" class="tags-empty">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
+                <span>Play a track to edit its tags.</span>
             </div>
 
-            <div class="setting-item" id="app-version-container" style="display: none;">
-                <label>Version</label>
-                <span id="app-version-display"></span>
+            <div id="tags-form" class="hidden">
+                <div class="tags-art-row">
+                    <div class="tags-art">
+                        <img id="tags-cover" src="../assets/images/placeholder.png" alt="Album art"/>
+                    </div>
+                    <div class="tags-art-actions">
+                        <span id="tags-filename" class="tags-filename"></span>
+                        <button id="tags-pick-cover" class="settings-button">Replace Art</button>
+                        <button id="tags-clear-cover" class="settings-button danger">Remove Art</button>
+                    </div>
+                </div>
+
+                <section class="settings-block">
+                    <div class="settings-block-head">
+                        <span class="settings-title">Track</span>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-title">Title</label>
+                        <input type="text" id="tag-title" class="settings-input"/>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-artist">Artist</label>
+                        <input type="text" id="tag-artist" class="settings-input"/>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-album-artist">Album artist</label>
+                        <input type="text" id="tag-album-artist" class="settings-input"/>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-album">Album</label>
+                        <input type="text" id="tag-album" class="settings-input"/>
+                    </div>
+                    <span class="settings-hint">Separate multiple artists or genres with a semicolon.</span>
+                </section>
+
+                <section class="settings-block">
+                    <div class="settings-block-head">
+                        <span class="settings-title">Details</span>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-track">Track</label>
+                        <input type="number" id="tag-track" class="settings-input" min="0" max="999"/>
+                        <label for="tag-track-count">of</label>
+                        <input type="number" id="tag-track-count" class="settings-input" min="0" max="999"/>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-disc">Disc</label>
+                        <input type="number" id="tag-disc" class="settings-input" min="0" max="99"/>
+                        <label for="tag-year">Year</label>
+                        <input type="number" id="tag-year" class="settings-input" min="0" max="2999"/>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-genre">Genre</label>
+                        <input type="text" id="tag-genre" class="settings-input"/>
+                    </div>
+                    <div class="settings-row">
+                        <label for="tag-comment">Comment</label>
+                        <input type="text" id="tag-comment" class="settings-input"/>
+                    </div>
+                </section>
             </div>
         </div>
+
+        <div class="tags-footer">
+            <span id="tags-status" class="tags-status"></span>
+            <button id="tags-revert" class="settings-button">Revert</button>
+            <button id="tags-save" class="settings-button primary">Save</button>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         TAB BAR
+         Same ids and data attributes the pager used, so the switching logic is
+         unchanged — only the affordance is legible now.
+         ==================================================================== -->
+    <nav class="tab-bar" id="tab-pager" aria-label="Sections">
+        <button class="tab-dot tab-btn active" data-tab="player" title="Player">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
+            <span class="tab-btn-label">Player</span>
+        </button>
+        <button class="tab-dot tab-btn" data-tab="playlist" title="Library">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18A3 3 0 1 0 19 17V8h3V6h-5z"></path></svg>
+            <span class="tab-btn-label">Library</span>
+        </button>
+        <button class="tab-dot tab-btn" data-tab="tags" title="Edit tags">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.41 11.58l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM6.5 8A1.5 1.5 0 1 1 8 6.5 1.5 1.5 0 0 1 6.5 8z"></path></svg>
+            <span class="tab-btn-label">Tags</span>
+        </button>
+        <button class="tab-dot tab-btn" data-tab="settings" title="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path></svg>
+            <span class="tab-btn-label">Settings</span>
+        </button>
+    </nav>
+</div>
+
+<!-- ========================================================================
+     MENUS
+     Sectioned with small-caps labels and right-aligned key hints. Each menu is
+     a direct child of <body> so it is never clipped by an ancestor's overflow;
+     the script clamps it to the window rectangle.
+     ======================================================================== -->
+
+<div class="dropdown-menu" id="speed-dropdown-menu" role="menu">
+    <span class="menu-label">Playback Speed</span>
+    <button class="dropdown-item" data-rate="0.5" role="menuitem"><span>0.5x</span><span class="menu-key">Half</span></button>
+    <button class="dropdown-item" data-rate="0.75" role="menuitem"><span>0.75x</span></button>
+    <button class="dropdown-item" data-rate="0.9" role="menuitem"><span>0.9x</span></button>
+    <button class="dropdown-item" data-rate="1" role="menuitem"><span>1x</span><span class="menu-key">Normal</span></button>
+    <button class="dropdown-item" data-rate="1.1" role="menuitem"><span>1.1x</span></button>
+    <button class="dropdown-item" data-rate="1.25" role="menuitem"><span>1.25x</span></button>
+    <button class="dropdown-item" data-rate="1.5" role="menuitem"><span>1.5x</span></button>
+    <button class="dropdown-item" data-rate="2" role="menuitem"><span>2x</span><span class="menu-key">Double</span></button>
+    <hr class="dropdown-divider">
+    <div class="dropdown-item version-display">
+        <span>Scroll the pill to nudge</span>
+        <span class="menu-key">[ ]</span>
     </div>
 </div>
 
-<div class="dropdown-menu" id="play-dropdown-menu">
-    <button class="dropdown-item" id="shuffle-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
-        </svg>
-        <span>Shuffle</span>
+<div class="dropdown-menu" id="file-dropdown-menu" role="menu">
+    <span class="menu-label">Open</span>
+    <button class="dropdown-item" id="open-file-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
+        <span>Open File...</span>
     </button>
-    <button class="dropdown-item" id="loop-btn">
-        <svg id="loop-off-icon" viewBox="0 0 24 24" style="display: none;">
-            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
-        </svg>
-        <svg id="loop-all-icon" viewBox="0 0 24 24" style="display: none;">
-            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
-        </svg>
-        <svg id="loop-one-icon" viewBox="0 0 24 24" style="display: none;">
-            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v2.5H13z"></path>
-        </svg>
-        <span>Loop</span>
+    <button class="dropdown-item" id="open-folder-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path></svg>
+        <span>Open Folder...</span>
+        <span class="menu-key">O</span>
     </button>
-</div>
-<div class="dropdown-menu" id="file-dropdown-menu">
-    <button class="dropdown-item" id="show-file-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path>
-        </svg>
+    <button class="dropdown-item" id="play-favorites-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg>
+        <span>Play Liked Songs</span>
+    </button>
+    <button class="dropdown-item" id="toggle-playlist-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"></path></svg>
+        <span id="toggle-playlist-label">Show Playlist</span>
+    </button>
+
+    <hr class="dropdown-divider">
+    <span class="menu-label">This Track</span>
+    <button class="dropdown-item" id="show-file-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path></svg>
         <span>Show in Folder</span>
     </button>
-    <button class="dropdown-item" id="copy-path-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path>
-        </svg>
-        <span>Copy File Path</span>
+    <button class="dropdown-item" id="open-file-external-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"></path></svg>
+        <span>Open in Default Player</span>
+    </button>
+    <button class="dropdown-item" id="open-folder-external-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path></svg>
+        <span>Open Containing Folder</span>
+    </button>
+
+    <hr class="dropdown-divider">
+    <span class="menu-label">Copy</span>
+    <button class="dropdown-item" id="copy-tags-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"></path></svg>
+        <span>Title &amp; Artist</span>
+    </button>
+    <button class="dropdown-item" id="copy-filename-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path></svg>
+        <span>File Name</span>
+    </button>
+    <button class="dropdown-item" id="copy-path-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path></svg>
+        <span>File Path</span>
+    </button>
+    <button class="dropdown-item" id="copy-folder-path-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"></path></svg>
+        <span>Folder Path</span>
+    </button>
+
+    <hr class="dropdown-divider">
+    <button class="dropdown-item" id="exclude-track-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"></path></svg>
+        <span id="exclude-track-label">Exclude from This Folder</span>
+    </button>
+    <button class="dropdown-item danger" id="delete-file-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"></path></svg>
+        <span>Delete File...</span>
     </button>
 </div>
-<div class="dropdown-menu" id="lyrics-dropdown-menu">
-    <button class="dropdown-item" id="toggle-lyrics-section-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path>
-        </svg>
+
+<div class="dropdown-menu" id="lyrics-dropdown-menu" role="menu">
+    <span class="menu-label">Lyrics</span>
+    <button class="dropdown-item" id="toggle-lyrics-section-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path></svg>
         <span id="toggle-lyrics-label">Hide Lyrics</span>
     </button>
-
-    <button class="dropdown-item" id="toggle-lyrics-controls-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path>
-        </svg>
+    <button class="dropdown-item" id="toggle-lyrics-controls-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path></svg>
         <span id="toggle-lyrics-controls-label">Hide Controls</span>
     </button>
-
-    <button class="dropdown-item" id="toggle-manual-scroll-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"></path>
-        </svg>
+    <button class="dropdown-item" id="toggle-manual-scroll-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"></path></svg>
         <span id="manual-scroll-label">Enable Manual Scroll</span>
     </button>
 
     <hr class="dropdown-divider">
-
-    <button class="dropdown-item" id="refetch-lyrics-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path>
-        </svg>
+    <button class="dropdown-item" id="refetch-lyrics-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
         <span>Refetch Lyrics</span>
     </button>
 </div>
-<div class="dropdown-menu" id="app-dropdown-menu">
-    <button class="dropdown-item" id="light-mode-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"></path>
-        </svg>
-        <span id="light-mode-label">Enable Light Mode</span>
-    </button>
-    <button class="dropdown-item" id="orientation-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h-2.02c-.33-2.88-2.20-5.43-4.58-6.75l1.63-1.73zM2.52 16.48C4.07 19.75 7.24 22.09 11 22.45v-2.02c-2.88-.33-5.43-2.2-6.75-4.58l-1.73 1.63zM7.55 4.03l-1.63 1.73C3.05 7.24.71 10.41 1.07 14.17h2.02c-.33-2.88 2.2-5.43 4.58-6.75L7.55 4.03zM16.48 21.48l1.73-1.63c2.82-2.82 3.25-7.01 1.1-10.42h-2.02c1.78 2.53 1.48 5.92-1.1 8.5L16.48 21.48z"></path>
-        </svg>
+
+<div class="dropdown-menu" id="app-dropdown-menu" role="menu">
+    <span class="menu-label">View</span>
+    <button class="dropdown-item" id="orientation-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M16 1H8a2 2 0 0 0-2 2v18a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm0 18H8V5h8v14z"></path></svg>
         <span id="orientation-label">Switch to Vertical</span>
     </button>
-    <button class="dropdown-item" id="volume-boost-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm7 1.66L8.24 9H5v6h3.24L10 16.34V10.66zM14 12c0-1.28-.68-2.4-1.7-3.03v6.06c1.02-.63 1.7-1.75 1.7-3.03zM16.5 12c0 2.08-1.27 3.86-3.08 4.63v-9.26C15.23 8.14 16.5 9.92 16.5 12z"></path>
-        </svg>
-        <span id="volume-boost-label">Enable Volume Boost</span>
-    </button>
-    <button class="dropdown-item" id="toggle-magnifier-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
-        </svg>
-        <span id="toggle-magnifier-label">Disable Magnifier</span>
-    </button>
-    <button class="dropdown-item" id="settings-transparency-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M20 4h-4L12.71.71c-.38-.38-1.02-.38-1.41 0L8 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM12 6c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"></path>
-        </svg>
-        <span>Adjust Opacity...</span>
-    </button>
-    <hr class="dropdown-divider">
 
-    <button class="dropdown-item" id="go-to-github-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.1.1 1.7 1.1 1.7 1.1.9 1.6 2.4 1.2 3 .9.1-.7.4-1.2.8-1.4-2.3-.3-4.7-1.1-4.7-5.1 0-1.1.4-2 1.1-2.8-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1.1.8-.2 1.7-.3 2.5-.3s1.7.1 2.5.3c2-.1 2.8-1.1 2.8-1.1.6 1.4.2 2.5.1 2.7.7.7 1.1 1.6 1.1 2.8 0 4-2.4 4.8-4.7 5.1.4.3.8.9.8 1.8v2.6c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"></path>
-        </svg>
+    <hr class="dropdown-divider">
+    <span class="menu-label">Window</span>
+    <button class="dropdown-item" id="hide-to-tray-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27z"></path></svg>
+        <span>Hide to Tray Now</span>
+    </button>
+    <button class="dropdown-item" id="settings-transparency-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 2 4 7v10l8 5 8-5V7l-8-5zm0 2.3L18 8v8l-6 3.7L6 16V8l6-3.7z"></path></svg>
+        <span>All Settings...</span>
+    </button>
+
+    <hr class="dropdown-divider">
+    <button class="dropdown-item" id="go-to-github-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.1.1 1.7 1.1 1.7 1.1.9 1.6 2.4 1.2 3 .9.1-.7.4-1.2.8-1.4-2.3-.3-4.7-1.1-4.7-5.1 0-1.1.4-2 1.1-2.8-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1.1.8-.2 1.7-.3 2.5-.3s1.7.1 2.5.3c2-.1 2.8-1.1 2.8-1.1.6 1.4.2 2.5.1 2.7.7.7 1.1 1.6 1.1 2.8 0 4-2.4 4.8-4.7 5.1.4.3.8.9.8 1.8v2.6c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"></path></svg>
         <span>Go to GitHub</span>
     </button>
-    <button class="dropdown-item" id="about-me-btn">
-        <svg viewBox="0 0 24 24">
-            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path>
-        </svg>
+    <button class="dropdown-item" id="about-me-btn" role="menuitem">
+        <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
         <span>About Me</span>
     </button>
-    <hr class="dropdown-divider">
-    <div class="dropdown-item version-display">
-        <svg viewBox="0 0 24 24">
-            <path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path>
-        </svg>
-        <span>Version</span>
-        <span id="version-menu-display">...</span>
-    </div>
 </div>
 
-<script src="../assets/vendor/howler.core.min.js"></script>
+<script src="audio/engine.js"></script>
+<script src="audio/equalizer.js"></script>
+<script src="audio/devices.js"></script>
+<script src="timer.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

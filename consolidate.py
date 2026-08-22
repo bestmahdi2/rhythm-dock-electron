@@ -20,40 +20,55 @@ EXCLUDE_DIRS = ["node_modules", ".git", ".vscode", ".idea", OUTPUT_DIR_NAME]
 GATHER_JOBS = [
     {
         "name": "Project Configuration",
-        "search_patterns": ["package.json", ".gitignore", ".gitattributes", ".npmrc"],
+        "search_patterns": [
+            "package.json", ".gitignore", ".gitattributes", ".npmrc",
+            "server/package.json", "server/docker-compose.yml", "server/Dockerfile",
+            "server/deploy/nginx.conf", "server/deploy/rhythm-dock-server.service"
+        ],
         "output_file": "_project_configs.txt",
         "comments": {"start": "#", "end": ""},
     },
     {
         "name": "Documentation",
-        "search_patterns": ["*.md"],
+        "search_patterns": ["**/*.md"],
         "output_file": "_project_documentation.md",
-        "comments": {"start": ""},
+        "comments": {"start": "<!--", "end": "-->"},
     },
     {
         "name": "Electron Main Process",
-        "search_patterns": ["src/main.js", "src/preload.js"],
+        "search_patterns": ["src/main.js", "src/preload.js", "src/main/**/*.js"],
         "output_file": "_electron_main_process.js",
         "comments": {"start": "//", "end": ""},
     },
     {
         "name": "Electron Renderer Scripts",
-        "search_patterns": ["src/renderer/renderer.js"],
+        "search_patterns": ["src/renderer/**/*.js"],
         "output_file": "_electron_renderer_scripts.js",
         "comments": {"start": "//", "end": ""},
     },
     {
         "name": "HTML Views",
-        "search_patterns": ["src/renderer/**/*.html"],
+        "search_patterns": ["src/renderer/**/*.html", "server/public/**/*.html"],
         "output_file": "_electron_views.html",
-        "comments": {"start": ""},
+        "comments": {"start": "<!--", "end": "-->"},
     },
     {
         "name": "Stylesheets",
-        "search_patterns": ["src/renderer/**/*.css"],
+        "search_patterns": ["src/renderer/**/*.css", "server/public/**/*.css"],
         "output_file": "_electron_styles.css",
         "comments": {"start": "/*", "end": "*/"},
     },
+    {
+        "name": "Server & Utility Scripts",
+        "search_patterns": [
+            "server/src/**/*.js",
+            "server/public/**/*.js",
+            "server/test/**/*.js",
+            "scripts/**/*.js"
+        ],
+        "output_file": "_server_and_scripts.js",
+        "comments": {"start": "//", "end": ""},
+    }
 ]
 
 

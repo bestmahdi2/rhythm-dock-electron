@@ -1,22 +1,46 @@
-const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, screen} = require('electron');
+const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mm = require('music-metadata');
 const Store = require('electron-store');
-const Database = require('better-sqlite3');
 const pkg = require('../package.json');
 
+const paths = require('./main/paths');
+const database = require('./main/database');
+const windowState = require('./main/window-state');
+const scanner = require('./main/library/scanner');
+const metadata = require('./main/library/metadata');
+const tags = require('./main/library/tags');
+const {LibraryIndex} = require('./main/library/index');
+const tray = require('./main/tray');
+const shortcuts = require('./main/shortcuts');
+const translate = require('./main/translate');
+const {RoomClient} = require('./main/room-client');
+
+// Lazily constructed: most sessions never open a room, and constructing it eagerly
+// would pull in the ws dependency for no reason.
+let roomClient = null;
+
+function getRoomClient() {
+    if (!roomClient) {
+        roomClient = new RoomClient({emit: (event, payload) => sendToRenderer(event, payload)});
+    }
+    return roomClient;
+}
+
+// The scanned library. Rebuilt whenever a folder is opened; never persisted, because
+// re-scanning is cheap and a stale cache is worse than none.
+const library = new LibraryIndex();
+
 Store.initRenderer();
-const store = new Store();
+
+// `cwd` pins settings to <appData>/RhythmDock/config instead of the product-name
+// directory, so an update or a rename can no longer orphan them. See main/paths.js.
+let store;
 
 let mainWindow;
-let db;
+let persistWindowState = () => {};
 let currentLayout = 'horizontal';
-let lastHorizontalHeight = 180;
-
-const dbPath = app.isPackaged
-    ? path.join(app.getPath('userData'), 'lyrics.db')
-    : path.join(__dirname, '..', 'lyrics.db'); // In dev, creates lyrics.db in your project root
 
 // --- Thumbar Buttons (Taskbar Media Controls) ---
 // We define these here so we can update them easily.
@@ -24,137 +48,140 @@ let playPauseButton, prevButton, nextButton;
 let thumbarButtons;
 let isPlaying = false; // Keep track of playback state in main process
 
-// development and in a packaged (asar) application.
-const assetsPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'images')
-    : path.join(__dirname, 'assets', 'images');
+/**
+ * Thumbar icons are generated (light + dark variants) by scripts/generate-icons.js.
+ *
+ * Request #4: Windows does not tint thumbar images, so a single dark glyph set is
+ * invisible on a dark taskbar. We ship both and pick per theme, re-picking whenever
+ * nativeTheme reports a change.
+ */
+const mediaIconRoot = app.isPackaged
+    ? path.join(process.resourcesPath, 'build', 'icons', 'media')
+    : path.join(__dirname, '..', 'build', 'icons', 'media');
 
-const ICONS = {
-    play: path.join(assetsPath, 'play.png'),
-    pause: path.join(assetsPath, 'pause.png'),
-    next: path.join(assetsPath, 'next.png'),
-    prev: path.join(assetsPath, 'prev.png'),
-};
+// A dark taskbar needs LIGHT glyphs, hence the apparent inversion here.
+const currentIconVariant = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
 
-function initializeDatabase() {
-    db = new Database(dbPath);
+// Kept in step with `build.fileAssociations` in package.json and with the FILE_TYPES
+// table in scripts/generate-icons.js. Previously this list was duplicated in three
+// places and only covered five formats.
+const SUPPORTED_EXTENSIONS = [
+    '.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4',
+];
 
-    const createTableStmt = `
-        CREATE TABLE IF NOT EXISTS lyrics
-        (
-            songKey
-            TEXT
-            PRIMARY
-            KEY,
-            lyricsText
-            TEXT
-            NOT
-            NULL,
-            lastUpdated
-            TEXT
-            NOT
-            NULL
-        );
-    `;
-    db.exec(createTableStmt);
-}
+const isSupportedAudioFile = (filePath) =>
+    SUPPORTED_EXTENSIONS.includes(path.extname(filePath).toLowerCase());
+
+const iconFor = (name) => path.join(mediaIconRoot, currentIconVariant(), `${name}.png`);
+
+// A missing icon file makes setThumbarButtons() throw and takes the whole window with
+// it, so every icon is verified before it is handed to Electron.
+const resolveIcon = (iconPath) => (fs.existsSync(iconPath) ? iconPath : null);
 
 function updateThumbar() {
-    if (!mainWindow || process.platform !== 'win32') return;
+    if (!mainWindow || mainWindow.isDestroyed() || process.platform !== 'win32') return;
+
+    const icons = {
+        play: resolveIcon(iconFor('play')),
+        pause: resolveIcon(iconFor('pause')),
+        next: resolveIcon(iconFor('next')),
+        prev: resolveIcon(iconFor('prev')),
+    };
+
+    // Bail out rather than crash if the icons have not been generated for this build.
+    if (!icons.play || !icons.pause || !icons.next || !icons.prev) {
+        console.warn('[thumbar] Media icons missing - run `npm run icons`.');
+        return;
+    }
 
     playPauseButton = {
         tooltip: isPlaying ? 'Pause' : 'Play',
-        icon: isPlaying ? ICONS.pause : ICONS.play,
+        icon: isPlaying ? icons.pause : icons.play,
         click: () => sendToRenderer('media-key-event', 'play-pause'),
     };
 
     prevButton = {
-        tooltip: 'Previous', icon: ICONS.prev, click: () => sendToRenderer('media-key-event', 'prev'),
+        tooltip: 'Previous', icon: icons.prev, click: () => sendToRenderer('media-key-event', 'prev'),
     };
 
     nextButton = {
-        tooltip: 'Next', icon: ICONS.next, click: () => sendToRenderer('media-key-event', 'next'),
+        tooltip: 'Next', icon: icons.next, click: () => sendToRenderer('media-key-event', 'next'),
     };
 
     thumbarButtons = [prevButton, playPauseButton, nextButton];
-    mainWindow.setThumbarButtons(thumbarButtons);
+    try {
+        mainWindow.setThumbarButtons(thumbarButtons);
+    } catch (error) {
+        console.error('Failed to set thumbar buttons:', error);
+    }
 }
 
 const createWindow = () => {
-    // Get the last saved position
-    const lastPosition = store.get('lastWindowPosition');
-    let validatedPosition = {}; // Start with an empty object
-
-    // --- NEW: Validate the saved position to ensure it's on a visible screen ---
-    if (lastPosition) {
-        const displays = screen.getAllDisplays();
-        const externalDisplay = displays.find((d) => {
-            // Check if the saved position is within the bounds of any available display
-            return (
-                lastPosition.x >= d.bounds.x &&
-                lastPosition.x < d.bounds.x + d.bounds.width &&
-                lastPosition.y >= d.bounds.y &&
-                lastPosition.y < d.bounds.y + d.bounds.height
-            );
-        });
-
-        // If a display was found containing the position, use it.
-        if (externalDisplay) {
-            validatedPosition = lastPosition;
-        }
-    }
-    // If no valid position was found, validatedPosition remains empty,
-    // and Electron will center the window by default.
-    // --- END of validation logic ---
+    // Geometry (size + position) comes back from window-state, which validates the
+    // saved coordinates against the displays that are actually attached right now.
+    const geometry = windowState.restore(store, 'horizontal');
 
     mainWindow = new BrowserWindow({
-        width: 380,
-        height: 180,
-        // Use the validated position. If the properties don't exist, they are ignored.
-        x: validatedPosition.x,
-        y: validatedPosition.y,
+        ...geometry,
         useContentSize: true,
+        // The window used to be pinned shut by setting min == max size. That made every
+        // panel planned for later phases impossible to lay out, so it is now genuinely
+        // resizable between the bounds declared in window-state.js.
         resizable: true,
+        maximizable: false,
+        fullscreenable: false,
         frame: false,
         transparent: true,
+        show: false,
+        backgroundColor: '#00000000',
         alwaysOnTop: store.get('isPinned', false),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
             nodeIntegration: false,
+            // Renderer-side spellcheck is dead weight for a music player.
+            spellcheck: false,
         },
     });
 
-    const [initialWidth, initialHeight] = mainWindow.getSize();
-    mainWindow.setMinimumSize(initialWidth, initialHeight);
-    mainWindow.setMaximumSize(initialWidth, initialHeight);
+    // Paint once before showing, so the window does not flash a transparent frame.
+    mainWindow.once('ready-to-show', () => mainWindow.show());
 
-    // --- AUTOMATIC RESIZE FOR DEVTOOLS ---
-    let originalSize;
+    // Debounced persistence on move/resize, plus a final flush returned for 'close'.
+    persistWindowState = windowState.track(store, mainWindow, () => ({layout: currentLayout}));
 
     mainWindow.setOpacity(store.get('windowOpacity', 0.85));
 
     mainWindow.webContents.on('devtools-opened', () => {
         originalSize = mainWindow.getSize();
-        // Temporarily remove size constraints to allow the window to be resized.
-        mainWindow.setMaximumSize(screen.getPrimaryDisplay().workAreaSize.width, screen.getPrimaryDisplay().workAreaSize.height);
-        mainWindow.setMinimumSize(800, 600); // A reasonable minimum for devtools
         mainWindow.setSize(1000, 600, true);
     });
 
     mainWindow.webContents.on('devtools-closed', () => {
         if (originalSize) {
-            // Restore the original fixed size and constraints.
-            mainWindow.setMaximumSize(originalSize[0], originalSize[1]);
-            mainWindow.setMinimumSize(originalSize[0], originalSize[1]);
             mainWindow.setSize(originalSize[0], originalSize[1], true);
         }
     });
 
-    // Save the window's position before it closes
-    mainWindow.on('close', () => {
-        const [x, y] = mainWindow.getPosition();
-        store.set('lastWindowPosition', {x, y});
+    // Flush the final geometry before the window goes away.
+    mainWindow.on('close', (event) => {
+        persistWindowState();
+
+        // Request #5: with minimise-to-tray enabled, closing hides instead of quitting.
+        // tray.isQuitting() distinguishes that from a real Quit, otherwise the app could
+        // never be shut down at all.
+        if (store.get('minimizeToTray', false) && !tray.isQuitting()) {
+            event.preventDefault();
+            mainWindow.hide();
+        }
+    });
+
+    // Same treatment for the minimise button when the option is on.
+    mainWindow.on('minimize', (event) => {
+        if (store.get('minimizeToTray', false)) {
+            event.preventDefault();
+            mainWindow.hide();
+        }
     });
 
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
@@ -221,12 +248,44 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
-    initializeDatabase();
+    // Order matters: paths must exist before the store is pointed at them, and the
+    // store must exist before createWindow() reads the saved geometry from it.
+    store = new Store({cwd: paths.getConfigDir()});
+    database.initialize();
     createWindow();
 
-    globalShortcut.register('MediaPlayPause', () => sendToRenderer('media-key-event', 'play-pause'));
-    globalShortcut.register('MediaNextTrack', () => sendToRenderer('media-key-event', 'next'));
-    globalShortcut.register('MediaPreviousTrack', () => sendToRenderer('media-key-event', 'prev'));
+    // --- Global shortcuts (request #5) ---
+    // registerAll reports conflicts instead of failing silently, which is what the old
+    // three bare register() calls did whenever another app already owned a media key.
+    const shortcutResult = shortcuts.registerAll(shortcuts.resolveBindings(store), {
+        playPause: () => sendToRenderer('media-key-event', 'play-pause'),
+        next: () => sendToRenderer('media-key-event', 'next'),
+        previous: () => sendToRenderer('media-key-event', 'prev'),
+        showWindow: () => tray.showWindow(mainWindow),
+        hideWindow: () => tray.hideWindow(mainWindow),
+        toggleWindow: () => tray.toggleWindow(mainWindow),
+    });
+    if (shortcutResult.failed.length) {
+        sendToRenderer('shortcut-conflicts', shortcutResult.failed);
+    }
+
+    // --- Tray (request #5) ---
+    tray.create({
+        getWindow: () => mainWindow,
+        isPlaying: () => isPlaying,
+        onCommand: (command) => sendToRenderer('media-key-event', command),
+    });
+
+    // Windows and Linux repaint the taskbar glyphs on a theme switch; macOS repaints
+    // the tray. Either way the icon variant we chose at startup is now wrong.
+    nativeTheme.on('updated', () => {
+        updateThumbar();
+        tray.rebuildMenu({
+            getWindow: () => mainWindow,
+            isPlaying: () => isPlaying,
+            onCommand: (command) => sendToRenderer('media-key-event', command),
+        });
+    });
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -261,22 +320,53 @@ app.on('open-file', (event, path) => {
     }
 });
 
-async function scanDirectory(dirPath) {
+/**
+ * Scans a folder recursively and folds the results into the library index.
+ * Replaces the old single-level readdir, which never saw an Artist/Album/track.mp3
+ * layout at all (request #8).
+ */
+async function scanAndIndex(dirPath) {
     try {
-        const files = await fs.promises.readdir(dirPath);
-        const audioFiles = files.filter(file => {
-            const ext = path.extname(file).toLowerCase();
-            return ['.mp3', '.wav', '.flac', '.m4a', '.mp4'].includes(ext);
-        }).map(file => path.join(dirPath, file));
-        return audioFiles;
+        const {files, truncated} = await scanner.scanDirectory(dirPath, SUPPORTED_EXTENSIONS, {
+            onProgress: ({found, current}) => sendToRenderer('scan-progress', {found, current}),
+        });
+
+        // Filename-only parse for now; tags are read lazily per track when it plays.
+        // Parsing tags for a 10,000 file library up front would take minutes.
+        library.ingest(files);
+
+        if (truncated) {
+            sendToRenderer('scan-truncated', {count: files.length});
+        }
+        sendToRenderer('library-updated', {
+            trackCount: library.size,
+            artists: library.listArtists(),
+        });
+
+        return files;
     } catch (error) {
         console.error(`Error scanning directory ${dirPath}:`, error);
         return [];
     }
 }
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
+// Set the quitting flag first, so the window 'close' handler stops hiding the window
+// and lets it actually close.
+app.on('before-quit', () => tray.setQuitting(true));
+
+app.on('will-quit', () => {
+    shortcuts.unregisterAll();
+    globalShortcut.unregisterAll();
+    tray.destroy();
+    // Checkpoint the WAL back into the main file so the database is left as a single
+    // clean artifact that an installer cannot half-copy.
+    database.close();
+});
+
 app.on('window-all-closed', () => {
+    // With minimise-to-tray on, the window being gone is not a reason to exit — the
+    // tray icon is still there and is the whole point of the feature.
+    if (store && store.get('minimizeToTray', false) && !tray.isQuitting()) return;
     if (process.platform !== 'darwin') app.quit();
 });
 
@@ -285,29 +375,23 @@ app.on('window-all-closed', () => {
 // NEW: Listen for playback state changes from the renderer
 ipcMain.on('playback-state-changed', (_event, state) => {
     isPlaying = state.isPlaying;
-    updateThumbar(); // Update the taskbar buttons
-});
+    updateThumbar();
 
-ipcMain.handle('get-lyrics', (_event, songKey) => {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare('SELECT lyricsText FROM lyrics WHERE songKey = ?');
-        const row = stmt.get(songKey);
-        return row ? row.lyricsText : null;
-    } catch (error) {
-        console.error('Failed to get lyrics from DB:', error);
-        return null;
+    // Keep the tray's Play/Pause label and tooltip in step with playback.
+    tray.rebuildMenu({
+        getWindow: () => mainWindow,
+        isPlaying: () => isPlaying,
+        onCommand: (command) => sendToRenderer('media-key-event', command),
+    });
+    if (state.title) {
+        tray.updateTooltip(`${state.title}${state.artist ? ' - ' + state.artist : ''}`);
     }
 });
 
-ipcMain.on('save-lyrics', (_event, songKey, lyricsText) => {
-    if (!db) return;
-    try {
-        const stmt = db.prepare('INSERT OR REPLACE INTO lyrics (songKey, lyricsText, lastUpdated) VALUES (?, ?, datetime(\'now\'))');
-        stmt.run(songKey, lyricsText);
-    } catch (error) {
-        console.error('Failed to save lyrics to DB:', error);
-    }
+ipcMain.handle('get-lyrics', (_event, songKey) => database.getLyrics(songKey));
+
+ipcMain.on('save-lyrics', (_event, songKey, lyricsText, details) => {
+    database.saveLyrics(songKey, lyricsText, details || {});
 });
 
 ipcMain.handle('get-store-value', (_event, key) => store.get(key));
@@ -342,9 +426,65 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
     }
 });
 
+// --- Tag editor -------------------------------------------------------------
+//
+// Reads/writes go through main because the renderer has no filesystem access,
+// and because a half-written tag is a destroyed music file: the swap-through-
+// temp-file dance in library/tags.js has to happen somewhere trusted.
+
+ipcMain.handle('read-tags', (_event, filePath) => {
+    if (typeof filePath !== 'string' || !filePath) return {ok: false, error: 'No file loaded.'};
+    return tags.read(filePath);
+});
+
+ipcMain.handle('write-tags', (_event, {filePath, tags: values, cover} = {}) => {
+    if (typeof filePath !== 'string' || !filePath) return {ok: false, error: 'No file loaded.'};
+
+    const result = tags.write(filePath, values || {}, cover);
+
+    // The library index caches the old artist/title, so a rename would otherwise
+    // not show up in search until the next folder scan.
+    if (result.ok) {
+        try {
+            library.ingest([filePath]);
+            sendToRenderer('library-updated', {
+                trackCount: library.size,
+                artists: library.listArtists(),
+            });
+        } catch (error) {
+            console.error('Failed to refresh the library after a tag write:', error);
+        }
+    }
+
+    return result;
+});
+
+/** Picks a cover image and returns it as base64, ready to embed. */
+ipcMain.handle('pick-cover-image', async () => {
+    const {canceled, filePaths} = await dialog.showOpenDialog({
+        title: 'Choose album art',
+        properties: ['openFile'],
+        filters: [{name: 'Images', extensions: ['jpg', 'jpeg', 'png']}],
+    });
+    if (canceled || !filePaths.length) return null;
+
+    try {
+        const imagePath = filePaths[0];
+        const data = fs.readFileSync(imagePath).toString('base64');
+        const mimeType = imagePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+        return {data, mimeType, dataUrl: `data:${mimeType};base64,${data}`};
+    } catch (error) {
+        console.error('Failed to read the chosen image:', error);
+        return null;
+    }
+});
+
 ipcMain.handle('open-files', async () => {
     const {canceled, filePaths} = await dialog.showOpenDialog({
-        filters: [{name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'm4a', 'mp4']}],
+        filters: [
+            {name: 'Audio', extensions: SUPPORTED_EXTENSIONS.map(ext => ext.slice(1))},
+            {name: 'All Files', extensions: ['*']},
+        ],
         properties: ['openFile', 'multiSelections']
     });
     return (canceled || filePaths.length === 0) ? null : filePaths;
@@ -353,71 +493,48 @@ ipcMain.handle('open-files', async () => {
 ipcMain.handle('open-folder', async () => {
     const {canceled, filePaths} = await dialog.showOpenDialog({properties: ['openDirectory']});
     if (canceled || filePaths.length === 0) return null;
-    return await scanDirectory(filePaths[0]);
+    return await scanAndIndex(filePaths[0]);
 });
 
 ipcMain.handle('process-dropped-paths', async (_event, droppedPaths) => {
-    const allAudioFiles = [];
+    const {files, truncated} = await scanner.resolvePaths(droppedPaths, SUPPORTED_EXTENSIONS, {
+        onProgress: ({found, current}) => sendToRenderer('scan-progress', {found, current}),
+    });
 
-    for (const droppedPath of droppedPaths) {
-        try {
-            const stats = fs.statSync(droppedPath);
-            if (stats.isDirectory()) {
-                const filesInDir = await scanDirectory(droppedPath);
-                allAudioFiles.push(...filesInDir);
-            } else if (stats.isFile()) {
-                const ext = path.extname(droppedPath).toLowerCase();
-                if (['.mp3', '.wav', '.flac', '.m4a', '.mp4'].includes(ext)) {
-                    allAudioFiles.push(droppedPath);
-                }
-            }
-        } catch (error) {
-            console.error(`Error processing path ${droppedPath}:`, error);
-        }
-    }
-    return allAudioFiles;
+    library.ingest(files);
+    if (truncated) sendToRenderer('scan-truncated', {count: files.length});
+    sendToRenderer('library-updated', {
+        trackCount: library.size,
+        artists: library.listArtists(),
+    });
+
+    return files;
 });
 
 ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
-    if (!mainWindow) return;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
 
     currentLayout = isVertical ? 'vertical' : 'horizontal';
 
-    const HORIZONTAL_WIDTH = 380;
-    const VERTICAL_SIZE = {width: 105, height: 420};
-
-    const newWidth = isVertical ? VERTICAL_SIZE.width : HORIZONTAL_WIDTH;
-    const newHeight = isVertical ? VERTICAL_SIZE.height : lastHorizontalHeight;
-
-    // Update the size lock first
-    mainWindow.setMinimumSize(newWidth, newHeight);
-    mainWindow.setMaximumSize(newWidth, newHeight);
-
-    // Then set the size
-    mainWindow.setSize(newWidth, newHeight, true);
+    // Snap to the layout preset without re-locking min == max, so the user can still
+    // drag the window afterwards.
+    windowState.applyPreset(mainWindow, currentLayout);
+    persistWindowState();
 
     sendToRenderer('set-orientation-class', isVertical);
 });
 
 ipcMain.on('toggle-lyrics-visibility', (_event, isVisible) => {
-    if (!mainWindow) return;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (currentLayout !== 'horizontal') return;
 
-    const HEIGHT_WITH_LYRICS = 180;
-    const HEIGHT_WITHOUT_LYRICS = 122;
-
-    if (currentLayout === 'horizontal') {
-        const HORIZONTAL_WIDTH = 380;
-        const newHeight = isVisible ? HEIGHT_WITH_LYRICS : HEIGHT_WITHOUT_LYRICS;
-
-        lastHorizontalHeight = newHeight;
-
-        // Update the size lock first
-        mainWindow.setMinimumSize(HORIZONTAL_WIDTH, newHeight);
-        mainWindow.setMaximumSize(HORIZONTAL_WIDTH, newHeight);
-
-        // Then set the size
-        mainWindow.setSize(HORIZONTAL_WIDTH, newHeight, true);
-    }
+    // Keep whatever width the user has chosen; only the height changes with the pane.
+    windowState.applyPreset(
+        mainWindow,
+        isVisible ? 'horizontal' : 'horizontalCompact',
+        {preserveWidth: true}
+    );
+    persistWindowState();
 });
 
 ipcMain.handle('pin-window', () => {
@@ -466,4 +583,305 @@ ipcMain.on('open-author-url', () => {
 
 ipcMain.handle('get-app-version', () => {
     return app.getVersion();
+});
+
+// --- Library IPC (requests #13, #16, #17) ---------------------------------------
+
+ipcMain.handle('library-search', (_event, query) => library.search(query || ''));
+
+ipcMain.handle('library-artists', () => library.listArtists());
+
+ipcMain.handle('library-tracks-by-artist', (_event, artistKey) =>
+    library.getTracksByArtist(artistKey).map(track => track.filePath));
+
+ipcMain.handle('library-get-track', (_event, filePath) => library.get(filePath));
+
+/**
+ * Parses artist/title for a single file on demand, using its real tags plus the
+ * sibling-name evidence from its directory. Used by the "copy title & artist" item and
+ * to upgrade a filename-only guess once a track actually plays.
+ */
+ipcMain.handle('library-resolve-track', async (_event, filePath) => {
+    try {
+        const parsedTags = await mm.parseFile(filePath, {skipCovers: true});
+        const {title, artist, album} = parsedTags.common;
+
+        const directory = path.dirname(filePath);
+        let siblingCounts;
+        try {
+            const entries = await fs.promises.readdir(directory);
+            siblingCounts = metadata.buildSiblingCounts(
+                entries.filter(isSupportedAudioFile).map(name => path.join(directory, name))
+            );
+        } catch (_) {
+            siblingCounts = undefined;
+        }
+
+        const resolved = metadata.parseTrackName(filePath, {title, artist, album}, {
+            siblingCounts,
+            folderName: path.basename(directory),
+        });
+
+        library.add(filePath, resolved);
+        return resolved;
+    } catch (error) {
+        console.error('Failed to resolve track:', error);
+        return metadata.parseTrackName(filePath, {});
+    }
+});
+
+// --- File operations for the file dropdown (request #13) ------------------------
+
+ipcMain.handle('open-path', async (_event, filePath) => {
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    // Opens in the user's default player, rather than in Rhythm Dock.
+    const error = await shell.openPath(filePath);
+    if (error) console.error('Failed to open path:', error);
+    return !error;
+});
+
+ipcMain.handle('open-containing-folder', async (_event, filePath) => {
+    if (!filePath) return false;
+    const directory = path.dirname(filePath);
+    if (!fs.existsSync(directory)) return false;
+    const error = await shell.openPath(directory);
+    return !error;
+});
+
+/**
+ * Deletes a file. Uses the OS trash rather than unlink, so a misclick is recoverable.
+ * The renderer is responsible for confirming with the user first.
+ */
+ipcMain.handle('delete-file', async (_event, filePath) => {
+    if (!filePath || !fs.existsSync(filePath)) return {ok: false, reason: 'not-found'};
+    try {
+        await shell.trashItem(filePath);
+        library.remove(filePath);
+        return {ok: true};
+    } catch (error) {
+        console.error('Failed to move file to trash:', error);
+        return {ok: false, reason: error.message};
+    }
+});
+
+/**
+ * Per-directory exclusion list. Excluding a track hides it from any playlist built
+ * from that folder, without touching the file itself.
+ */
+const EXCLUSIONS_KEY = 'directoryExclusions';
+
+ipcMain.handle('get-exclusions', (_event, directory) => {
+    const all = store.get(EXCLUSIONS_KEY, {});
+    return all[directory] || [];
+});
+
+ipcMain.handle('toggle-exclusion', (_event, filePath) => {
+    const directory = path.dirname(filePath);
+    const all = store.get(EXCLUSIONS_KEY, {});
+    const list = new Set(all[directory] || []);
+
+    const excluded = !list.has(filePath);
+    if (excluded) list.add(filePath); else list.delete(filePath);
+
+    if (list.size > 0) {
+        all[directory] = [...list];
+    } else {
+        delete all[directory];
+    }
+    store.set(EXCLUSIONS_KEY, all);
+
+    return {excluded, directory};
+});
+
+ipcMain.handle('scan-folder-path', async (_event, dirPath) => scanAndIndex(dirPath));
+
+// --- Tray & shortcut settings (request #5) --------------------------------------
+
+ipcMain.handle('get-minimize-to-tray', () => store.get('minimizeToTray', false));
+
+ipcMain.handle('set-minimize-to-tray', (_event, enabled) => {
+    store.set('minimizeToTray', Boolean(enabled));
+    return Boolean(enabled);
+});
+
+ipcMain.handle('hide-to-tray', () => {
+    tray.hideWindow(mainWindow);
+    return true;
+});
+
+ipcMain.handle('get-shortcuts', () => shortcuts.resolveBindings(store));
+
+ipcMain.handle('set-shortcuts', (_event, bindings) => {
+    store.set('globalShortcuts', bindings || {});
+    const result = shortcuts.registerAll(shortcuts.resolveBindings(store), {
+        playPause: () => sendToRenderer('media-key-event', 'play-pause'),
+        next: () => sendToRenderer('media-key-event', 'next'),
+        previous: () => sendToRenderer('media-key-event', 'prev'),
+        showWindow: () => tray.showWindow(mainWindow),
+        hideWindow: () => tray.hideWindow(mainWindow),
+        toggleWindow: () => tray.toggleWindow(mainWindow),
+    });
+    return result;
+});
+
+ipcMain.handle('test-shortcut', (_event, accelerator) => shortcuts.testAccelerator(accelerator));
+
+// --- Translation (request #15) ---------------------------------------------------
+
+// Native notification for the work timer (request #26).
+ipcMain.handle('notify', (_event, {title, body} = {}) => {
+    try {
+        if (!Notification.isSupported()) return false;
+        const notification = new Notification({
+            title: title || 'Rhythm Dock',
+            body: body || '',
+            silent: false,
+        });
+        // Clicking the toast should bring the player back, not just dismiss it.
+        notification.on('click', () => tray.showWindow(mainWindow));
+        notification.show();
+        return true;
+    } catch (error) {
+        console.error('Notification failed:', error);
+        return false;
+    }
+});
+
+ipcMain.handle('get-languages', () => translate.LANGUAGES);
+
+/**
+ * Translates lyric lines, using the DB cache when possible.
+ *
+ * The cache key is (songKey, language). A cache hit costs one SQLite read; a miss costs
+ * a network round trip, so this matters on replay.
+ */
+ipcMain.handle('translate-lyrics', async (_event, {songKey, lines, targetLanguage}) => {
+    if (!Array.isArray(lines) || lines.length === 0) {
+        return {ok: false, reason: 'no lines'};
+    }
+    if (!targetLanguage) return {ok: false, reason: 'no target language'};
+
+    if (songKey) {
+        const cached = database.getTranslation(songKey, targetLanguage);
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached);
+                // Only trust the cache if it still lines up with the current lyrics;
+                // a re-fetched lyric with a different line count would desynchronise.
+                if (Array.isArray(parsed) && parsed.length === lines.length) {
+                    return {ok: true, lines: parsed, cached: true,
+                            rtl: translate.isRightToLeft(targetLanguage)};
+                }
+            } catch (_) { /* corrupt cache entry; fall through and re-translate */ }
+        }
+    }
+
+    const config = store.get('translation', {}) || {};
+
+    try {
+        const translated = await translate.translateLines(lines, targetLanguage, config);
+        if (songKey) {
+            database.saveTranslation(
+                songKey, targetLanguage, JSON.stringify(translated), config.provider || 'google'
+            );
+        }
+        return {ok: true, lines: translated, cached: false,
+                rtl: translate.isRightToLeft(targetLanguage)};
+    } catch (error) {
+        console.error('Translation failed:', error);
+        return {ok: false, reason: error.message};
+    }
+});
+
+ipcMain.handle('get-translation-config', () => ({
+    ...{provider: 'google', targetLanguage: 'en', endpoint: '', apiKey: ''},
+    ...(store.get('translation', {}) || {}),
+}));
+
+ipcMain.handle('set-translation-config', (_event, config) => {
+    store.set('translation', config || {});
+    return true;
+});
+
+// --- Tab layout (request #14) ----------------------------------------------------
+
+/**
+ * The Player tab is the compact dock; Playlist and Settings need real estate. Rather
+ * than forcing one size on all three, the window grows when a taller tab is selected
+ * and returns to the dock size for the player.
+ */
+// --- Rooms / streaming (request: Phase 6) ---------------------------------------
+
+ipcMain.handle('room-create', async (_event, options) => {
+    try {
+        const room = await getRoomClient().createRoom(options.serverUrl, options);
+        return {ok: true, room};
+    } catch (error) {
+        return {ok: false, error: error.message};
+    }
+});
+
+ipcMain.handle('room-join', async (_event, options) => {
+    try {
+        const room = await getRoomClient().joinRoom(options.serverUrl, options.code, options);
+        return {ok: true, room};
+    } catch (error) {
+        return {ok: false, error: error.message};
+    }
+});
+
+ipcMain.handle('room-leave', () => {
+    if (roomClient) roomClient.leave();
+    return true;
+});
+
+ipcMain.handle('room-status', () => {
+    if (!roomClient || !roomClient.connected) return {connected: false};
+    return {
+        connected: true,
+        code: roomClient.roomCode,
+        role: roomClient.role,
+        serverUrl: roomClient.serverUrl,
+        isHost: roomClient.isHost,
+    };
+});
+
+// Host publications. Each is a no-op unless this instance is the host, so the renderer
+// can call them unconditionally.
+ipcMain.on('room-publish-state', (_e, state) => roomClient?.publishState(state));
+ipcMain.on('room-publish-library', (_e, {queue, info}) => {
+    if (!roomClient) return;
+    roomClient.publishLibrary(queue || [], info || {});
+    // The renderer needs the same path -> id mapping so its state messages reference
+    // ids members can actually resolve. Sending it back keeps one authority (main).
+    const map = {};
+    for (const [id, filePath] of roomClient.trackPaths) map[filePath] = id;
+    sendToRenderer('room:track-ids', map);
+});
+ipcMain.on('room-publish-lyrics', (_e, payload) => roomClient?.publishLyrics(payload || {}));
+ipcMain.on('room-publish-settings', (_e, settings) => roomClient?.publishSettings(settings));
+ipcMain.on('room-control', (_e, {action, value}) => roomClient?.sendControl(action, value));
+ipcMain.on('room-set-role', (_e, {memberId, role}) => roomClient?.setMemberRole(memberId, role));
+ipcMain.on('room-kick', (_e, {memberId}) => roomClient?.kickMember(memberId));
+
+ipcMain.handle('set-active-tab', (_event, tab) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (currentLayout === 'vertical') return false;
+
+    const bounds = mainWindow.getBounds();
+    const targetHeight = tab === 'player' ? (store.get('playerTabHeight', 180)) : 420;
+
+    // Remember the player height so a user who resized the dock keeps their size.
+    if (tab !== 'player' && bounds.height <= 260) {
+        store.set('playerTabHeight', bounds.height);
+    }
+
+    mainWindow.setBounds({
+        x: bounds.x,
+        y: bounds.y,
+        width: Math.max(bounds.width, tab === 'player' ? 0 : 340),
+        height: targetHeight,
+    }, true);
+
+    return true;
 });
