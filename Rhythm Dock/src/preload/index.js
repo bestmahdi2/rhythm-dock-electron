@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld('api', {
     playlistAdd: (id, filePath) => ipcRenderer.invoke('playlist-add', id, filePath),
     playlistRemove: (id, filePath) => ipcRenderer.invoke('playlist-remove', id, filePath),
     playlistDelete: (id) => ipcRenderer.invoke('playlist-delete', id),
+    playlistImportFile: () => ipcRenderer.invoke('playlist-import-file'),
+    playlistExportFile: (id) => ipcRenderer.invoke('playlist-export-file', id),
     libraryAddRoot: () => ipcRenderer.invoke('library-add-root'),
     libraryRemoveRoot: (rootId) => ipcRenderer.invoke('library-remove-root', rootId),
     libraryRescan: (rootId) => ipcRenderer.invoke('library-rescan', rootId ?? null),

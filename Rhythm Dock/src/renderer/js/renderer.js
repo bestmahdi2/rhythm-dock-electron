@@ -3489,6 +3489,20 @@ function initNamedPlaylists() {
         setLibraryView('queue');
         setPlaylistStatus('Playlist deleted. Songs remain on disk.');
     });
+    document.getElementById('named-playlist-import')?.addEventListener('click', async () => {
+        const result = await window.api.playlistImportFile();
+        if (result.cancelled) return;
+        if (!result.ok) return setPlaylistStatus(`Import failed: ${result.error}`);
+        await refreshNamedPlaylists(result.id);
+        setLibraryView('named');
+        setPlaylistStatus(`Imported ${result.count} songs.`);
+    });
+    document.getElementById('named-playlist-export')?.addEventListener('click', async () => {
+        if (!namedPlaylistId) return setPlaylistStatus('Choose a playlist first.');
+        const result = await window.api.playlistExportFile(namedPlaylistId);
+        if (!result.cancelled) setPlaylistStatus(result.ok
+            ? `Exported ${result.count} songs.` : `Export failed: ${result.error}`);
+    });
     document.getElementById('add-to-playlist-btn')?.addEventListener('click', async () => {
         setActiveTab('playlist');
         await refreshNamedPlaylists();

@@ -21,6 +21,7 @@ const translate = require('./services/translate');
 const lyrics = require('./services/lyrics');
 const {RoomClient} = require('./services/room-client');
 const remoteCache = require('./services/remote-cache');
+const playlistFormats = require('./services/playlist-formats');
 
 // Lazily constructed: most sessions never open a room, and constructing it eagerly
 // would pull in the ws dependency for no reason.
@@ -1171,6 +1172,38 @@ ipcMain.handle('playlist-delete', async (_event, id) => {
         buttons: ['Cancel', 'Delete Playlist'], defaultId: 0, cancelId: 0,
     });
     return result.response === 1 ? libraryStore.deletePlaylist(id) : false;
+});
+ipcMain.handle('playlist-import-file', async () => {
+    const picked = await dialog.showOpenDialog(mainWindow, {title: 'Import playlist',
+        properties: ['openFile'], filters: [{name: 'Playlists', extensions: ['m3u', 'm3u8', 'pls', 'xspf']}]});
+    if (picked.canceled || !picked.filePaths.length) return {cancelled: true};
+    const source = picked.filePaths[0];
+    try {
+        if ((await fs.promises.stat(source)).size > 5 * 1024 * 1024) throw new Error('Playlist file is too large.');
+        const paths = playlistFormats.parse(await fs.promises.readFile(source, 'utf8'),
+            path.extname(source).toLowerCase(), path.dirname(source))
+            .filter((filePath) => fs.existsSync(filePath));
+        if (!paths.length) return {ok: false, error: 'No supported local songs were found in that playlist.'};
+        const created = libraryStore.createPlaylist(path.basename(source, path.extname(source)), paths);
+        return {...created, count: paths.length};
+    } catch (error) { return {ok: false, error: error.message}; }
+});
+ipcMain.handle('playlist-export-file', async (_event, id) => {
+    const item = libraryStore.listPlaylists().find((playlist) => playlist.id === Number(id));
+    if (!item) return {ok: false, error: 'Choose a playlist first.'};
+    const picked = await dialog.showSaveDialog(mainWindow, {title: 'Export playlist',
+        defaultPath: `${item.name}.m3u8`, filters: [
+            {name: 'M3U', extensions: ['m3u8']}, {name: 'PLS', extensions: ['pls']},
+            {name: 'XSPF', extensions: ['xspf']},
+        ]});
+    if (picked.canceled || !picked.filePath) return {cancelled: true};
+    try {
+        const filePaths = libraryStore.playlistTracks(id).map((track) => track.filePath);
+        const content = playlistFormats.serialize(filePaths, path.extname(picked.filePath).toLowerCase(),
+            path.dirname(picked.filePath));
+        await fs.promises.writeFile(picked.filePath, content, 'utf8');
+        return {ok: true, count: filePaths.length};
+    } catch (error) { return {ok: false, error: error.message}; }
 });
 
 ipcMain.handle('library-add-root', async () => {
