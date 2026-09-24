@@ -119,9 +119,9 @@ function syncRoot(rootId, files = []) {
         );
 
         const upsert = handle.prepare(`
-            INSERT INTO tracks (filePath, rootId, basename, title, artist, album,
+            INSERT INTO tracks (filePath, rootId, basename, title, artist, album, genre,
                                 durationSeconds, addedAt, lastSeenAt, missing)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(filePath) DO UPDATE SET rootId     = excluded.rootId,
                                                 basename   = excluded.basename,
                                                 -- COALESCE: a scan carries filename-derived
@@ -130,6 +130,7 @@ function syncRoot(rootId, files = []) {
                                                 title      = COALESCE(excluded.title, tracks.title),
                                                 artist     = COALESCE(excluded.artist, tracks.artist),
                                                 album      = COALESCE(excluded.album, tracks.album),
+                                                genre      = COALESCE(excluded.genre, tracks.genre),
                                                 lastSeenAt = excluded.lastSeenAt,
                                                 missing    = 0
         `);
@@ -151,6 +152,7 @@ function syncRoot(rootId, files = []) {
                     (typeof file === 'object' && file.title) || null,
                     (typeof file === 'object' && file.artist) || null,
                     (typeof file === 'object' && file.album) || null,
+                    (typeof file === 'object' && file.genre) || null,
                     (typeof file === 'object' && file.durationSeconds) || null,
                     timestamp,
                     timestamp
@@ -204,7 +206,7 @@ function recheckMissing() {
 }
 
 /** Upgrades a row with real tag data, once a track has actually been played. */
-function updateTrackMetadata(filePath, {title, artist, album, durationSeconds} = {}) {
+function updateTrackMetadata(filePath, {title, artist, album, genre, durationSeconds} = {}) {
     const handle = db();
     if (!handle || !filePath) return;
     try {
@@ -213,9 +215,10 @@ function updateTrackMetadata(filePath, {title, artist, album, durationSeconds} =
             SET title           = COALESCE(?, title),
                 artist          = COALESCE(?, artist),
                 album           = COALESCE(?, album),
+                genre           = COALESCE(?, genre),
                 durationSeconds = COALESCE(?, durationSeconds)
             WHERE filePath = ?
-        `).run(title || null, artist || null, album || null, durationSeconds || null, filePath);
+        `).run(title || null, artist || null, album || null, genre || null, durationSeconds || null, filePath);
     } catch (error) {
         console.error('[library] Could not update track metadata:', error);
     }
@@ -295,6 +298,42 @@ function roomCatalog() {
         SELECT filePath, basename, title, artist, album, durationSeconds
         FROM tracks WHERE missing = 0 ORDER BY artist, title, basename
     `).all();
+}
+
+function recommendations({filePath, artist, album, genre, liked = [], hidden = [], limit = 20} = {}) {
+    const handle = db();
+    if (!handle) return [];
+    const likedSet = new Set(Array.isArray(liked) ? liked : []);
+    const hiddenSet = new Set(Array.isArray(hidden) ? hidden : []);
+    const bounded = Math.min(Math.max(1, Number(limit) || 20), 50);
+    const rows = handle.prepare(`
+        SELECT t.filePath, t.basename, t.title, t.artist, t.album, t.genre,
+               COALESCE(s.playCount, 0) AS playCount,
+               COALESCE(s.skipCount, 0) AS skipCount,
+               s.lastPlayedAt
+        FROM tracks t LEFT JOIN track_stats s ON s.filePath = t.filePath
+        WHERE t.missing = 0
+        ORDER BY COALESCE(s.playCount, 0) DESC, t.addedAt DESC
+        LIMIT 5000
+    `).all();
+    const same = (a, b) => Boolean(a && b && String(a).toLocaleLowerCase() === String(b).toLocaleLowerCase());
+    return rows.filter((row) => row.filePath !== filePath && !hiddenSet.has(row.filePath))
+        .map((row) => {
+            const byArtist = same(row.artist, artist);
+            const byGenre = same(row.genre, genre);
+            const byAlbum = same(row.album, album);
+            const likedTrack = likedSet.has(row.filePath);
+            const score = (byArtist ? 7 : 0) + (byGenre ? 4 : 0) + (byAlbum ? 3 : 0) +
+                (likedTrack ? 5 : 0) + Math.log1p(row.playCount) * 2 - row.skipCount * 1.5 -
+                (row.lastPlayedAt && Date.now() - Date.parse(row.lastPlayedAt) < 3600000 ? 4 : 0) +
+                (row.playCount === 0 ? 0.5 : 0);
+            const reason = byArtist ? `More from ${row.artist}` : byGenre ? `Similar ${row.genre} music` :
+                byAlbum ? `From ${row.album}` : likedTrack ? 'You liked this' :
+                row.playCount > row.skipCount ? 'Based on your listening' : 'Something new';
+            return {...row, score, reason};
+        })
+        .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath))
+        .slice(0, bounded);
 }
 
 const VIEWS = {
@@ -425,7 +464,7 @@ function exportAll() {
             exportedAt: nowIso(),
             roots: handle.prepare('SELECT path, addedAt, lastScanAt FROM roots').all(),
             tracks: handle.prepare(`
-                SELECT filePath, basename, title, artist, album, durationSeconds,
+                SELECT filePath, basename, title, artist, album, genre, durationSeconds,
                        addedAt, lastSeenAt, missing
                 FROM tracks
             `).all(),
@@ -467,13 +506,14 @@ function importAll(payload) {
              ON CONFLICT(path) DO NOTHING`
         );
         const insertTrack = handle.prepare(`
-            INSERT INTO tracks (filePath, rootId, basename, title, artist, album,
+            INSERT INTO tracks (filePath, rootId, basename, title, artist, album, genre,
                                 durationSeconds, addedAt, lastSeenAt, missing)
             VALUES (?, (SELECT id FROM roots WHERE ? LIKE path || '%' ORDER BY LENGTH(path) DESC LIMIT 1),
-                    ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(filePath) DO UPDATE SET title  = COALESCE(tracks.title, excluded.title),
                                                 artist = COALESCE(tracks.artist, excluded.artist),
-                                                album  = COALESCE(tracks.album, excluded.album)
+                                                album  = COALESCE(tracks.album, excluded.album),
+                                                genre  = COALESCE(tracks.genre, excluded.genre)
         `);
         const insertStats = handle.prepare(`
             INSERT INTO track_stats (filePath, playCount, skipCount, listenedMs, lastPlayedAt)
@@ -494,7 +534,7 @@ function importAll(payload) {
                 insertTrack.run(
                     track.filePath, track.filePath,
                     track.basename || path.basename(track.filePath),
-                    track.title || null, track.artist || null, track.album || null,
+                    track.title || null, track.artist || null, track.album || null, track.genre || null,
                     track.durationSeconds || null,
                     track.addedAt || nowIso(), track.lastSeenAt || nowIso(),
                     track.missing ? 1 : 0
@@ -546,6 +586,7 @@ module.exports = {
     recordSkip,
     view,
     roomCatalog,
+    recommendations,
     listPlaylists,
     playlistTracks,
     createPlaylist,

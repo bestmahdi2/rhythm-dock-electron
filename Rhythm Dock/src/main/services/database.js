@@ -171,6 +171,12 @@ const MIGRATIONS = [
                 ON playlist_items (playlistId, position);
         `);
     },
+
+    // 6 -> 7: keep genre tags for local recommendations. Existing rows remain valid.
+    (db) => {
+        db.exec('ALTER TABLE tracks ADD COLUMN genre TEXT');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks (genre)');
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;

@@ -38,6 +38,16 @@ app.whenReady().then(() => {
         assert.ok(fs.existsSync(legacyPath), 'migration must keep the original');
         const backups = fs.readdirSync(paths.getBackupDir()).filter((name) => name.endsWith('.db'));
         assert.ok(backups.length > 0, 'schema upgrade must create a backup');
+        const root = libraryStore.addRoot('C:\\music');
+        libraryStore.syncRoot(root.id, ['C:\\music\\one.mp3', 'C:\\music\\two.mp3']);
+        libraryStore.updateTrackMetadata('C:\\music\\one.mp3', {artist: 'Artist', genre: 'Jazz'});
+        libraryStore.updateTrackMetadata('C:\\music\\two.mp3', {artist: 'Artist', genre: 'Jazz'});
+        libraryStore.recordPlay('C:\\music\\two.mp3', 120000);
+        const suggested = libraryStore.recommendations({filePath: 'C:\\music\\one.mp3', artist: 'Artist', genre: 'Jazz'});
+        assert.equal(suggested[0].filePath, 'C:\\music\\two.mp3');
+        assert.match(suggested[0].reason, /Artist/);
+        assert.equal(libraryStore.recommendations({hidden: ['C:\\music\\two.mp3']})
+            .some((row) => row.filePath === 'C:\\music\\two.mp3'), false);
         const playlist = libraryStore.createPlaylist('Test playlist', ['C:\\music\\one.mp3']);
         assert.equal(playlist.ok, true);
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1);
