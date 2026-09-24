@@ -3286,6 +3286,7 @@ const LIBRARY_VIEWS = [
     {id: 'recently-played', label: 'Recent'},
     {id: 'most-played',     label: 'Most Played'},
     {id: 'recently-added',  label: 'Added'},
+    {id: 'for-you',         label: 'For You'},
 ];
 
 function renderLibraryViewChips() {
@@ -3345,6 +3346,11 @@ async function renderActiveLibraryView() {
         return;
     }
 
+    if (activeLibraryView === 'for-you') {
+        await renderRecommendations();
+        return;
+    }
+
     const rows = await window.api.libraryView(activeLibraryView, 100);
     playlistResults.innerHTML = '';
 
@@ -3370,6 +3376,35 @@ async function renderActiveLibraryView() {
             actions: queueActions(track.filePath),
         }));
     });
+}
+
+async function renderRecommendations() {
+    const hidden = await window.api.getStoreValue('hiddenRecommendations') || [];
+    const rows = await window.api.libraryRecommendations({
+        filePath: currentSongData?.filePath,
+        artist: currentSongData?.artist,
+        album: currentSongData?.album,
+        genre: currentSongData?.genre,
+        liked: favoritesPlaylist,
+        hidden,
+        limit: 25,
+    });
+    playlistResults.replaceChildren();
+    if (!rows.length) return setPlaylistStatus('No suggestions yet. Add a folder and play a few songs.');
+    setPlaylistStatus('Suggestions adapt to your plays, skips, likes and hidden songs.');
+    const paths = rows.map((row) => row.filePath);
+    rows.forEach((row, index) => playlistResults.appendChild(makeRow({
+        title: row.title || row.basename,
+        subtitle: [row.artist, row.reason].filter(Boolean).join(' · '),
+        onPlay: () => loadPlaylistAndPlay(paths, index),
+        actions: [...queueActions(row.filePath), {
+            label: '×', title: 'Do not suggest this song', onClick: () => {
+                const next = [...new Set([...hidden, row.filePath])];
+                window.api.setStoreValue('hiddenRecommendations', next);
+                renderRecommendations();
+            },
+        }],
+    })));
 }
 
 async function refreshNamedPlaylists(selectedId = namedPlaylistId) {

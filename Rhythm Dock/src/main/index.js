@@ -699,7 +699,7 @@ function readReplayGain(metadata) {
 ipcMain.handle('get-metadata', async (_event, filePath) => {
     try {
         const metadata = await mm.parseFile(filePath);
-        const {title, artist, picture, lyrics} = metadata.common;
+        const {title, artist, album, picture, lyrics, genre} = metadata.common;
         let cover = null;
         if (picture?.[0]) {
             const imageBuffer = Buffer.from(picture[0].data);
@@ -710,6 +710,8 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             basename: path.basename(filePath),
             title: title || path.basename(filePath),
             artist: artist || 'Unknown Artist',
+            album: album || '',
+            genre: Array.isArray(genre) ? genre.join('; ') : (genre || ''),
             cover,
             lyrics: lyrics ? lyrics[0] : null,
             replayGain: readReplayGain(metadata)
@@ -721,6 +723,8 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             basename: path.basename(filePath),
             title: path.basename(filePath),
             artist: 'Unknown Artist',
+            album: '',
+            genre: '',
             cover: null,
             lyrics: null,
             replayGain: null
@@ -1004,6 +1008,7 @@ ipcMain.handle('library-resolve-track', async (_event, filePath) => {
             title: resolved.title,
             artist: resolved.artist,
             album: resolved.album,
+            genre: Array.isArray(parsedTags.common?.genre) ? parsedTags.common.genre.join('; ') : null,
             durationSeconds: parsedTags.format?.duration,
         });
 
@@ -1130,6 +1135,7 @@ async function importRoomUpload(upload) {
 ipcMain.handle('library-roots', () => libraryStore.listRoots());
 ipcMain.handle('library-stats', () => libraryStore.stats());
 ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
+ipcMain.handle('library-recommendations', (_event, options) => libraryStore.recommendations(options || {}));
 ipcMain.handle('remote-audio-add', async (_event, url) => {
     try {
         const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
