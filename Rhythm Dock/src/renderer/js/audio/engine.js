@@ -372,6 +372,17 @@ class AudioEngine {
         if (deviceId === this.outputDeviceId) {
             return {ok: false, error: 'This device is already the main output.'};
         }
+        // The system-default alias and a concrete device id can name the same
+        // speakers. Chromium exposes their shared groupId when available.
+        try {
+            const outputs = (await navigator.mediaDevices.enumerateDevices())
+                .filter((device) => device.kind === 'audiooutput');
+            const primary = outputs.find((device) => device.deviceId === (this.outputDeviceId || 'default'));
+            const candidate = outputs.find((device) => device.deviceId === deviceId);
+            if (primary?.groupId && candidate?.groupId && primary.groupId === candidate.groupId) {
+                return {ok: false, error: 'This device is already the main output.'};
+            }
+        } catch (_) { /* Routing still works when device enumeration is unavailable. */ }
 
         if (this.auxOutputs.has(deviceId)) {
             this.setOutputDelay(deviceId, delayMs);
