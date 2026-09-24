@@ -1444,6 +1444,8 @@ function renderRoomUI() {
     roomActiveEl?.classList.toggle('hidden', !room.connected);
     document.querySelectorAll('.named-playlist-controls').forEach((element) =>
         element.classList.toggle('hidden', room.connected && !room.isHost));
+    document.querySelectorAll('.remote-audio-controls').forEach((element) =>
+        element.classList.toggle('hidden', room.connected && !room.isHost));
     document.getElementById('room-upload-controls')?.classList.toggle('hidden',
         !room.connected || room.isHost || room.role !== 'controller');
     document.getElementById('room-telegram-controls')?.classList.toggle('hidden', !room.connected || !room.isHost);
@@ -3460,6 +3462,45 @@ function initNamedPlaylists() {
     });
 }
 
+function initRemoteAudio() {
+    const input = document.getElementById('remote-audio-url');
+    const add = document.getElementById('remote-audio-add');
+    const save = document.getElementById('remote-audio-save');
+    add?.addEventListener('click', async () => {
+        const url = input.value.trim();
+        if (!url) return setPlaylistStatus('Paste a direct HTTPS audio link.');
+        add.disabled = true;
+        setPlaylistStatus('Downloading audio to the temporary cache…');
+        try {
+            const result = await window.api.remoteAudioAdd(url);
+            if (!result.ok) return setPlaylistStatus(`Could not add link: ${result.error}`);
+            enqueue(result.filePath, document.getElementById('remote-audio-position').value);
+            input.value = '';
+            setPlaylistStatus(result.cached ? 'Cached song added to the queue.' : 'Downloaded song added to the queue.');
+        } finally { add.disabled = false; }
+    });
+    save?.addEventListener('click', async () => {
+        const current = currentSongData?.filePath;
+        if (!current) return setPlaylistStatus('Play a downloaded link first.');
+        save.disabled = true;
+        try {
+            const result = await window.api.remoteAudioSave(current);
+            if (!result.ok) return setPlaylistStatus(`Could not save song: ${result.error}`);
+            playlist = playlist.map((filePath) => filePath === current ? result.filePath : filePath);
+            originalPlaylist = originalPlaylist.map((filePath) => filePath === current ? result.filePath : filePath);
+            currentSongData.filePath = result.filePath;
+            savePlaybackState();
+            publishRoomLibrary();
+            setPlaylistStatus('Saved to your library.');
+        } finally { save.disabled = false; }
+    });
+    window.api.onRemoteAudioProgress(({received, total}) => {
+        if (add?.disabled) setPlaylistStatus(total
+            ? `Downloading audio: ${Math.round(received / total * 100)}%`
+            : `Downloading audio: ${(received / 1024 / 1024).toFixed(1)} MB`);
+    });
+}
+
 function renderRemoteQueue() {
     const queue = room.remoteLibrary?.queue || [];
     playlistResults.replaceChildren();
@@ -4430,6 +4471,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ['tag editor', initTagEditor],
         ['library', initLibraryPanel],
         ['named playlists', initNamedPlaylists],
+        ['remote audio', initRemoteAudio],
         ['audio', initAudioPanel],
         ['shortcuts', initShortcutsPanel],
     ]) {

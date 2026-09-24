@@ -3380,21 +3380,25 @@ input[type="range"]:hover::-webkit-slider-thumb {
     flex-wrap: wrap;
 }
 
-.container.vertical-mode .named-playlist-controls {
+.container.vertical-mode .named-playlist-controls,
+.container.vertical-mode .remote-audio-controls {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 3px;
 }
 
 .container.vertical-mode .named-playlist-controls select,
-.container.vertical-mode .named-playlist-controls input {
+.container.vertical-mode .named-playlist-controls input,
+.container.vertical-mode .remote-audio-controls select,
+.container.vertical-mode .remote-audio-controls input {
     grid-column: 1 / -1;
     width: 100%;
     min-width: 0;
     font-size: 9px;
 }
 
-.container.vertical-mode .named-playlist-controls button {
+.container.vertical-mode .named-playlist-controls button,
+.container.vertical-mode .remote-audio-controls button {
     min-width: 0;
     padding: 3px 1px;
     height: auto;

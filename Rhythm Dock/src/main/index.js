@@ -20,6 +20,7 @@ const shortcuts = require('./core/shortcuts');
 const translate = require('./services/translate');
 const lyrics = require('./services/lyrics');
 const {RoomClient} = require('./services/room-client');
+const remoteCache = require('./services/remote-cache');
 
 // Lazily constructed: most sessions never open a room, and constructing it eagerly
 // would pull in the ws dependency for no reason.
@@ -350,6 +351,8 @@ app.whenReady().then(() => {
     // store must exist before createWindow() reads the saved geometry from it.
     store = new Store({cwd: paths.getConfigDir()});
     database.initialize();
+    try { remoteCache.prune(path.join(paths.getDataRoot(), 'remote-cache')); }
+    catch (error) { console.warn('[cache] Could not prune old audio:', error.message); }
     createWindow();
 
     // Reopen the desktop lyrics strip if it was showing at shutdown. Deliberately after
@@ -1127,6 +1130,26 @@ async function importRoomUpload(upload) {
 ipcMain.handle('library-roots', () => libraryStore.listRoots());
 ipcMain.handle('library-stats', () => libraryStore.stats());
 ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
+ipcMain.handle('remote-audio-add', async (_event, url) => {
+    try {
+        const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
+        const result = await remoteCache.download(url, cacheRoot, fetch, (received, total) =>
+            sendToRenderer('remote-audio-progress', {received, total}));
+        library.ingest([result.filePath]);
+        return {ok: true, ...result};
+    } catch (error) { return {ok: false, error: error.message}; }
+});
+ipcMain.handle('remote-audio-save', async (_event, filePath) => {
+    try {
+        const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
+        const incoming = path.join(paths.getDataRoot(), 'incoming');
+        const savedPath = remoteCache.save(filePath, cacheRoot, incoming);
+        const root = libraryStore.addRoot(incoming);
+        if (!root) throw new Error('Could not register saved songs folder.');
+        await scanRoot(root);
+        return {ok: true, filePath: savedPath};
+    } catch (error) { return {ok: false, error: error.message}; }
+});
 ipcMain.handle('playlist-list', () => libraryStore.listPlaylists());
 ipcMain.handle('playlist-tracks', (_event, id) => libraryStore.playlistTracks(id));
 ipcMain.handle('playlist-create', (_event, name, filePaths) => libraryStore.createPlaylist(name, filePaths));

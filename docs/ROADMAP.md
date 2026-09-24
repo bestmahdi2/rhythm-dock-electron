@@ -307,7 +307,7 @@ implementation is not a substitute for testing the installed app with real devic
 | Queue at top / next / end | Implemented as actions on library rows. |
 | Control lock | Implemented with lock button and Ctrl+L. Verify alongside edge mode when built. |
 | Offline/online recommendations | Open in this phase; details below. Start with offline signals and opt-in online enrichment. |
-| YouTube/Spotify URLs and playlists, temporary cache, saved imports | Open investigation in this phase; source constraints below. Add direct audio URLs first. Define playlist import as metadata/links separately from playable audio. Enforce the requested two-day expiry for unsaved cache entries and a size limit. |
+| YouTube/Spotify URLs and playlists, temporary cache, saved imports | Direct HTTPS audio links now download to a bounded, two-day cache with an explicit save action. Progressive playback, real URL acceptance, Telegram links, and YouTube/Spotify playlist discovery remain open. Define playlist import as metadata/links separately from playable audio. |
 | Missing “Controls” button | The Lyrics menu currently has Show/Hide Controls. Reproduce which screen or mode lost the expected button, then restore the relevant control in Phase 10. |
 | Highlight A–B range | Implemented in the player progress track on 2026-09-24; check theme contrast and narrow layouts. |
 | Export A–B section | Open Phase 15 task. Export the selected time span with a bundled or optional transcoder, choose output format, and preserve the original file. |
