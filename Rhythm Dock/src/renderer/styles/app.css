@@ -1615,8 +1615,8 @@ input[type="range"]:hover::-webkit-slider-thumb {
 /* --------------------------------------------------------------------------
    8. TAB BAR
    --------------------------------------------------------------------------
-   The three-dot pager gave no clue what the dots were for. This is a labelled
-   segmented control; the .tab-dot rules are kept so older markup still works. */
+   Three clearly spaced dots select Player, Playlist and Settings. Their buttons
+   keep full hit targets, titles and accessible names. */
 
 .tab-bar {
     position: relative;
@@ -1677,6 +1677,29 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .tab-btn.active svg {
     fill: var(--accent);
+}
+
+.tab-bar .tab-dot {
+    width: 28px;
+    height: 25px;
+    padding: 0;
+}
+
+.tab-bar .tab-dot svg,
+.tab-bar .tab-dot .tab-btn-label { display: none; }
+
+.tab-bar .tab-dot::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-3);
+    transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.tab-bar .tab-dot.active::before {
+    background: var(--accent);
+    transform: scale(1.25);
 }
 
 /* Legacy dot pager. */
@@ -2610,6 +2633,79 @@ input[type="range"]:hover::-webkit-slider-thumb {
     background-color: var(--accent-soft);
 }
 
+/* Edge dock: the same player becomes a 48px strip and expands to its familiar
+   vertical layout on hover. The title scrolls only when it overflows. */
+.edge-strip { display: none; }
+
+.container.edge-docked.collapsed {
+    min-width: 0;
+    width: 100vw;
+    padding: 4px;
+    gap: 0;
+    border-radius: 10px;
+}
+
+.container.edge-docked.collapsed > *:not(.edge-strip) { display: none !important; }
+
+.container.edge-docked.collapsed .edge-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    gap: 3px;
+}
+
+.edge-control {
+    -webkit-app-region: no-drag;
+    width: 34px;
+    height: 30px;
+    flex: 0 0 auto;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.edge-control:hover { background: var(--accent-soft); color: var(--accent); }
+
+.edge-handle {
+    -webkit-app-region: drag;
+    width: 32px;
+    height: 12px;
+    flex: 0 0 auto;
+    border-radius: var(--r-pill);
+    background: var(--text-3);
+    cursor: grab;
+}
+
+.edge-title-viewport {
+    flex: 1 1 auto;
+    min-height: 20px;
+    overflow: hidden;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.edge-title-viewport span {
+    display: inline-block;
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+}
+
+.edge-title-viewport span.scrolling { animation: edge-title-scroll 12s linear infinite alternate; }
+@keyframes edge-title-scroll {
+    from { transform: translateY(0); }
+    to { transform: translateY(var(--edge-scroll-distance)); }
+}
+
+.container.locked.edge-docked.collapsed .edge-strip { pointer-events: auto; }
+.container.locked.edge-docked.collapsed .edge-strip > *:not(#edge-lock) { pointer-events: none; }
+.container.locked.edge-docked.collapsed #edge-lock { pointer-events: auto; }
+
 /* A hairline frame is enough of a reminder without dimming content that the
    user still wants to read. */
 .container.locked::after {
@@ -3282,6 +3378,30 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .container.vertical-mode .settings-row {
     flex-wrap: wrap;
+}
+
+.container.vertical-mode .named-playlist-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3px;
+}
+
+.container.vertical-mode .named-playlist-controls select,
+.container.vertical-mode .named-playlist-controls input {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    font-size: 9px;
+}
+
+.container.vertical-mode .named-playlist-controls button {
+    min-width: 0;
+    padding: 3px 1px;
+    height: auto;
+    min-height: 27px;
+    font-size: 9px;
+    line-height: 1.1;
+    white-space: normal;
 }
 
 .container.vertical-mode .eq-bands {

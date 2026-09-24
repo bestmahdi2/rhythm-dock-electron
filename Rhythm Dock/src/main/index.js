@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification} = require('electron');
+const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mm = require('music-metadata');
@@ -8,6 +8,7 @@ const pkg = require('../../package.json');
 const paths = require('./core/paths');
 const database = require('./services/database');
 const windowState = require('./windows/window-state');
+const edgeGeometry = require('./windows/edge-dock');
 const scanner = require('./library/scanner');
 const metadata = require('./library/metadata');
 const tags = require('./library/tags');
@@ -49,6 +50,75 @@ let store;
 let mainWindow;
 let persistWindowState = () => {};
 let currentLayout = 'horizontal';
+let edgeDock = {active: false, expanded: false, side: 'right'};
+let normalBounds = null;
+let normalPinned = false;
+let normalResizable = true;
+let edgeSnapTimer = null;
+
+function edgeBounds(side, y, display = screen.getPrimaryDisplay(), width = edgeGeometry.COLLAPSED_WIDTH) {
+    return edgeGeometry.boundsFor(side, y, display.workArea,
+        width === edgeGeometry.EXPANDED_WIDTH);
+}
+
+function setEdgeDock(active) {
+    if (!mainWindow || mainWindow.isDestroyed() || edgeDock.active === Boolean(active)) return edgeDock.active;
+    if (active) {
+        normalBounds = mainWindow.getBounds();
+        windowState.save(store, mainWindow, {layout: currentLayout});
+        normalPinned = mainWindow.isAlwaysOnTop();
+        normalResizable = mainWindow.isResizable();
+        edgeDock.active = true;
+        edgeDock.expanded = false;
+        const saved = store.get('edgeDock', {});
+        const display = screen.getDisplayNearestPoint({x: normalBounds.x, y: normalBounds.y});
+        edgeDock.side = ['left', 'right'].includes(saved.side) ? saved.side
+            : edgeGeometry.sideForPoint(normalBounds.x + normalBounds.width / 2, display.workArea);
+        mainWindow.setMinimumSize(edgeGeometry.COLLAPSED_WIDTH, 110);
+        mainWindow.setResizable(false);
+        mainWindow.setAlwaysOnTop(true);
+        mainWindow.setBounds(edgeBounds(edgeDock.side, saved.y ?? normalBounds.y, display));
+        if (!mainWindow.isVisible()) mainWindow.show();
+    } else {
+        edgeDock.active = false;
+        edgeDock.expanded = false;
+        mainWindow.setResizable(normalResizable);
+        mainWindow.setMinimumSize(windowState.LIMITS.minWidth, windowState.LIMITS.minHeight);
+        mainWindow.setAlwaysOnTop(normalPinned);
+        if (normalBounds) mainWindow.setBounds(normalBounds);
+        windowState.save(store, mainWindow, {layout: currentLayout});
+        sendToRenderer('set-orientation-class', currentLayout === 'vertical');
+    }
+    store.set('edgeDock', {active: edgeDock.active, side: edgeDock.side,
+        y: mainWindow.getBounds().y});
+    sendToRenderer('edge-dock-changed', {...edgeDock});
+    return edgeDock.active;
+}
+
+function expandEdgeDock(expanded) {
+    if (!edgeDock.active || !mainWindow || mainWindow.isDestroyed()) return;
+    if (edgeDock.expanded === Boolean(expanded)) return;
+    edgeDock.expanded = Boolean(expanded);
+    const old = mainWindow.getBounds();
+    const display = screen.getDisplayNearestPoint({x: old.x + old.width / 2, y: old.y});
+    mainWindow.setBounds(edgeBounds(edgeDock.side, old.y, display,
+        edgeDock.expanded ? edgeGeometry.EXPANDED_WIDTH : edgeGeometry.COLLAPSED_WIDTH));
+    sendToRenderer('edge-dock-changed', {...edgeDock});
+}
+
+function snapEdgeDock() {
+    if (!edgeDock.active || !mainWindow || mainWindow.isDestroyed()) return;
+    const bounds = mainWindow.getBounds();
+    const center = {x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2};
+    const display = screen.getDisplayNearestPoint(center);
+    edgeDock.side = edgeGeometry.sideForPoint(center.x, display.workArea);
+    const target = edgeBounds(edgeDock.side, bounds.y, display,
+        edgeDock.expanded ? edgeGeometry.EXPANDED_WIDTH : edgeGeometry.COLLAPSED_WIDTH);
+    if (target.x !== bounds.x || target.y !== bounds.y || target.height !== bounds.height)
+        mainWindow.setBounds(target);
+    store.set('edgeDock', {active: true, side: edgeDock.side, y: target.y});
+    sendToRenderer('edge-dock-changed', {...edgeDock});
+}
 
 // --- Thumbar Buttons (Taskbar Media Controls) ---
 // We define these here so we can update them easily.
@@ -155,10 +225,19 @@ const createWindow = () => {
     });
 
     // Paint once before showing, so the window does not flash a transparent frame.
-    mainWindow.once('ready-to-show', () => mainWindow.show());
+    mainWindow.once('ready-to-show', () => {
+        if (store.get('edgeDock', {}).active) setEdgeDock(true);
+        mainWindow.show();
+    });
 
     // Debounced persistence on move/resize, plus a final flush returned for 'close'.
-    persistWindowState = windowState.track(store, mainWindow, () => ({layout: currentLayout}));
+    persistWindowState = windowState.track(store, mainWindow, () =>
+        ({layout: currentLayout, skipSave: edgeDock.active}));
+    mainWindow.on('moved', () => {
+        clearTimeout(edgeSnapTimer);
+        edgeSnapTimer = setTimeout(snapEdgeDock, 30);
+    });
+    screen.on('display-removed', snapEdgeDock);
 
     mainWindow.setOpacity(store.get('windowOpacity', 0.85));
 
@@ -202,6 +281,7 @@ const createWindow = () => {
     mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
     mainWindow.on('closed', () => {
+        screen.off('display-removed', snapEdgeDock);
         mainWindow = null;
         // The overlay is a real window, so leaving it open would keep the app alive
         // past 'window-all-closed' with no player behind it feeding it lines.
@@ -288,6 +368,7 @@ app.whenReady().then(() => {
         showWindow: () => tray.showWindow(mainWindow),
         hideWindow: () => tray.hideWindow(mainWindow),
         toggleWindow: () => tray.toggleWindow(mainWindow),
+        toggleEdgeDock: () => { if (!store.get('isLocked', false)) setEdgeDock(!edgeDock.active); },
     });
     if (shortcutResult.failed.length) {
         sendToRenderer('shortcut-conflicts', shortcutResult.failed);
@@ -731,6 +812,7 @@ ipcMain.handle('process-dropped-paths', async (_event, droppedPaths) => {
 
 ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (edgeDock.active) return;
 
     currentLayout = isVertical ? 'vertical' : 'horizontal';
 
@@ -741,6 +823,13 @@ ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
 
     sendToRenderer('set-orientation-class', isVertical);
 });
+
+ipcMain.handle('edge-dock-toggle', () => {
+    if (store.get('isLocked', false)) return edgeDock.active;
+    return setEdgeDock(!edgeDock.active);
+});
+ipcMain.handle('edge-dock-status', () => ({...edgeDock}));
+ipcMain.on('edge-dock-expand', (_event, expanded) => expandEdgeDock(expanded));
 
 ipcMain.on('toggle-lyrics-visibility', (_event, isVisible) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1038,6 +1127,22 @@ async function importRoomUpload(upload) {
 ipcMain.handle('library-roots', () => libraryStore.listRoots());
 ipcMain.handle('library-stats', () => libraryStore.stats());
 ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
+ipcMain.handle('playlist-list', () => libraryStore.listPlaylists());
+ipcMain.handle('playlist-tracks', (_event, id) => libraryStore.playlistTracks(id));
+ipcMain.handle('playlist-create', (_event, name, filePaths) => libraryStore.createPlaylist(name, filePaths));
+ipcMain.handle('playlist-add', (_event, id, filePath) => libraryStore.addToPlaylist(id, filePath));
+ipcMain.handle('playlist-remove', (_event, id, filePath) => libraryStore.removeFromPlaylist(id, filePath));
+ipcMain.handle('playlist-delete', async (_event, id) => {
+    const item = libraryStore.listPlaylists().find((playlist) => playlist.id === Number(id));
+    if (!item) return false;
+    const result = await dialog.showMessageBox(mainWindow, {
+        type: 'warning', title: 'Delete playlist?',
+        message: `Delete “${item.name}”?`,
+        detail: 'The songs themselves will stay on disk.',
+        buttons: ['Cancel', 'Delete Playlist'], defaultId: 0, cancelId: 0,
+    });
+    return result.response === 1 ? libraryStore.deletePlaylist(id) : false;
+});
 
 ipcMain.handle('library-add-root', async () => {
     const {canceled, filePaths} = await dialog.showOpenDialog({properties: ['openDirectory']});
@@ -1156,6 +1261,7 @@ ipcMain.handle('set-shortcuts', (_event, bindings) => {
         showWindow: () => tray.showWindow(mainWindow),
         hideWindow: () => tray.hideWindow(mainWindow),
         toggleWindow: () => tray.toggleWindow(mainWindow),
+        toggleEdgeDock: () => { if (!store.get('isLocked', false)) setEdgeDock(!edgeDock.active); },
     });
     return result;
 });
@@ -1337,6 +1443,7 @@ ipcMain.on('room-kick', (_e, {memberId}) => roomClient?.kickMember(memberId));
 
 ipcMain.handle('set-active-tab', (_event, tab) => {
     if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (edgeDock.active) return false;
     if (currentLayout === 'vertical') return false;
 
     const bounds = mainWindow.getBounds();

@@ -10,6 +10,15 @@
 </head>
 <body>
 <div id="container" class="container">
+    <div id="edge-strip" class="edge-strip" aria-label="Edge dock">
+        <button id="edge-exit" class="edge-control" title="Exit edge dock (Ctrl+Alt+D)" aria-label="Exit edge dock">↗</button>
+        <div id="edge-handle" class="edge-handle" title="Drag up/down or to the other screen edge" aria-label="Drag edge dock"></div>
+        <div id="edge-title-viewport" class="edge-title-viewport"><span id="edge-title">No song loaded</span></div>
+        <button id="edge-prev" class="edge-control" title="Previous" aria-label="Previous">⏮</button>
+        <button id="edge-play" class="edge-control" title="Play or pause" aria-label="Play or pause">▶</button>
+        <button id="edge-next" class="edge-control" title="Next" aria-label="Next">⏭</button>
+        <button id="edge-lock" class="edge-control" title="Lock controls" aria-label="Lock controls">♙</button>
+    </div>
 
     <!-- ====================================================================
          TITLE BAR
@@ -583,6 +592,19 @@
             </button>
         </div>
         <div id="library-view-chips" class="chip-row library-view-chips"></div>
+        <div class="settings-row named-playlist-controls">
+            <select id="named-playlist-select" class="settings-select" aria-label="Named playlist">
+                <option value="">Choose a playlist</option>
+            </select>
+            <button id="named-playlist-play" class="settings-button">Play All</button>
+            <button id="named-playlist-add-current" class="settings-button">Add Song</button>
+            <button id="named-playlist-delete" class="settings-button danger">Delete List</button>
+        </div>
+        <div class="settings-row named-playlist-controls">
+            <input id="named-playlist-name" class="settings-input" maxlength="80" placeholder="New playlist name" aria-label="New playlist name"/>
+            <button id="named-playlist-create" class="settings-button">Create</button>
+            <button id="named-playlist-save-queue" class="settings-button">Save Queue</button>
+        </div>
         <div id="playlist-results" class="playlist-results"></div>
         <div id="playlist-status" class="playlist-status"></div>
     </div>
@@ -597,6 +619,7 @@
         <div class="panel-head">
             <span class="panel-title">Edit Tags</span>
             <span id="tags-format" class="settings-value"></span>
+            <button id="tags-close" class="settings-button" title="Back to player">Done</button>
         </div>
 
         <div class="settings-scroll">
@@ -680,20 +703,16 @@
          Same ids and data attributes the pager used, so the switching logic is
          unchanged — only the affordance is legible now.
          ==================================================================== -->
-    <nav class="tab-bar" id="tab-pager" aria-label="Sections">
-        <button class="tab-dot tab-btn active" data-tab="player" title="Player">
+    <nav class="tab-bar" id="tab-pager" role="tablist" aria-label="Sections">
+        <button class="tab-dot tab-btn active" data-tab="player" title="Player" aria-label="Player" role="tab" aria-selected="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
             <span class="tab-btn-label">Player</span>
         </button>
-        <button class="tab-dot tab-btn" data-tab="playlist" title="Library">
+        <button class="tab-dot tab-btn" data-tab="playlist" title="Playlist" aria-label="Playlist" role="tab" aria-selected="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18A3 3 0 1 0 19 17V8h3V6h-5z"></path></svg>
-            <span class="tab-btn-label">Library</span>
+            <span class="tab-btn-label">Playlist</span>
         </button>
-        <button class="tab-dot tab-btn" data-tab="tags" title="Edit tags">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.41 11.58l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM6.5 8A1.5 1.5 0 1 1 8 6.5 1.5 1.5 0 0 1 6.5 8z"></path></svg>
-            <span class="tab-btn-label">Tags</span>
-        </button>
-        <button class="tab-dot tab-btn" data-tab="settings" title="Settings">
+        <button class="tab-dot tab-btn" data-tab="settings" title="Settings" aria-label="Settings" role="tab" aria-selected="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path></svg>
             <span class="tab-btn-label">Settings</span>
         </button>
@@ -746,6 +765,14 @@
 
     <hr class="dropdown-divider">
     <span class="menu-label">This Track</span>
+    <button class="dropdown-item" id="edit-tags-btn" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.41 11.58l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM6.5 8A1.5 1.5 0 1 1 8 6.5 1.5 1.5 0 0 1 6.5 8z"></path></svg>
+        <span>Edit Tags</span>
+    </button>
+    <button class="dropdown-item" id="add-to-playlist-btn" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h12v2H3zm0 6h12v2H3zm0 6h8v2H3zm16-5v4h4v2h-4v4h-2v-4h-4v-2h4v-4z"></path></svg>
+        <span>Add to Playlist</span>
+    </button>
     <button class="dropdown-item" id="show-file-btn" role="menuitem">
         <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path></svg>
         <span>Show in Folder</span>
@@ -831,6 +858,10 @@
     <button class="dropdown-item" id="orientation-btn" role="menuitem">
         <svg viewBox="0 0 24 24"><path d="M16 1H8a2 2 0 0 0-2 2v18a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm0 18H8V5h8v14z"></path></svg>
         <span id="orientation-label">Switch to Vertical</span>
+    </button>
+    <button class="dropdown-item" id="edge-dock-btn" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 2h2v20H2zM7 4h13v16H7z"></path></svg>
+        <span>Stick to screen edge (Ctrl+Alt+D)</span>
     </button>
 
     <hr class="dropdown-divider">

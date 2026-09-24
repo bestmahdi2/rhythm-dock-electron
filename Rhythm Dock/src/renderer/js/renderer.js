@@ -1247,6 +1247,8 @@ function updateProgressFill(seek, duration) {
 function updatePlayPauseIcon() {
     playIcon.style.display = isPlaying ? 'none' : 'block';
     pauseIcon.style.display = isPlaying ? 'block' : 'none';
+    const edgePlay = document.getElementById('edge-play');
+    if (edgePlay) edgePlay.textContent = isPlaying ? '⏸' : '▶';
 }
 
 function updateVolumeUI() {
@@ -1440,6 +1442,8 @@ function renderRoomUI() {
 
     roomSetupEl?.classList.toggle('hidden', room.connected);
     roomActiveEl?.classList.toggle('hidden', !room.connected);
+    document.querySelectorAll('.named-playlist-controls').forEach((element) =>
+        element.classList.toggle('hidden', room.connected && !room.isHost));
     document.getElementById('room-upload-controls')?.classList.toggle('hidden',
         !room.connected || room.isHost || room.role !== 'controller');
     document.getElementById('room-telegram-controls')?.classList.toggle('hidden', !room.connected || !room.isHost);
@@ -2037,6 +2041,11 @@ function setLocked(locked) {
     const shut = document.getElementById('lock-closed-icon');
     if (open) open.style.display = isLocked ? 'none' : 'block';
     if (shut) shut.style.display = isLocked ? 'block' : 'none';
+    const edgeLock = document.getElementById('edge-lock');
+    if (edgeLock) {
+        edgeLock.textContent = isLocked ? '🔒' : '🔓';
+        edgeLock.title = isLocked ? 'Unlock controls' : 'Lock controls';
+    }
 
     window.api.setStoreValue('isLocked', isLocked);
     showToast(isLocked ? 'Controls locked' : 'Controls unlocked');
@@ -2372,6 +2381,7 @@ function initLibraryPanel() {
 // names the outcome rather than silently succeeding.
 
 const tagsTab = document.getElementById('tab-tags');
+let tagsReturnTab = 'player';
 const tagsForm = document.getElementById('tags-form');
 const tagsEmpty = document.getElementById('tags-empty');
 const tagsStatus = document.getElementById('tags-status');
@@ -2552,6 +2562,8 @@ function revertTags() {
 
 /** Wires the editor. Called once from the DOM-ready block. */
 function initTagEditor() {
+    document.getElementById('tags-close')?.addEventListener('click', () => setActiveTab(tagsReturnTab));
+    document.getElementById('edit-tags-btn')?.addEventListener('click', openTagsEditor);
     TAG_FIELDS.forEach((_key, id) => {
         document.getElementById(id)?.addEventListener('input', refreshTagsDirtyState);
     });
@@ -2802,10 +2814,16 @@ function setActiveTab(tab) {
 
     tabPager?.querySelectorAll('.tab-dot').forEach((dot) => {
         dot.classList.toggle('active', dot.dataset.tab === tab);
+        dot.setAttribute('aria-selected', String(dot.dataset.tab === tab));
     });
 
     // The main process resizes the window: a settings panel does not fit in a 180px dock.
     window.api.setActiveTab(tab);
+}
+
+function openTagsEditor() {
+    tagsReturnTab = activeTab === 'tags' ? tagsReturnTab : activeTab;
+    setActiveTab('tags');
 }
 
 // --- Equalizer (request #25) ----------------------------------------------------
@@ -3217,6 +3235,7 @@ const SHORTCUT_GROUPS = [
             ['O', 'Open a folder'],
             ['P', 'Pin on top'],
             ['V', 'Switch horizontal / vertical'],
+            ['Ctrl + Alt + D', 'Stick to or leave the screen edge'],
         ],
     },
 ];
@@ -3257,6 +3276,7 @@ function initShortcutsPanel() {
 // switch between them, and search still overrides whichever is selected.
 
 let activeLibraryView = 'queue';
+let namedPlaylistId = null;
 
 const LIBRARY_VIEWS = [
     {id: 'queue',           label: 'Queue'},
@@ -3308,6 +3328,11 @@ async function renderActiveLibraryView() {
         return;
     }
 
+    if (activeLibraryView === 'named') {
+        await renderNamedPlaylist();
+        return;
+    }
+
     if (activeLibraryView === 'queue') {
         renderQueue();
         return;
@@ -3342,6 +3367,96 @@ async function renderActiveLibraryView() {
             onPlay: () => loadPlaylistAndPlay(rows.map((row) => row.filePath), index),
             actions: queueActions(track.filePath),
         }));
+    });
+}
+
+async function refreshNamedPlaylists(selectedId = namedPlaylistId) {
+    const select = document.getElementById('named-playlist-select');
+    if (!select) return;
+    const lists = await window.api.playlistList();
+    select.replaceChildren(new Option('Choose a playlist', ''));
+    for (const list of lists) select.add(new Option(`${list.name} (${list.trackCount})`, String(list.id)));
+    if (selectedId && lists.some((list) => list.id === Number(selectedId))) {
+        namedPlaylistId = Number(selectedId);
+        select.value = String(selectedId);
+    } else {
+        namedPlaylistId = null;
+    }
+}
+
+async function renderNamedPlaylist() {
+    if (!namedPlaylistId) {
+        playlistResults.replaceChildren();
+        setPlaylistStatus('Choose a playlist or create one.');
+        return;
+    }
+    const rows = await window.api.playlistTracks(namedPlaylistId);
+    playlistResults.replaceChildren();
+    setPlaylistStatus(`${rows.length} song${rows.length === 1 ? '' : 's'} in this playlist`);
+    const playable = rows.filter((row) => !row.missing).map((row) => row.filePath);
+    for (const row of rows) {
+        playlistResults.appendChild(makeRow({
+            title: row.title || row.basename || row.filePath.split(/[\\/]/).pop(),
+            subtitle: row.artist || (row.missing ? 'File is missing' : ''),
+            onPlay: () => {
+                const index = playable.indexOf(row.filePath);
+                if (index >= 0) loadPlaylistAndPlay(playable, index);
+            },
+            actions: [...queueActions(row.filePath), {
+                label: '×', title: 'Remove from this playlist', onClick: async () => {
+                    await window.api.playlistRemove(namedPlaylistId, row.filePath);
+                    await refreshNamedPlaylists();
+                    renderNamedPlaylist();
+                },
+            }],
+        }));
+    }
+}
+
+function initNamedPlaylists() {
+    const select = document.getElementById('named-playlist-select');
+    const name = document.getElementById('named-playlist-name');
+    refreshNamedPlaylists();
+    select?.addEventListener('change', () => {
+        namedPlaylistId = Number(select.value) || null;
+        setLibraryView(namedPlaylistId ? 'named' : 'queue');
+    });
+    const create = async (paths) => {
+        const result = await window.api.playlistCreate(name.value, paths);
+        if (!result.ok) return setPlaylistStatus(result.error);
+        name.value = '';
+        await refreshNamedPlaylists(result.id);
+        setLibraryView('named');
+    };
+    document.getElementById('named-playlist-create')?.addEventListener('click', () => create([]));
+    document.getElementById('named-playlist-save-queue')?.addEventListener('click', () => create([...playlist]));
+    document.getElementById('named-playlist-play')?.addEventListener('click', async () => {
+        if (!namedPlaylistId) return setPlaylistStatus('Choose a playlist first.');
+        const rows = await window.api.playlistTracks(namedPlaylistId);
+        const paths = rows.filter((row) => !row.missing).map((row) => row.filePath);
+        if (!paths.length) return setPlaylistStatus('This playlist has no available songs.');
+        loadPlaylistAndPlay(paths);
+    });
+    document.getElementById('named-playlist-add-current')?.addEventListener('click', async () => {
+        if (!namedPlaylistId) return setPlaylistStatus('Choose a playlist first.');
+        if (!currentSongData?.filePath) return setPlaylistStatus('Play a song to add it.');
+        const added = await window.api.playlistAdd(namedPlaylistId, currentSongData.filePath);
+        setPlaylistStatus(added ? 'Song added to playlist.' : 'Song is already in this playlist.');
+        await refreshNamedPlaylists();
+        if (activeLibraryView === 'named') renderNamedPlaylist();
+    });
+    document.getElementById('named-playlist-delete')?.addEventListener('click', async () => {
+        if (!namedPlaylistId) return setPlaylistStatus('Choose a playlist first.');
+        if (!await window.api.playlistDelete(namedPlaylistId)) return;
+        await refreshNamedPlaylists(null);
+        setLibraryView('queue');
+        setPlaylistStatus('Playlist deleted. Songs remain on disk.');
+    });
+    document.getElementById('add-to-playlist-btn')?.addEventListener('click', async () => {
+        setActiveTab('playlist');
+        await refreshNamedPlaylists();
+        select?.focus();
+        setPlaylistStatus('Choose a playlist, then click Add Song.');
     });
 }
 
@@ -4051,6 +4166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCurrentlyVertical = containerEl.classList.contains('vertical-mode');
         window.api.toggleOrientation(!isCurrentlyVertical);
     });
+    document.getElementById('edge-dock-btn')?.addEventListener('click', () => window.api.edgeDockToggle());
 
     toggleLyricsBtn.addEventListener('click', () => {
         areLyricsVisible = !areLyricsVisible;
@@ -4313,6 +4429,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ['equalizer', buildEqualizerUI],
         ['tag editor', initTagEditor],
         ['library', initLibraryPanel],
+        ['named playlists', initNamedPlaylists],
         ['audio', initAudioPanel],
         ['shortcuts', initShortcutsPanel],
     ]) {
@@ -5046,6 +5163,7 @@ window.addEventListener('beforeunload', () => {
 
 // API Listeners from Main Process
 window.api.onMediaKey((command) => {
+    if (isLocked) return;
     const actions = {
         'play-pause': () => playPauseBtn.click(),
         'next': () => nextBtn.click(),
@@ -5056,4 +5174,57 @@ window.api.onMediaKey((command) => {
 
 window.api.onSetOrientationClass((isVertical) => {
     containerEl.classList.toggle('vertical-mode', isVertical);
+});
+
+// The narrow strip shares the player's transport; it has no second audio engine.
+let edgeHoverTimer = null;
+let edgeDragging = false;
+let refreshEdgeTitle = () => {};
+function applyEdgeDockState(state) {
+    containerEl.classList.toggle('edge-docked', Boolean(state.active));
+    containerEl.classList.toggle('collapsed', Boolean(state.active && !state.expanded));
+    containerEl.classList.toggle('expanded', Boolean(state.active && state.expanded));
+    if (state.active) containerEl.classList.add('vertical-mode');
+    if (!state.active) clearTimeout(edgeHoverTimer);
+}
+
+window.api.onEdgeDockChanged((state) => {
+    applyEdgeDockState(state);
+    requestAnimationFrame(refreshEdgeTitle);
+});
+document.addEventListener('DOMContentLoaded', async () => {
+    const strip = document.getElementById('edge-strip');
+    const handle = document.getElementById('edge-handle');
+    const edgeTitle = document.getElementById('edge-title');
+    const viewport = document.getElementById('edge-title-viewport');
+    const updateTitle = () => {
+        edgeTitle.textContent = titleEl.textContent || 'No song loaded';
+        const overflow = Math.max(0, edgeTitle.scrollHeight - viewport.clientHeight);
+        edgeTitle.style.setProperty('--edge-scroll-distance', `${-overflow}px`);
+        edgeTitle.classList.toggle('scrolling', overflow > 4);
+    };
+    refreshEdgeTitle = updateTitle;
+    new MutationObserver(updateTitle).observe(titleEl, {childList: true, characterData: true, subtree: true});
+    updateTitle();
+    applyEdgeDockState(await window.api.edgeDockStatus());
+    requestAnimationFrame(updateTitle);
+    strip?.addEventListener('mouseenter', () => {
+        if (edgeDragging) return;
+        clearTimeout(edgeHoverTimer);
+        edgeHoverTimer = setTimeout(() => window.api.edgeDockExpand(true), 300);
+    });
+    containerEl.addEventListener('mouseleave', () => {
+        clearTimeout(edgeHoverTimer);
+        if (containerEl.classList.contains('edge-docked')) window.api.edgeDockExpand(false);
+    });
+    handle?.addEventListener('pointerdown', () => {
+        edgeDragging = true;
+        clearTimeout(edgeHoverTimer);
+    });
+    window.addEventListener('pointerup', () => { edgeDragging = false; });
+    document.getElementById('edge-exit')?.addEventListener('click', () => window.api.edgeDockToggle());
+    document.getElementById('edge-prev')?.addEventListener('click', () => prevBtn.click());
+    document.getElementById('edge-play')?.addEventListener('click', () => playPauseBtn.click());
+    document.getElementById('edge-next')?.addEventListener('click', () => nextBtn.click());
+    document.getElementById('edge-lock')?.addEventListener('click', () => setLocked(!isLocked));
 });
