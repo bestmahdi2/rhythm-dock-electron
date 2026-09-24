@@ -369,27 +369,40 @@ class AudioEngine {
         if (!deviceId) return {ok: false, error: 'No device was given.'};
         this._ensureGraph();
 
+        if (deviceId === this.outputDeviceId) {
+            return {ok: false, error: 'This device is already the main output.'};
+        }
+
         if (this.auxOutputs.has(deviceId)) {
             this.setOutputDelay(deviceId, delayMs);
             return {ok: true, deviceId};
         }
 
+        let delay;
+        let dest;
+        let element;
         try {
-            const delay = this.ctx.createDelay(2.0);
+            delay = this.ctx.createDelay(2.0);
             delay.delayTime.value = Math.max(0, Math.min(2, delayMs / 1000));
 
-            const dest = this.ctx.createMediaStreamDestination();
+            dest = this.ctx.createMediaStreamDestination();
             delay.connect(dest);
 
-            const element = new Audio();
+            element = new Audio();
             element.srcObject = dest.stream;
             element.autoplay = true;
 
             if (typeof element.setSinkId !== 'function') {
-                return {ok: false, error: 'This build cannot route to a chosen device.'};
+                throw new Error('This build cannot route to a chosen device.');
             }
             await element.setSinkId(deviceId);
-            await element.play().catch(() => { /* resumes with the transport */ });
+            // A session restored before the first user gesture can hit the
+            // browser's autoplay gate. Keep that stream and retry in play().
+            try {
+                await element.play();
+            } catch (error) {
+                if (error.name !== 'NotAllowedError') throw error;
+            }
 
             this.gain.connect(delay);
             this.auxOutputs.set(deviceId, {dest, element, delay, delayMs});
@@ -397,6 +410,10 @@ class AudioEngine {
             this.emit('outputschange', {outputs: this.listOutputs()});
             return {ok: true, deviceId};
         } catch (error) {
+            try { element?.pause(); } catch (_) { /* not started */ }
+            if (element) element.srcObject = null;
+            try { delay?.disconnect(); } catch (_) { /* not connected */ }
+            for (const track of dest?.stream.getTracks() || []) track.stop();
             console.warn('[audio] Could not add output:', error);
             return {ok: false, error: error.message || 'Could not open that device.'};
         }
@@ -922,6 +939,15 @@ class AudioEngine {
         }
 
         try {
+            // A restored media-stream element may have been blocked before the
+            // first user gesture. Retry when the user actually starts playback.
+            for (const output of this.auxOutputs.values()) {
+                if (output.element.paused) {
+                    output.element.play().catch((error) => {
+                        console.warn('[audio] Could not resume extra output:', error);
+                    });
+                }
+            }
             await this.element.play();
             this._applyGain(this._targetGain(), FADE_IN_MS);
         } catch (error) {
@@ -1185,18 +1211,22 @@ class AudioEngine {
      * supported way to move a WebAudio graph to another device.
      */
     async setOutputDevice(deviceId) {
-        this.outputDeviceId = deviceId || '';
         this._ensureGraph();
+        const requested = deviceId || '';
 
         // An empty id means "system default", which is already the case. Doing
         // nothing here also means the common path never touches sink routing at
         // all -- the safest possible default.
-        if (!this.outputDeviceId) {
+        if (!requested) {
             if (typeof this.ctx.setSinkId === 'function') {
                 try {
                     await this.ctx.setSinkId('');
-                } catch (_) { /* already on the default */ }
+                } catch (error) {
+                    console.warn('[audio] Could not restore the default output:', error);
+                    return false;
+                }
             }
+            this.outputDeviceId = '';
             return true;
         }
 
@@ -1206,7 +1236,10 @@ class AudioEngine {
         }
 
         try {
-            await this.ctx.setSinkId(this.outputDeviceId);
+            await this.ctx.setSinkId(requested);
+            this.outputDeviceId = requested;
+            // The same device cannot be both primary and an auxiliary stream.
+            this.removeOutput(requested);
             return true;
         } catch (error) {
             console.warn('[audio] Could not set output device:', error);
