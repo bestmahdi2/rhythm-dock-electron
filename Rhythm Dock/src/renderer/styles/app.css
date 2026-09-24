@@ -2642,6 +2642,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 }
 
 .container.locked #lock-btn {
+    -webkit-app-region: no-drag;
     pointer-events: auto;
     color: var(--accent);
     background-color: var(--accent-soft);
