@@ -87,6 +87,7 @@ function restore(store, fallbackPreset = 'horizontal') {
 function save(store, window, extra = {}) {
     if (!window || window.isDestroyed()) return;
     if (window.isMinimized() || window.isMaximized() || window.isFullScreen()) return;
+    if (extra.skipSave) return;
 
     const bounds = window.getBounds();
     store.set(STORE_KEY, {

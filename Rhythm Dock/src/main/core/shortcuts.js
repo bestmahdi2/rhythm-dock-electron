@@ -23,6 +23,7 @@ const DEFAULTS = {
     showWindow: 'CommandOrControl+Alt+M',
     hideWindow: 'CommandOrControl+Alt+H',
     toggleWindow: 'CommandOrControl+Alt+R',
+    toggleEdgeDock: 'CommandOrControl+Alt+D',
 };
 
 let registered = new Map();
