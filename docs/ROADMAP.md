@@ -292,6 +292,29 @@ Worth stating, because a roadmap is also a list of what you are declining:
 
 ## Phase 9.5 — Edge dock, discovery and streaming
 
+### Request check-in (2026-09-24)
+
+This section records the follow-up requests before planning more phases. Source-level
+implementation is not a substitute for testing the installed app with real devices.
+
+| Request | Current status / next action |
+|---|---|
+| Better button icons, app logo, and possible new name | Open design task for Phase 10. Produce a small set of names and visual concepts, check file-association and tray readability, then choose before changing the app ID or data path. |
+| Bot connection to receive songs and put them in the queue | Promoted to P0 in `TASKS.md`, immediately after collaborative room queue edits and friend song intake. Define bot pairing, authorization, accepted media/link types, and whether incoming items require confirmation. |
+| Edge-docked super-minimize mode | Open in this phase; details below. Needs window geometry, edge anchoring, hover expansion, vertical movement, wall switching, and a shortcut. |
+| Dark/light switch | Already a visual switch in Settings (`.settings-action`), with the button toggling counterpart palettes. |
+| Simultaneous wired, speaker, and Bluetooth outputs | Implemented in Settings and the audio engine. The 2026-09-24 pass prevents duplicate routing, cleans up failed outputs, and retries a stream after a playback gesture. Accept only after testing the actual device mix and adjusting per-output delay; operating-system Bluetooth limits still apply. |
+| Queue at top / next / end | Implemented as actions on library rows. |
+| Control lock | Implemented with lock button and Ctrl+L. Verify alongside edge mode when built. |
+| Offline/online recommendations | Open in this phase; details below. Start with offline signals and opt-in online enrichment. |
+| YouTube/Spotify URLs and playlists, temporary cache, saved imports | Open investigation in this phase; source constraints below. Add direct audio URLs first. Define playlist import as metadata/links separately from playable audio. Enforce the requested two-day expiry for unsaved cache entries and a size limit. |
+| Missing “Controls” button | The Lyrics menu currently has Show/Hide Controls. Reproduce which screen or mode lost the expected button, then restore the relevant control in Phase 10. |
+| Highlight A–B range | Implemented in the player progress track on 2026-09-24; check theme contrast and narrow layouts. |
+| Export A–B section | Open Phase 15 task. Export the selected time span with a bundled or optional transcoder, choose output format, and preserve the original file. |
+| Audio editor and converter | Open Phase 15 task. Scope trim/split, preview, metadata, supported formats, and whether FFmpeg is bundled or optional. |
+| Recently added playlist/view | Already implemented as the “Added” library view, ordered from library added timestamps. |
+
+
 Added after Phase 8 from user requests. Three of the original seven were built
 immediately (simultaneous outputs, control lock, queue insert positions); these
 are the three that need a phase of their own.

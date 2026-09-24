@@ -17,11 +17,20 @@ app on any OS.
    publishes state                   clock source                (Win/macOS/Linux)
 ```
 
-**The VPS never stores your music.** When a listener asks for audio, the server turns
-that HTTP request into a WebSocket request to your laptop, your laptop reads the bytes
-off disk, and the server pipes them straight through. Nothing is written to the VPS
-disk. If the server restarts, everyone reconnects and nothing is lost — because there
-was nothing to lose.
+The VPS relays playback from the host without storing those tracks. A friend's
+contributed file is held temporarily under the server's `/tmp` until the host imports
+it, then deleted; pending files expire after two days and are lost on a server restart.
+The host stores imported songs under its stable `RhythmDock/incoming` data directory.
+Room state is in memory, so a server restart requires everyone to rejoin and the host
+to republish its queue.
+
+Controllers can upload supported audio files up to 30 MB from the browser or desktop
+app. Listen-only members cannot upload. The room host can click **Pair Telegram chat**
+to get a ten-minute code, then send `/pair CODE` to the configured bot. Private chats
+can send audio attachments up to the hosted Bot API's 20 MB download limit. Telegram
+links are not supported yet. Set `TELEGRAM_BOT_TOKEN` in `.env` on the server to enable
+the bot; it is never sent to room clients. The bot uses `getUpdates` polling, so do not
+also configure a webhook for that token.
 
 **Everything else is mirrored too:** the queue, the lyrics (with your offset and sync
 tweaks), the theme and accent colour, playback speed, and the equalizer settings. A
@@ -44,7 +53,7 @@ refuse microphone-free autoplay on insecure origins. A bare IP will fight you.
 ```bash
 sudo apt update && sudo apt install -y docker.io docker-compose-plugin git
 sudo git clone https://github.com/bestmahdi2/rhythm-dock-electron /opt/rhythm-dock
-cd "/opt/rhythm-dock/Rhythm Dock/server"
+cd /opt/rhythm-dock/server
 ```
 
 ### 3. Set your create secret
@@ -107,7 +116,7 @@ Visit `https://YOUR-DOMAIN`. You should see the join screen.
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin rhythm
-cd "/opt/rhythm-dock/Rhythm Dock/server" && sudo npm install --omit=dev
+cd /opt/rhythm-dock/server && sudo npm install --omit=dev
 echo 'CREATE_SECRET=your-secret-here' | sudo tee /etc/rhythm-dock.env
 sudo chmod 600 /etc/rhythm-dock.env
 sudo cp deploy/rhythm-dock-server.service /etc/systemd/system/
