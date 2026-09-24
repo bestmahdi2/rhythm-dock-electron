@@ -3694,7 +3694,8 @@ function playFavorites() {
  * Split out of the old inline `onend` callback so the engine's 'ended' event and the
  * next button share one definition of "what comes next".
  */
-function advanceAfterEnd() {
+async function advanceAfterEnd() {
+    const endingIndex = currentIndex;
     if (loopMode === 'one') {
         playTrack(currentIndex);
         return;
@@ -3705,6 +3706,25 @@ function advanceAfterEnd() {
         playTrack(nextIndex);
     } else if (loopMode === 'all' && playlist.length > 0) {
         playTrack(0);
+    } else if (await window.api.getStoreValue('autoRecommendNext')) {
+        const current = playlist[currentIndex];
+        const hidden = await window.api.getStoreValue('hiddenRecommendations') || [];
+        const rows = await window.api.libraryRecommendations({
+            filePath: current,
+            artist: currentSongData?.artist,
+            album: currentSongData?.album,
+            genre: currentSongData?.genre,
+            liked: favoritesPlaylist,
+            hidden: [...hidden, ...playlist],
+            limit: 1,
+        });
+        // The user may have started another track while the database was queried.
+        if (currentIndex !== endingIndex || playlist[currentIndex] !== current || isPlaying || !rows.length) return;
+        playlist.push(rows[0].filePath);
+        originalPlaylist.push(rows[0].filePath);
+        savePlaybackState();
+        publishRoomLibrary();
+        playTrack(playlist.length - 1);
     }
     // Otherwise: stay parked in the ENDED state. renderTransport() has already flipped
     // the button back to a play triangle, and pressing it restarts the track (#11, #21).
@@ -4637,6 +4657,14 @@ document.addEventListener('DOMContentLoaded', () => {
             window.api.setStoreValue('pauseOnUnplug', pauseOnUnplugEl.checked);
             if (pauseOnUnplugEl.checked) await outputWatcher.start(); else outputWatcher.stop();
         });
+    }
+    const autoRecommend = document.getElementById('auto-recommend-next');
+    if (autoRecommend) {
+        window.api.getStoreValue('autoRecommendNext').then((value) => {
+            autoRecommend.checked = Boolean(value);
+        });
+        autoRecommend.addEventListener('change', () =>
+            window.api.setStoreValue('autoRecommendNext', autoRecommend.checked));
     }
 
     // --- Rooms / streaming ----------------------------------------------------
