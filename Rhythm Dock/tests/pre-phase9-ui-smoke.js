@@ -18,6 +18,19 @@ app.setPath('userData', userData);
 const isolatedLegacyDb = new Database(path.join(userData, 'lyrics.db'));
 isolatedLegacyDb.exec('CREATE TABLE IF NOT EXISTS smoke_marker (id INTEGER PRIMARY KEY)');
 isolatedLegacyDb.close();
+const tonePath = path.join(scratch, 'routing-tone.wav');
+const sampleRate = 22050;
+const samples = sampleRate;
+const wav = Buffer.alloc(44 + samples * 2);
+wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4);
+wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 2, 28);
+wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+wav.write('data', 36); wav.writeUInt32LE(samples * 2, 40);
+for (let i = 0; i < samples; i++)
+    wav.writeInt16LE(Math.round(250 * Math.sin(2 * Math.PI * 440 * i / sampleRate)), 44 + i * 2);
+fs.writeFileSync(tonePath, wav);
 // Exercise the real window/renderer without flashing a test window on the desktop.
 BrowserWindow.prototype.show = function () {};
 const rendererReady = new Promise((resolve) => ipcMain.once('renderer-ready', resolve));
@@ -93,14 +106,26 @@ app.whenReady().then(async () => {
             const engine = window.RhythmAudio.engine;
             const result = await engine.addOutput(extra.deviceId, {delayMs: 120});
             const listed = engine.listOutputs().some((item) => item.deviceId === extra.deviceId && item.delayMs === 120);
+            let playback = null;
+            if (result.ok) {
+                engine.setVolume(0.1, {immediate: true});
+                engine.load(${JSON.stringify(tonePath)});
+                await new Promise((resolve) => engine.element.addEventListener('canplay', resolve, {once: true}));
+                await engine.play();
+                await new Promise((resolve) => setTimeout(resolve, 350));
+                playback = {time: engine.element.currentTime, state: engine.state};
+                engine.pause();
+            }
             engine.removeOutput(extra.deviceId);
             return {devices: devices.map((device) => device.label), extra: extra.label,
-                result, listed, released: !engine.listOutputs().some((item) => item.deviceId === extra.deviceId)};
+                result, listed, playback,
+                released: !engine.listOutputs().some((item) => item.deviceId === extra.deviceId)};
         })()`);
         console.log('[ui-smoke] audio routing:', routing);
         if (!routing.skipped) {
             assert.equal(routing.result.ok, true, routing.result.error);
             assert.equal(routing.listed, true);
+            assert.ok(routing.playback.time > 0.1, 'audio should advance during two-output playback');
             assert.equal(routing.released, true);
         }
         console.log('PASS: settings switch, lock, queue positions, and wall dock in the real renderer');
