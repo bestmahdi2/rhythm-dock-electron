@@ -1204,6 +1204,7 @@ ipcMain.handle('library-roots', () => libraryStore.listRoots());
 ipcMain.handle('library-stats', () => libraryStore.stats());
 ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
 ipcMain.handle('library-recommendations', (_event, options) => libraryStore.recommendations(options || {}));
+ipcMain.handle('library-album-recommendations', (_event, options) => libraryStore.albumRecommendations(options || {}));
 ipcMain.handle('library-set-rating', (_event, filePath, rating) => libraryStore.setRating(filePath, rating));
 ipcMain.handle('remote-audio-add', async (_event, url) => {
     try {

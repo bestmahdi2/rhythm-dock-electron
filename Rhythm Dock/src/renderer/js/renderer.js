@@ -3397,7 +3397,7 @@ async function renderActiveLibraryView() {
 
 async function renderRecommendations() {
     const hidden = await window.api.getStoreValue('hiddenRecommendations') || [];
-    const rows = await window.api.libraryRecommendations({
+    const options = {
         filePath: currentSongData?.filePath,
         artist: currentSongData?.artist,
         album: currentSongData?.album,
@@ -3405,10 +3405,33 @@ async function renderRecommendations() {
         liked: favoritesPlaylist,
         hidden,
         limit: 25,
-    });
+    };
+    const [rows, albums] = await Promise.all([
+        window.api.libraryRecommendations(options),
+        window.api.libraryAlbumRecommendations({...options, limit: 5}),
+    ]);
     playlistResults.replaceChildren();
-    if (!rows.length) return setPlaylistStatus('No suggestions yet. Add a folder and play a few songs.');
-    setPlaylistStatus('Suggestions adapt to your plays, skips, likes and hidden songs.');
+    if (!rows.length && !albums.length) return setPlaylistStatus('No suggestions yet. Add a folder and play a few songs.');
+    setPlaylistStatus('Suggestions adapt to your plays, skips, ratings, likes and hidden songs.');
+    if (albums.length) {
+        const heading = document.createElement('div');
+        heading.className = 'playlist-section-heading';
+        heading.textContent = 'Albums for you';
+        playlistResults.appendChild(heading);
+        for (const album of albums) {
+            playlistResults.appendChild(makeRow({
+                title: album.album,
+                subtitle: [album.artist, `${album.tracks.length} songs`, album.reason].filter(Boolean).join(' · '),
+                onPlay: () => loadPlaylistAndPlay(album.tracks, 0),
+            }));
+        }
+    }
+    if (rows.length) {
+        const heading = document.createElement('div');
+        heading.className = 'playlist-section-heading';
+        heading.textContent = 'Songs for you';
+        playlistResults.appendChild(heading);
+    }
     const paths = rows.map((row) => row.filePath);
     rows.forEach((row, index) => playlistResults.appendChild(makeRow({
         title: row.title || row.basename,

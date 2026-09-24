@@ -367,6 +367,52 @@ function recommendations({filePath, artist, album, genre, liked = [], hidden = [
         .slice(0, bounded);
 }
 
+function albumRecommendations({artist, album, genre, liked = [], hidden = [], limit = 6} = {}) {
+    const handle = db();
+    if (!handle) return [];
+    const hiddenSet = new Set(Array.isArray(hidden) ? hidden : []);
+    const likedSet = new Set(Array.isArray(liked) ? liked : []);
+    const rows = handle.prepare(`
+        SELECT t.filePath, t.title, t.album, t.artist, t.genre,
+               COALESCE(s.playCount, 0) AS playCount,
+               COALESCE(s.skipCount, 0) AS skipCount,
+               COALESCE(r.rating, 0) AS rating
+        FROM tracks t LEFT JOIN track_stats s ON s.filePath = t.filePath
+                      LEFT JOIN track_ratings r ON r.filePath = t.filePath
+        WHERE t.missing = 0 AND t.album IS NOT NULL AND TRIM(t.album) <> ''
+        ORDER BY t.artist, t.album, t.title LIMIT 10000
+    `).all();
+    const groups = new Map();
+    for (const row of rows) {
+        if (hiddenSet.has(row.filePath)) continue;
+        const key = `${row.artist || ''}\u0000${row.album}`.toLocaleLowerCase();
+        if (!groups.has(key)) groups.set(key, {album: row.album, artist: row.artist,
+            tracks: [], genres: new Set(), plays: 0, skips: 0, ratings: 0, liked: 0});
+        const group = groups.get(key);
+        group.tracks.push(row.filePath);
+        if (row.genre) group.genres.add(row.genre.toLocaleLowerCase());
+        group.plays += row.playCount;
+        group.skips += row.skipCount;
+        group.ratings += row.rating;
+        if (likedSet.has(row.filePath)) group.liked++;
+    }
+    const same = (left, right) => Boolean(left && right &&
+        String(left).toLocaleLowerCase() === String(right).toLocaleLowerCase());
+    return [...groups.values()].filter((group) => group.tracks.length >= 2 &&
+        !(same(group.album, album) && same(group.artist, artist)))
+        .map((group) => {
+            const byArtist = same(group.artist, artist);
+            const byGenre = genre && group.genres.has(String(genre).toLocaleLowerCase());
+            const score = (byArtist ? 8 : 0) + (byGenre ? 5 : 0) +
+                Math.min(5, group.liked * 2) + group.ratings / group.tracks.length +
+                Math.log1p(group.plays) - group.skips / group.tracks.length;
+            return {album: group.album, artist: group.artist, tracks: group.tracks,
+                score, reason: byArtist ? `More from ${group.artist}` :
+                    byGenre ? `Similar ${genre} music` : group.liked ? 'Albums you may like' : 'From your library'};
+        }).sort((a, b) => b.score - a.score || a.album.localeCompare(b.album))
+        .slice(0, Math.min(Math.max(1, Number(limit) || 6), 20));
+}
+
 const VIEWS = {
     'recently-added': {
         where: 't.missing = 0',
@@ -632,6 +678,7 @@ module.exports = {
     view,
     roomCatalog,
     recommendations,
+    albumRecommendations,
     listPlaylists,
     playlistTracks,
     createPlaylist,

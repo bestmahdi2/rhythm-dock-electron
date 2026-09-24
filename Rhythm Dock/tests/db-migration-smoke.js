@@ -53,8 +53,8 @@ app.whenReady().then(() => {
         assert.equal(libraryStore.scanSnapshot(root.id)[0].fileSize, 456);
         assert.equal(libraryStore.stats().missing, 0,
             'incomplete scan must not mark unvisited files missing');
-        libraryStore.updateTrackMetadata('C:\\music\\one.mp3', {artist: 'Artist', genre: 'Jazz'});
-        libraryStore.updateTrackMetadata('C:\\music\\two.mp3', {artist: 'Artist', genre: 'Jazz'});
+        libraryStore.updateTrackMetadata('C:\\music\\one.mp3', {artist: 'Artist', album: 'First', genre: 'Jazz'});
+        libraryStore.updateTrackMetadata('C:\\music\\two.mp3', {artist: 'Artist', album: 'First', genre: 'Jazz'});
         libraryStore.recordPlay('C:\\music\\two.mp3', 120000);
         assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 4), true);
         assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 7), false);
@@ -64,6 +64,16 @@ app.whenReady().then(() => {
         assert.match(suggested[0].reason, /Artist/);
         assert.equal(libraryStore.recommendations({hidden: ['C:\\music\\two.mp3']})
             .some((row) => row.filePath === 'C:\\music\\two.mp3'), false);
+        libraryStore.syncRoot(root.id, ['C:\\music\\one.mp3', 'C:\\music\\two.mp3',
+            'C:\\music\\three.mp3', 'C:\\music\\four.mp3']);
+        for (const name of ['three', 'four']) {
+            libraryStore.updateTrackMetadata(`C:\\music\\${name}.mp3`,
+                {artist: 'Other', album: 'Second', genre: 'Jazz'});
+        }
+        const albumSuggestions = libraryStore.albumRecommendations({artist: 'Artist',
+            album: 'First', genre: 'Jazz'});
+        assert.equal(albumSuggestions[0].album, 'Second');
+        assert.equal(albumSuggestions[0].tracks.length, 2);
         const playlist = libraryStore.createPlaylist('Test playlist', ['C:\\music\\one.mp3']);
         assert.equal(playlist.ok, true);
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1);
