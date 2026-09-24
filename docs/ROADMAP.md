@@ -77,6 +77,11 @@ earns credibility with people who care about audio.
 | CUE sheet support | M | Single-file albums split into tracks by an accompanying `.cue`. |
 | Chapters (m4b) | M | Audiobook chapter navigation, with per-book position memory. |
 
+2026-09-24 code pass: CUE sidecars and MP4/M4B chapters now have navigation in
+the player; per-M4B positions use schema v10 and the library backup. Test
+chaptered media in the installed app before treating format support as accepted.
+Other Phase 8 audio-quality and hardware checks remain open in `TASKS.md`.
+
 ---
 
 ## Pre-Phase-9 player gate — requested 2026-09-24
