@@ -30,11 +30,10 @@ Phases 7–10 protect and deepen that. Phases 11+ progressively turn it into a
 full library manager, which is a different product. That is a legitimate choice,
 but make it deliberately rather than by accretion.
 
-**Phase 7 is not optional.** The library is currently rebuilt from scratch on
-every folder open and never persisted. Almost everything in Phases 11–14 —
-play counts, smart playlists, ratings, duplicate detection, scrobbling history —
-is impossible to build on top of an in-memory index that dies with the process.
-If you skip Phase 7 and build the fun stuff first, you will rewrite it later.
+**Phase 7 is foundational.** The persistent SQLite library, incremental worker
+scan, folder watching, ratings, and art cache are now implemented. The in-memory
+search index is still rebuilt from the saved roots on startup. Installed-app
+acceptance for large libraries and upgrades remains in `TASKS.md`.
 
 ---
 
@@ -79,6 +78,31 @@ earns credibility with people who care about audio.
 | Chapters (m4b) | M | Audiobook chapter navigation, with per-book position memory. |
 
 ---
+
+## Pre-Phase-9 player gate — requested 2026-09-24
+
+Phase 9 lyrics shipped earlier in v1.6.0. Before expanding that phase or calling
+the intervening player work accepted, verify these seven requests. Engineering
+code and real-device acceptance are separate; `TASKS.md` tracks the latter.
+
+1. Edge-docked super-minimize: the wall strip, hover expansion, vertical movement,
+   side switching, title scroll, and Ctrl+Alt+D are implemented. Installed-app
+   visual and multi-monitor acceptance remains.
+2. Theme mode: Settings uses a real switch control for light/dark, not a checkbox.
+3. Simultaneous audio outputs: one shared WebAudio graph mirrors to extra outputs
+   with per-device delay; the system-default alias is screened to avoid duplicate
+   playback when device identity is available. **Priority gate:** test a wired
+   device, speakers, and multiple Bluetooth earbuds together on the target OS.
+   The current development machine exposes only one playback endpoint.
+4. Queue placement: local and room controls offer top, after-current, and end.
+5. Lock: controls are blocked until unlock, including in the wall strip.
+6. Recommendations: offline track suggestions use artist, album, genre, ratings,
+   likes, plays, and skips. Album-level suggestions, vibe inference, learning from
+   explicit feedback, and optional online enrichment remain in Phase 14.
+7. Online sources: direct HTTPS audio is streamed into a two-day bounded cache
+   and can be saved. YouTube/Spotify links and playlists need provider-specific
+   discovery and a supported playable source; plan them in Phase 14. Do not label
+   those sources implemented merely because direct media URLs work.
 
 ## Phase 9 — Lyrics, properly ✅ *shipped in v1.6.0*
 
