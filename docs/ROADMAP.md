@@ -325,12 +325,12 @@ implementation is not a substitute for testing the installed app with real devic
 |---|---|
 | Better button icons, app logo, and possible new name | Open design task for Phase 10. Produce a small set of names and visual concepts, check file-association and tray readability, then choose before changing the app ID or data path. |
 | Bot connection to receive songs and put them in the queue | Promoted to P0 in `TASKS.md`, immediately after collaborative room queue edits and friend song intake. Define bot pairing, authorization, accepted media/link types, and whether incoming items require confirmation. |
-| Edge-docked super-minimize mode | Open in this phase; details below. Needs window geometry, edge anchoring, hover expansion, vertical movement, wall switching, and a shortcut. |
+| Edge-docked super-minimize mode | Implemented with a 48px wall strip, hover expansion, vertical movement, wall switching, title scroll, and Ctrl+Alt+D. Installed-app and multi-monitor acceptance remain. |
 | Dark/light switch | Already a visual switch in Settings (`.settings-action`), with the button toggling counterpart palettes. |
 | Simultaneous wired, speaker, and Bluetooth outputs | Implemented in Settings and the audio engine. The 2026-09-24 pass prevents duplicate routing, cleans up failed outputs, and retries a stream after a playback gesture. Accept only after testing the actual device mix and adjusting per-output delay; operating-system Bluetooth limits still apply. |
 | Queue at top / next / end | Implemented as actions on library rows. |
-| Control lock | Implemented with lock button and Ctrl+L. Verify alongside edge mode when built. |
-| Offline/online recommendations | Open in this phase; details below. Start with offline signals and opt-in online enrichment. |
+| Control lock | Implemented with lock button and Ctrl+L. Verify alongside edge mode in the installed app. |
+| Offline/online recommendations | Offline song and album suggestions now use local metadata and listening history. Vibe learning and optional online enrichment remain open. |
 | YouTube/Spotify URLs and playlists, temporary cache, saved imports | Direct HTTPS audio links now download to a bounded, two-day cache with an explicit save action. Progressive playback, real URL acceptance, Telegram links, and YouTube/Spotify playlist discovery remain open. Define playlist import as metadata/links separately from playable audio. |
 | Missing “Controls” button | The Lyrics menu currently has Show/Hide Controls. Reproduce which screen or mode lost the expected button, then restore the relevant control in Phase 10. |
 | Highlight A–B range | Implemented in the player progress track on 2026-09-24; check theme contrast and narrow layouts. |
@@ -339,15 +339,17 @@ implementation is not a substitute for testing the installed app with real devic
 | Recently added playlist/view | Already implemented as the “Added” library view, ordered from library added timestamps. |
 
 
-Added after Phase 8 from user requests. Three of the original seven were built
-immediately (simultaneous outputs, control lock, queue insert positions); these
-are the three that need a phase of their own.
+Added after Phase 8 from user requests. Current implementation status is in
+`TASKS.md`; the sections below retain the design background and future work.
 
 ### Edge-docked mini mode
 
-**Effort: L.** Not hard in any one place, but it touches the main process, the
-window manager, and the renderer at once, and every OS disagrees about the
-rules.
+**Implemented; installed-app acceptance open.** The main process manages window
+geometry and a 48px collapsed strip. The renderer handles controls and title
+scroll. Multi-monitor and display-disconnect behavior still need visual testing.
+
+The following table and discussion are original design notes. The current
+implementation is in `src/main/index.js` and `src/renderer/js/renderer.js`.
 
 | Piece | Description |
 |---|---|
