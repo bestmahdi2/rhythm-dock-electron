@@ -27,7 +27,8 @@
     "dist:linux": "npm run icons && electron-builder --linux --x64",
     "dist:all": "npm run dist:win && npm run dist:mac && npm run dist:linux",
     "postinstall": "electron-builder install-app-deps",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run test:db-migration && npm --prefix ../server test",
+    "test:db-migration": "electron tests/db-migration-smoke.js"
   },
   "keywords": [],
   "author": {
