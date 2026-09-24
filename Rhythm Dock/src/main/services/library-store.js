@@ -301,6 +301,22 @@ function recordSkip(filePath, listenedMs = 0) {
     }
 }
 
+function setRating(filePath, rating) {
+    const handle = db();
+    if (!handle || typeof filePath !== 'string' || !filePath ||
+        !Number.isInteger(rating) || rating < 0 || rating > 5) return false;
+    handle.prepare(`INSERT INTO track_ratings (filePath, rating, updatedAt) VALUES (?, ?, ?)
+        ON CONFLICT(filePath) DO UPDATE SET rating = excluded.rating, updatedAt = excluded.updatedAt`)
+        .run(filePath, rating, nowIso());
+    return true;
+}
+
+function getRating(filePath) {
+    const handle = db();
+    if (!handle || !filePath) return 0;
+    return handle.prepare('SELECT rating FROM track_ratings WHERE filePath = ?').get(filePath)?.rating || 0;
+}
+
 // --- Views -----------------------------------------------------------------------
 
 /** Tracks a room host may offer to guests, including roots not opened this session. */
@@ -323,8 +339,10 @@ function recommendations({filePath, artist, album, genre, liked = [], hidden = [
         SELECT t.filePath, t.basename, t.title, t.artist, t.album, t.genre,
                COALESCE(s.playCount, 0) AS playCount,
                COALESCE(s.skipCount, 0) AS skipCount,
+               COALESCE(r.rating, 0) AS rating,
                s.lastPlayedAt
         FROM tracks t LEFT JOIN track_stats s ON s.filePath = t.filePath
+                      LEFT JOIN track_ratings r ON r.filePath = t.filePath
         WHERE t.missing = 0
         ORDER BY COALESCE(s.playCount, 0) DESC, t.addedAt DESC
         LIMIT 5000
@@ -337,7 +355,7 @@ function recommendations({filePath, artist, album, genre, liked = [], hidden = [
             const byAlbum = same(row.album, album);
             const likedTrack = likedSet.has(row.filePath);
             const score = (byArtist ? 7 : 0) + (byGenre ? 4 : 0) + (byAlbum ? 3 : 0) +
-                (likedTrack ? 5 : 0) + Math.log1p(row.playCount) * 2 - row.skipCount * 1.5 -
+                (likedTrack ? 5 : 0) + row.rating * 1.5 + Math.log1p(row.playCount) * 2 - row.skipCount * 1.5 -
                 (row.lastPlayedAt && Date.now() - Date.parse(row.lastPlayedAt) < 3600000 ? 4 : 0) +
                 (row.playCount === 0 ? 0.5 : 0);
             const reason = byArtist ? `More from ${row.artist}` : byGenre ? `Similar ${row.genre} music` :
@@ -383,9 +401,11 @@ function view(name, limit = 100) {
                    t.album,
                    t.durationSeconds,
                    COALESCE(s.playCount, 0) AS playCount,
+                   COALESCE(r.rating, 0) AS rating,
                    s.lastPlayedAt
             FROM tracks t
                      LEFT JOIN track_stats s ON s.filePath = t.filePath
+                     LEFT JOIN track_ratings r ON r.filePath = t.filePath
             WHERE ${definition.where}
             ORDER BY ${definition.order}
             LIMIT ?
@@ -473,7 +493,7 @@ function exportAll() {
     try {
         return {
             format: 'rhythm-dock-library',
-            version: 2,
+            version: 3,
             exportedAt: nowIso(),
             roots: handle.prepare('SELECT path, addedAt, lastScanAt FROM roots').all(),
             tracks: handle.prepare(`
@@ -485,6 +505,7 @@ function exportAll() {
                 SELECT filePath, playCount, skipCount, listenedMs, lastPlayedAt
                 FROM track_stats
             `).all(),
+            ratings: handle.prepare('SELECT filePath, rating, updatedAt FROM track_ratings').all(),
             playlists: handle.prepare('SELECT name, createdAt FROM playlists').all().map((playlist) => ({
                 ...playlist,
                 tracks: handle.prepare(`
@@ -537,6 +558,8 @@ function importAll(payload) {
                                                 lastPlayedAt = MAX(COALESCE(track_stats.lastPlayedAt, ''),
                                                                    COALESCE(excluded.lastPlayedAt, ''))
         `);
+        const insertRating = handle.prepare(`INSERT INTO track_ratings (filePath, rating, updatedAt)
+            VALUES (?, ?, ?) ON CONFLICT(filePath) DO NOTHING`);
 
         const apply = handle.transaction(() => {
             for (const root of payload.roots || []) {
@@ -563,6 +586,12 @@ function importAll(payload) {
                     stat.listenedMs || 0,
                     stat.lastPlayedAt || null
                 );
+            }
+            for (const row of payload.ratings || []) {
+                if (typeof row.filePath === 'string' && Number.isInteger(row.rating) &&
+                    row.rating >= 0 && row.rating <= 5) {
+                    insertRating.run(row.filePath, row.rating, row.updatedAt || nowIso());
+                }
             }
             for (const playlist of payload.playlists || []) {
                 const name = String(playlist.name || '').trim().slice(0, 80);
@@ -598,6 +627,8 @@ module.exports = {
     stats,
     recordPlay,
     recordSkip,
+    setRating,
+    getRating,
     view,
     roomCatalog,
     recommendations,

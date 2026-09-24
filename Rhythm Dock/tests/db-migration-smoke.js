@@ -29,11 +29,18 @@ app.whenReady().then(() => {
     const paths = require('../src/main/core/paths');
     const database = require('../src/main/services/database');
     const libraryStore = require('../src/main/services/library-store');
+    const coverCache = require('../src/main/library/cover-cache');
     try {
         const handle = database.initialize();
         assert.equal(database.getLyrics('test-song'), 'keep these lyrics');
         assert.equal(handle.pragma('user_version', {simple: true}), database.TARGET_VERSION);
         const stablePath = paths.getDatabasePath();
+        const art = fs.readFileSync(path.join(__dirname, '../src/assets/images/volume.png'));
+        const coverDir = path.join(scratch, 'covers');
+        const firstCover = coverCache.thumbnail(art, coverDir);
+        assert.match(firstCover, /^data:image\/png;base64,/);
+        assert.equal(coverCache.thumbnail(art, coverDir), firstCover,
+            'identical embedded art should reuse its cached thumbnail');
         assert.ok(fs.existsSync(stablePath));
         assert.ok(fs.existsSync(legacyPath), 'migration must keep the original');
         const backups = fs.readdirSync(paths.getBackupDir()).filter((name) => name.endsWith('.db'));
@@ -49,6 +56,9 @@ app.whenReady().then(() => {
         libraryStore.updateTrackMetadata('C:\\music\\one.mp3', {artist: 'Artist', genre: 'Jazz'});
         libraryStore.updateTrackMetadata('C:\\music\\two.mp3', {artist: 'Artist', genre: 'Jazz'});
         libraryStore.recordPlay('C:\\music\\two.mp3', 120000);
+        assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 4), true);
+        assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 7), false);
+        assert.equal(libraryStore.getRating('C:\\music\\one.mp3'), 4);
         const suggested = libraryStore.recommendations({filePath: 'C:\\music\\one.mp3', artist: 'Artist', genre: 'Jazz'});
         assert.equal(suggested[0].filePath, 'C:\\music\\two.mp3');
         assert.match(suggested[0].reason, /Artist/);
@@ -58,6 +68,7 @@ app.whenReady().then(() => {
         assert.equal(playlist.ok, true);
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1);
         const snapshot = libraryStore.exportAll();
+        assert.equal(snapshot.ratings[0].rating, 4);
         assert.equal(snapshot.playlists[0].name, 'Test playlist');
         assert.equal(snapshot.playlists[0].tracks.length, 1);
         assert.equal(libraryStore.importAll(snapshot).ok, true);
@@ -69,6 +80,8 @@ app.whenReady().then(() => {
         assert.equal(database.getLyrics('test-song'), 'keep these lyrics', 'reopening must preserve data');
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1,
             'reopening must preserve named playlists');
+        assert.equal(libraryStore.getRating('C:\\music\\one.mp3'), 4,
+            'reopening must preserve ratings');
         database.close();
         console.log('PASS: legacy import, schema upgrade, backup, and reopen preserve lyrics and playlists');
         app.exit(0);

@@ -1929,6 +1929,7 @@ async function renderExtraOutputs() {
     const outputs = devices.filter((device) => device.kind === 'audiooutput'
         && device.deviceId && device.deviceId !== 'default');
     const primary = document.getElementById('output-device')?.value || '';
+    const primaryGroup = outputs.find((device) => device.deviceId === (primary || 'default'))?.groupId;
     const active = new Map(audio.listOutputs().map((o) => [o.deviceId, o.delayMs]));
 
     host.innerHTML = '';
@@ -1943,7 +1944,8 @@ async function renderExtraOutputs() {
 
     outputs.forEach((device, index) => {
         // Mirroring the primary output onto itself would double it.
-        if (device.deviceId === primary) return;
+        if (device.deviceId === primary ||
+            (primaryGroup && device.groupId && device.groupId === primaryGroup)) return;
 
         const row = document.createElement('div');
         row.className = 'output-row';
@@ -3382,7 +3384,13 @@ async function renderActiveLibraryView() {
             // Playing from a list should queue the whole list, not just the one
             // row -- otherwise playback stops dead after a single track.
             onPlay: () => loadPlaylistAndPlay(rows.map((row) => row.filePath), index),
-            actions: queueActions(track.filePath),
+            actions: [...queueActions(track.filePath), {
+                label: `★ ${track.rating || 0}`, title: 'Increase rating (5 stars, then clear)',
+                onClick: async () => {
+                    await window.api.librarySetRating(track.filePath, ((track.rating || 0) + 1) % 6);
+                    renderActiveLibraryView();
+                },
+            }],
         }));
     });
 }
@@ -3407,6 +3415,12 @@ async function renderRecommendations() {
         subtitle: [row.artist, row.reason].filter(Boolean).join(' · '),
         onPlay: () => loadPlaylistAndPlay(paths, index),
         actions: [...queueActions(row.filePath), {
+            label: `★ ${row.rating || 0}`, title: 'Increase rating (5 stars, then clear)',
+            onClick: async () => {
+                await window.api.librarySetRating(row.filePath, ((row.rating || 0) + 1) % 6);
+                renderRecommendations();
+            },
+        }, {
             label: '×', title: 'Do not suggest this song', onClick: () => {
                 const next = [...new Set([...hidden, row.filePath])];
                 window.api.setStoreValue('hiddenRecommendations', next);

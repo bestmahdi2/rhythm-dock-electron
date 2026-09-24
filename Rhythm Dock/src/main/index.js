@@ -11,6 +11,8 @@ const database = require('./services/database');
 const windowState = require('./windows/window-state');
 const edgeGeometry = require('./windows/edge-dock');
 const scanner = require('./library/scanner');
+const {RootWatcher} = require('./library/root-watcher');
+const coverCache = require('./library/cover-cache');
 const metadata = require('./library/metadata');
 const tags = require('./library/tags');
 const {LibraryIndex} = require('./library/index');
@@ -43,6 +45,12 @@ function getRoomClient() {
 // The scanned library. Rebuilt whenever a folder is opened; never persisted, because
 // re-scanning is cheap and a stale cache is worse than none.
 const library = new LibraryIndex();
+const rootWatcher = new RootWatcher(async (root) => {
+    const current = libraryStore.listRoots().find((item) => item.id === root.id);
+    if (!current) return;
+    await scanRoot(current);
+    sendToRenderer('library-updated', {trackCount: library.size, artists: library.listArtists()});
+});
 
 Store.initRenderer();
 
@@ -355,7 +363,19 @@ app.whenReady().then(() => {
     database.initialize();
     try { remoteCache.prune(path.join(paths.getDataRoot(), 'remote-cache')); }
     catch (error) { console.warn('[cache] Could not prune old audio:', error.message); }
+    try { coverCache.prune(path.join(paths.getDataRoot(), 'cover-thumbs')); }
+    catch (error) { console.warn('[cache] Could not prune cover art:', error.message); }
     createWindow();
+    const savedRoots = libraryStore.listRoots();
+    for (const root of savedRoots) rootWatcher.add(root);
+    (async () => {
+        for (const root of savedRoots) {
+            if (!libraryStore.listRoots().some((item) => item.id === root.id)) continue;
+            try { await scanRoot(root); }
+            catch (error) { console.warn(`[library] Startup scan failed: ${error.message}`); }
+        }
+        sendToRenderer('library-updated', {trackCount: library.size, artists: library.listArtists()});
+    })();
 
     // Reopen the desktop lyrics strip if it was showing at shutdown. Deliberately after
     // createWindow(), so the player exists to answer the state request it triggers.
@@ -464,6 +484,7 @@ async function scanAndIndex(dirPath) {
 // and lets it actually close.
 app.on('before-quit', () => {
     tray.setQuitting(true);
+    rootWatcher.close();
     // Flushes the strip's position before the window is torn down.
     if (store) lyricsOverlay.close(store);
 });
@@ -705,7 +726,9 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
         let cover = null;
         if (picture?.[0]) {
             const imageBuffer = Buffer.from(picture[0].data);
-            cover = `data:${picture[0].format};base64,${imageBuffer.toString('base64')}`;
+            try { cover = coverCache.thumbnail(imageBuffer, path.join(paths.getDataRoot(), 'cover-thumbs')); }
+            catch (error) { console.warn('[cover] Could not cache art:', error.message); }
+            if (!cover) cover = `data:${picture[0].format};base64,${imageBuffer.toString('base64')}`;
         }
         return {
             filePath,
@@ -1097,7 +1120,17 @@ ipcMain.handle('scan-folder-path', async (_event, dirPath) => scanAndIndex(dirPa
  * Scans one root and records the result, keeping the in-memory index in step.
  * Returns the sync summary so the caller can report how many missing tracks came back.
  */
-async function scanRoot(root) {
+let scanSequence = Promise.resolve();
+function scanRoot(root) {
+    const job = scanSequence.catch(() => {}).then(() => performScanRoot(root));
+    scanSequence = job.catch(() => {});
+    return job;
+}
+
+async function performScanRoot(root) {
+    if (!libraryStore.listRoots().some((item) => item.id === root.id)) {
+        return {seen: 0, added: 0, restored: 0, missing: 0, reparsed: 0, cancelled: true};
+    }
     const previous = libraryStore.scanSnapshot(root.id);
     const result = await new Promise((resolve, reject) => {
         const worker = new Worker(path.join(__dirname, 'library', 'scan-worker.js'), {
@@ -1123,6 +1156,9 @@ async function scanRoot(root) {
         activeScanWorker = worker;
     }).finally(() => { activeScanWorker = null; });
     if (result.cancelled) return {seen: 0, added: 0, restored: 0, missing: 0, cancelled: true};
+    if (!libraryStore.listRoots().some((item) => item.id === root.id)) {
+        return {seen: 0, added: 0, restored: 0, missing: 0, cancelled: true};
+    }
     const scannedTags = new Map(result.files.map((file) => [file.filePath, file]));
     library.ingest(result.files.map((file) => file.filePath),
         (filePath) => scannedTags.get(filePath) || {});
@@ -1168,6 +1204,7 @@ ipcMain.handle('library-roots', () => libraryStore.listRoots());
 ipcMain.handle('library-stats', () => libraryStore.stats());
 ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
 ipcMain.handle('library-recommendations', (_event, options) => libraryStore.recommendations(options || {}));
+ipcMain.handle('library-set-rating', (_event, filePath, rating) => libraryStore.setRating(filePath, rating));
 ipcMain.handle('remote-audio-add', async (_event, url) => {
     try {
         const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
@@ -1245,6 +1282,7 @@ ipcMain.handle('library-add-root', async () => {
     if (!root) return null;
 
     const result = await scanRoot(root);
+    rootWatcher.add(root);
     sendToRenderer('library-updated', {
         trackCount: library.size,
         artists: library.listArtists(),
@@ -1257,7 +1295,11 @@ ipcMain.handle('library-add-root', async () => {
     return {root, ...result};
 });
 
-ipcMain.handle('library-remove-root', (_event, rootId) => libraryStore.removeRoot(rootId));
+ipcMain.handle('library-remove-root', (_event, rootId) => {
+    const removed = libraryStore.removeRoot(rootId);
+    if (removed) rootWatcher.remove(rootId);
+    return removed;
+});
 
 /** Rescans one root, or every root when `rootId` is null. */
 ipcMain.handle('library-rescan', async (_event, rootId) => {

@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('api', {
     libraryStats: () => ipcRenderer.invoke('library-stats'),
     libraryView: (view, limit) => ipcRenderer.invoke('library-view', view, limit),
     libraryRecommendations: (options) => ipcRenderer.invoke('library-recommendations', options),
+    librarySetRating: (filePath, rating) => ipcRenderer.invoke('library-set-rating', filePath, rating),
     remoteAudioAdd: (url) => ipcRenderer.invoke('remote-audio-add', url),
     remoteAudioSave: (filePath) => ipcRenderer.invoke('remote-audio-save', filePath),
     onRemoteAudioProgress: (callback) => ipcRenderer.on('remote-audio-progress', (_e, value) => callback(value)),

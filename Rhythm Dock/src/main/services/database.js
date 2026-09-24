@@ -183,6 +183,15 @@ const MIGRATIONS = [
         db.exec('ALTER TABLE tracks ADD COLUMN fileMtimeMs REAL');
         db.exec('ALTER TABLE tracks ADD COLUMN fileSize INTEGER');
     },
+
+    // 8 -> 9: ratings outlive a removed library root, like play history.
+    (db) => {
+        db.exec(`CREATE TABLE track_ratings (
+            filePath TEXT PRIMARY KEY,
+            rating INTEGER NOT NULL CHECK (rating BETWEEN 0 AND 5),
+            updatedAt TEXT NOT NULL
+        )`);
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;

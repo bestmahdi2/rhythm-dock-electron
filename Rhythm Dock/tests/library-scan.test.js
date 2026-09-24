@@ -10,12 +10,13 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-scan-'));
 const filePath = path.join(root, 'Artist - Song.mp3');
 fs.writeFileSync(filePath, Buffer.from('ID3\x03\x00\x00\x00\x00\x00\x00'));
 
-function scan(previous = []) {
+function scan(previous = [], cancelAfterProgress = false) {
     return new Promise((resolve, reject) => {
         const worker = new Worker(path.join(__dirname, '../src/main/library/scan-worker.js'), {
             workerData: {rootPath: root, extensions: ['.mp3'], previous},
         });
         worker.on('message', (message) => {
+            if (cancelAfterProgress && message.type === 'metadata-progress') worker.postMessage('cancel');
             if (message.type === 'done') { resolve(message); worker.terminate(); }
             if (message.type === 'error') { reject(new Error(message.error)); worker.terminate(); }
         });
@@ -32,6 +33,10 @@ function scan(previous = []) {
         const second = await scan(first.files);
         assert.equal(second.reparsed, 0, 'unchanged files must skip metadata parsing');
         assert.deepEqual(second.files.map((file) => file.filePath), [filePath]);
+        for (let i = 0; i < 500; i++) fs.writeFileSync(path.join(root, `extra-${i}.mp3`), 'audio');
+        const cancelled = await scan([], true);
+        assert.equal(cancelled.cancelled, true);
+        assert.equal(cancelled.complete, false);
         console.log('PASS: background scan fingerprints and skips unchanged tags');
     } finally {
         fs.rmSync(root, {recursive: true, force: true});
