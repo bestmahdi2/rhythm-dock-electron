@@ -317,6 +317,22 @@ function getRating(filePath) {
     return handle.prepare('SELECT rating FROM track_ratings WHERE filePath = ?').get(filePath)?.rating || 0;
 }
 
+function setBookPosition(filePath, seconds) {
+    const handle = db();
+    if (!handle || typeof filePath !== 'string' || !/\.m4b$/i.test(filePath) ||
+        !Number.isFinite(seconds) || seconds < 0) return false;
+    handle.prepare(`INSERT INTO book_positions (filePath, seconds, updatedAt) VALUES (?, ?, ?)
+        ON CONFLICT(filePath) DO UPDATE SET seconds = excluded.seconds, updatedAt = excluded.updatedAt`)
+        .run(filePath, seconds, nowIso());
+    return true;
+}
+
+function getBookPosition(filePath) {
+    const handle = db();
+    if (!handle || typeof filePath !== 'string') return 0;
+    return handle.prepare('SELECT seconds FROM book_positions WHERE filePath = ?').get(filePath)?.seconds || 0;
+}
+
 // --- Views -----------------------------------------------------------------------
 
 /** Tracks a room host may offer to guests, including roots not opened this session. */
@@ -539,7 +555,7 @@ function exportAll() {
     try {
         return {
             format: 'rhythm-dock-library',
-            version: 3,
+            version: 4,
             exportedAt: nowIso(),
             roots: handle.prepare('SELECT path, addedAt, lastScanAt FROM roots').all(),
             tracks: handle.prepare(`
@@ -552,6 +568,7 @@ function exportAll() {
                 FROM track_stats
             `).all(),
             ratings: handle.prepare('SELECT filePath, rating, updatedAt FROM track_ratings').all(),
+            bookPositions: handle.prepare('SELECT filePath, seconds, updatedAt FROM book_positions').all(),
             playlists: handle.prepare('SELECT name, createdAt FROM playlists').all().map((playlist) => ({
                 ...playlist,
                 tracks: handle.prepare(`
@@ -606,6 +623,8 @@ function importAll(payload) {
         `);
         const insertRating = handle.prepare(`INSERT INTO track_ratings (filePath, rating, updatedAt)
             VALUES (?, ?, ?) ON CONFLICT(filePath) DO NOTHING`);
+        const insertBookPosition = handle.prepare(`INSERT INTO book_positions (filePath, seconds, updatedAt)
+            VALUES (?, ?, ?) ON CONFLICT(filePath) DO NOTHING`);
 
         const apply = handle.transaction(() => {
             for (const root of payload.roots || []) {
@@ -637,6 +656,12 @@ function importAll(payload) {
                 if (typeof row.filePath === 'string' && Number.isInteger(row.rating) &&
                     row.rating >= 0 && row.rating <= 5) {
                     insertRating.run(row.filePath, row.rating, row.updatedAt || nowIso());
+                }
+            }
+            for (const row of payload.bookPositions || []) {
+                if (typeof row.filePath === 'string' && /\.m4b$/i.test(row.filePath) &&
+                    Number.isFinite(row.seconds) && row.seconds >= 0) {
+                    insertBookPosition.run(row.filePath, row.seconds, row.updatedAt || nowIso());
                 }
             }
             for (const playlist of payload.playlists || []) {
@@ -675,6 +700,8 @@ module.exports = {
     recordSkip,
     setRating,
     getRating,
+    setBookPosition,
+    getBookPosition,
     view,
     roomCatalog,
     recommendations,

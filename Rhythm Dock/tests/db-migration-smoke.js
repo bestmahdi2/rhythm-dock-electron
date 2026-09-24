@@ -59,6 +59,9 @@ app.whenReady().then(() => {
         assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 4), true);
         assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 7), false);
         assert.equal(libraryStore.getRating('C:\\music\\one.mp3'), 4);
+        assert.equal(libraryStore.setBookPosition('C:\\music\\book.m4b', 234.5), true);
+        assert.equal(libraryStore.setBookPosition('C:\\music\\one.mp3', 234.5), false);
+        assert.equal(libraryStore.getBookPosition('C:\\music\\book.m4b'), 234.5);
         const suggested = libraryStore.recommendations({filePath: 'C:\\music\\one.mp3', artist: 'Artist', genre: 'Jazz'});
         assert.equal(suggested[0].filePath, 'C:\\music\\two.mp3');
         assert.match(suggested[0].reason, /Artist/);
@@ -79,6 +82,7 @@ app.whenReady().then(() => {
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1);
         const snapshot = libraryStore.exportAll();
         assert.equal(snapshot.ratings[0].rating, 4);
+        assert.equal(snapshot.bookPositions[0].seconds, 234.5);
         assert.equal(snapshot.playlists[0].name, 'Test playlist');
         assert.equal(snapshot.playlists[0].tracks.length, 1);
         assert.equal(libraryStore.importAll(snapshot).ok, true);
@@ -92,6 +96,8 @@ app.whenReady().then(() => {
             'reopening must preserve named playlists');
         assert.equal(libraryStore.getRating('C:\\music\\one.mp3'), 4,
             'reopening must preserve ratings');
+        assert.equal(libraryStore.getBookPosition('C:\\music\\book.m4b'), 234.5,
+            'reopening must preserve audiobook position');
         database.close();
         console.log('PASS: legacy import, schema upgrade, backup, and reopen preserve lyrics and playlists');
         app.exit(0);

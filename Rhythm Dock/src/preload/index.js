@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld('api', {
     libraryRecommendations: (options) => ipcRenderer.invoke('library-recommendations', options),
     libraryAlbumRecommendations: (options) => ipcRenderer.invoke('library-album-recommendations', options),
     librarySetRating: (filePath, rating) => ipcRenderer.invoke('library-set-rating', filePath, rating),
+    bookPositionGet: (filePath) => ipcRenderer.invoke('book-position-get', filePath),
+    bookPositionSet: (filePath, seconds) => ipcRenderer.invoke('book-position-set', filePath, seconds),
     remoteAudioAdd: (url) => ipcRenderer.invoke('remote-audio-add', url),
     remoteAudioSave: (filePath) => ipcRenderer.invoke('remote-audio-save', filePath),
     onRemoteAudioProgress: (callback) => ipcRenderer.on('remote-audio-progress', (_e, value) => callback(value)),

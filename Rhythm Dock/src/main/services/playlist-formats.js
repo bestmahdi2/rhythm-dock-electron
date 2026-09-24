@@ -3,7 +3,7 @@
 const path = require('node:path');
 const {fileURLToPath, pathToFileURL} = require('node:url');
 
-const SUPPORTED = new Set(['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4']);
+const SUPPORTED = new Set(['.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4']);
 
 function decodeFileUri(value) {
     try {

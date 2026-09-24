@@ -967,6 +967,13 @@ label,
     color: var(--text-4);
 }
 
+.chapter-nav { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.chapter-nav[hidden] { display: none; }
+.chapter-nav select { flex: 1; min-width: 0; max-width: 100%; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.chapter-nav button { color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: var(--r-sm); cursor: pointer; }
+
 #time-remaining {
     cursor: pointer;
     transition: color var(--dur-fast) var(--ease);

@@ -1323,7 +1323,9 @@ function savePlaybackState() {
     if (!currentSound || currentIndex < 0) return;
     // A finished track restarts from the top next launch rather than resuming at the
     // very end, which would immediately re-trigger the 'ended' path.
-    const seek = audio.hasEnded() ? 0 : (audio.seek() || 0);
+    const duration = audio.duration();
+    const seek = audio.hasEnded() || (duration > 0 && audio.seek() >= duration - 2)
+        ? 0 : (audio.seek() || 0);
     const state = {
         playlist: originalPlaylist,
         lastPlayedPath: playlist[currentIndex],
@@ -1333,6 +1335,39 @@ function savePlaybackState() {
         playbackRate,
     };
     window.api.setStoreValue('lastPlaybackState', state);
+    if (/\.m4b$/i.test(playlist[currentIndex] || '') &&
+        currentSongData?.filePath === playlist[currentIndex] && !audio.isBusy()) {
+        window.api.bookPositionSet(playlist[currentIndex], seek);
+    }
+}
+
+function chapterIndexAt(seconds) {
+    const chapters = currentSongData?.chapters || [];
+    let index = 0;
+    for (let i = 0; i < chapters.length; i++) {
+        if (chapters[i].start > seconds + 0.2) break;
+        index = i;
+    }
+    return index;
+}
+
+function renderChapterNavigation() {
+    const host = document.getElementById('chapter-nav');
+    const select = document.getElementById('chapter-select');
+    if (!host || !select) return;
+    const chapters = currentSongData?.chapters || [];
+    host.hidden = chapters.length < 2;
+    select.replaceChildren();
+    chapters.forEach((chapter, index) => select.add(new Option(chapter.title, String(index))));
+    if (chapters.length) select.value = String(chapterIndexAt(audio.seek()));
+}
+
+function goToChapter(index) {
+    const chapters = currentSongData?.chapters || [];
+    if (index < 0 || index >= chapters.length) return;
+    audio.seek(chapters[index].start);
+    document.getElementById('chapter-select').value = String(index);
+    savePlaybackState();
 }
 
 /**
@@ -3757,7 +3792,7 @@ function playFavorites() {
 async function advanceAfterEnd() {
     const endingIndex = currentIndex;
     if (loopMode === 'one') {
-        playTrack(currentIndex);
+        playTrack(currentIndex, {startAtBeginning: true});
         return;
     }
 
@@ -3799,8 +3834,10 @@ async function advanceAfterEnd() {
  * tags and decoding embedded cover art in the main process. Previously the await came
  * first and the entire UI sat frozen until a large file had been parsed.
  */
+let playRequest = 0;
 async function playTrack(index, options = {}) {
-    const {startPaused = false, seekTime = 0} = options;
+    const {startPaused = false, seekTime = 0, startAtBeginning = false} = options;
+    const request = ++playRequest;
 
     if (index < 0 || index >= playlist.length) {
         audio.stop();
@@ -3810,9 +3847,6 @@ async function playTrack(index, options = {}) {
 
     const filePath = playlist[index];
 
-    // Close off the outgoing track's listen before the new one starts.
-    beginListen(filePath);
-
     // Guard against null/undefined entries in a restored playlist.
     if (typeof filePath !== 'string' || !filePath) {
         console.error(`Invalid playlist entry at index ${index}:`, filePath, '- skipping.');
@@ -3820,19 +3854,32 @@ async function playTrack(index, options = {}) {
         return;
     }
 
+    if (currentIndex >= 0 && /\.m4b$/i.test(playlist[currentIndex] || '') &&
+        currentSongData?.filePath === playlist[currentIndex] && !audio.isBusy()) {
+        window.api.bookPositionSet(playlist[currentIndex], audio.hasEnded() ? 0 : (audio.seek() || 0));
+    }
+    let initialSeek = seekTime;
+    if (/\.m4b$/i.test(filePath) && !startAtBeginning && !seekTime) {
+        initialSeek = await window.api.bookPositionGet(filePath);
+        if (request !== playRequest) return;
+    }
+    // Close off the outgoing track's listen before the new one starts.
+    beginListen(filePath);
+
     currentIndex = index;
 
     // Kick off streaming immediately. Everything below races against this ticket.
-    const ticket = audio.load(filePath, {autoplay: !startPaused, seek: seekTime});
+    const ticket = audio.load(filePath, {autoplay: !startPaused, seek: initialSeek});
 
     // Paint what we can know without parsing anything, so the UI never looks stalled.
     const fallbackName = filePath.split(/[\\/]/).pop();
     if (filenameEl) filenameEl.textContent = fallbackName;
     titleEl.textContent = fallbackName;
     artistEl.textContent = 'Loading...';
-    progressBar.value = seekTime;
+    progressBar.value = initialSeek;
     progressBar.max = 0;
-    updateProgressFill(seekTime, 0);
+    updateProgressFill(initialSeek, 0);
+    document.getElementById('chapter-nav').hidden = true;
     lyricsContainer.innerHTML = '';
     lastActiveLyricIndex = -1;
     renderTransport();
@@ -3844,6 +3891,7 @@ async function playTrack(index, options = {}) {
     if (ticket !== audio.ticket) return;
 
     currentSongData = songData;
+    renderChapterNavigation();
     currentSound = audio;
 
     // ReplayGain is per track, so it is applied as each one loads rather than once
@@ -3955,8 +4003,26 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     audio.on('buffered', () => updateProgressFill(audio.seek(), audio.duration()));
+    audio.on('time', ({seek}) => {
+        const select = document.getElementById('chapter-select');
+        if (select && !document.getElementById('chapter-nav').hidden) {
+            const index = String(chapterIndexAt(seek));
+            if (select.value !== index) select.value = index;
+        }
+    });
+    document.getElementById('chapter-select')?.addEventListener('change', (event) =>
+        goToChapter(Number(event.target.value)));
+    document.getElementById('chapter-prev')?.addEventListener('click', () => {
+        const index = chapterIndexAt(audio.seek());
+        goToChapter(audio.seek() > (currentSongData?.chapters?.[index]?.start || 0) + 3 ? index : index - 1);
+    });
+    document.getElementById('chapter-next')?.addEventListener('click', () =>
+        goToChapter(chapterIndexAt(audio.seek()) + 1));
 
     audio.on('ended', () => {
+        if (/\.m4b$/i.test(playlist[currentIndex] || '')) {
+            window.api.bookPositionSet(playlist[currentIndex], 0);
+        }
         // Park the lyrics on the last line instead of leaving them mid-scroll.
         lastActiveLyricIndex = -1;
         finishListen({reason: 'end'});

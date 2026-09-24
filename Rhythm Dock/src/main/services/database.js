@@ -192,6 +192,15 @@ const MIGRATIONS = [
             updatedAt TEXT NOT NULL
         )`);
     },
+
+    // 9 -> 10: audiobook resume positions survive playlist and app changes.
+    (db) => {
+        db.exec(`CREATE TABLE book_positions (
+            filePath TEXT PRIMARY KEY,
+            seconds REAL NOT NULL DEFAULT 0,
+            updatedAt TEXT NOT NULL
+        )`);
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;

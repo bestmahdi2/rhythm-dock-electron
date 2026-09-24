@@ -50,6 +50,7 @@ const BRAND = {
 const FILE_TYPES = [
     {ext: 'mp3', label: 'MP3', from: '#1db954', to: '#0a5c28', hero: true, mime: 'audio/mpeg'},
     {ext: 'm4a', label: 'M4A', from: '#4a5568', to: '#2d3440', mime: 'audio/mp4'},
+    {ext: 'm4b', label: 'M4B', from: '#4a5568', to: '#2d3440', mime: 'audio/mp4'},
     {ext: 'flac', label: 'FLAC', from: '#3f6f8f', to: '#24455a', mime: 'audio/flac'},
     {ext: 'wav', label: 'WAV', from: '#5a5470', to: '#332f45', mime: 'audio/wav'},
     {ext: 'ogg', label: 'OGG', from: '#4c6b52', to: '#2b3f2f', mime: 'audio/ogg'},

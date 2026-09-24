@@ -13,6 +13,7 @@ const edgeGeometry = require('./windows/edge-dock');
 const scanner = require('./library/scanner');
 const {RootWatcher} = require('./library/root-watcher');
 const coverCache = require('./library/cover-cache');
+const chapters = require('./library/chapters');
 const metadata = require('./library/metadata');
 const tags = require('./library/tags');
 const {LibraryIndex} = require('./library/index');
@@ -155,7 +156,7 @@ const currentIconVariant = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'li
 // table in scripts/generate-icons.js. Previously this list was duplicated in three
 // places and only covered five formats.
 const SUPPORTED_EXTENSIONS = [
-    '.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4',
+    '.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4',
 ];
 
 const isSupportedAudioFile = (filePath) =>
@@ -719,10 +720,31 @@ function readReplayGain(metadata) {
     return {album, track};
 }
 
+async function cueChaptersFor(filePath) {
+    const directory = path.dirname(filePath);
+    let names;
+    try { names = (await fs.promises.readdir(directory)).filter((name) => /\.cue$/i.test(name)); }
+    catch (_) { return []; }
+    const stem = path.basename(filePath, path.extname(filePath)).toLocaleLowerCase();
+    names.sort((a, b) => Number(path.basename(b, path.extname(b)).toLocaleLowerCase() === stem) -
+        Number(path.basename(a, path.extname(a)).toLocaleLowerCase() === stem));
+    for (const name of names.slice(0, 12)) {
+        const source = path.join(directory, name);
+        try {
+            if ((await fs.promises.stat(source)).size > 1024 * 1024) continue;
+            const result = chapters.parseCue(await fs.promises.readFile(source, 'utf8'), filePath);
+            if (result.length) return result;
+        } catch (_) { /* Another sidecar may still be readable. */ }
+    }
+    return [];
+}
+
 ipcMain.handle('get-metadata', async (_event, filePath) => {
     try {
-        const metadata = await mm.parseFile(filePath);
+        const metadata = await mm.parseFile(filePath, {includeChapters: /\.m4b$/i.test(filePath)});
         const {title, artist, album, picture, lyrics, genre} = metadata.common;
+        const chapterList = chapters.mp4Chapters(metadata.format);
+        if (!chapterList.length) chapterList.push(...await cueChaptersFor(filePath));
         let cover = null;
         if (picture?.[0]) {
             const imageBuffer = Buffer.from(picture[0].data);
@@ -737,6 +759,7 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             artist: artist || 'Unknown Artist',
             album: album || '',
             genre: Array.isArray(genre) ? genre.join('; ') : (genre || ''),
+            chapters: chapterList,
             cover,
             lyrics: lyrics ? lyrics[0] : null,
             replayGain: readReplayGain(metadata)
@@ -750,6 +773,7 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             artist: 'Unknown Artist',
             album: '',
             genre: '',
+            chapters: [],
             cover: null,
             lyrics: null,
             replayGain: null
@@ -1206,6 +1230,8 @@ ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, 
 ipcMain.handle('library-recommendations', (_event, options) => libraryStore.recommendations(options || {}));
 ipcMain.handle('library-album-recommendations', (_event, options) => libraryStore.albumRecommendations(options || {}));
 ipcMain.handle('library-set-rating', (_event, filePath, rating) => libraryStore.setRating(filePath, rating));
+ipcMain.handle('book-position-get', (_event, filePath) => libraryStore.getBookPosition(filePath));
+ipcMain.handle('book-position-set', (_event, filePath, seconds) => libraryStore.setBookPosition(filePath, seconds));
 ipcMain.handle('remote-audio-add', async (_event, url) => {
     try {
         const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
