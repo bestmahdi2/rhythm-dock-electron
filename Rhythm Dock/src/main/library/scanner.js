@@ -55,15 +55,17 @@ async function scanDirectory(rootPath, extensions, options = {}) {
     const visited = new Set();
     let scannedDirs = 0;
     let truncated = false;
+    let incomplete = false;
 
     /** Reads one directory, returning its audio files and its subdirectories. */
     async function readDirectory(dirPath, depth) {
-        if (depth > config.maxDepth || found.length >= config.maxFiles) return [];
+        if (config.shouldCancel?.() || depth > config.maxDepth || found.length >= config.maxFiles) return [];
 
         let entries;
         try {
             entries = await fs.promises.readdir(dirPath, {withFileTypes: true});
         } catch (error) {
+            incomplete = true;
             // Permission denied, or the directory vanished mid-scan. Neither is fatal.
             if (error.code !== 'EACCES' && error.code !== 'EPERM' && error.code !== 'ENOENT') {
                 console.error(`[scan] Cannot read ${dirPath}:`, error.message);
@@ -80,6 +82,7 @@ async function scanDirectory(rootPath, extensions, options = {}) {
         const subdirectories = [];
 
         for (const entry of entries) {
+            if (config.shouldCancel?.()) break;
             if (found.length >= config.maxFiles) {
                 truncated = true;
                 break;
@@ -124,6 +127,7 @@ async function scanDirectory(rootPath, extensions, options = {}) {
             visited.add(key);
             return true;
         } catch (_) {
+            incomplete = true;
             return false;
         }
     }
@@ -134,10 +138,11 @@ async function scanDirectory(rootPath, extensions, options = {}) {
     let currentLevel = (await claimDirectory(rootPath)) ? [rootPath] : [];
     let depth = 0;
 
-    while (currentLevel.length > 0 && depth <= config.maxDepth && found.length < config.maxFiles) {
+    while (currentLevel.length > 0 && depth <= config.maxDepth && found.length < config.maxFiles && !config.shouldCancel?.()) {
         const nextLevel = [];
 
         for (let i = 0; i < currentLevel.length; i += config.concurrency) {
+            if (config.shouldCancel?.()) break;
             const batch = currentLevel.slice(i, i + config.concurrency);
             const results = await Promise.all(batch.map((dir) => readDirectory(dir, depth)));
 
@@ -157,7 +162,8 @@ async function scanDirectory(rootPath, extensions, options = {}) {
     // Natural sort, so "track2" precedes "track10" instead of following it.
     found.sort((a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}));
 
-    return {files: found, scannedDirectories: scannedDirs, truncated};
+    return {files: found, scannedDirectories: scannedDirs, truncated, incomplete,
+        cancelled: Boolean(config.shouldCancel?.())};
 }
 
 /**

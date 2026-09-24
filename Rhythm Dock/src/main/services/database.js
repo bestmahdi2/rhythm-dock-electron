@@ -177,6 +177,12 @@ const MIGRATIONS = [
         db.exec('ALTER TABLE tracks ADD COLUMN genre TEXT');
         db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks (genre)');
     },
+
+    // 7 -> 8: fingerprints let a rescan skip unchanged tag reads.
+    (db) => {
+        db.exec('ALTER TABLE tracks ADD COLUMN fileMtimeMs REAL');
+        db.exec('ALTER TABLE tracks ADD COLUMN fileSize INTEGER');
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;

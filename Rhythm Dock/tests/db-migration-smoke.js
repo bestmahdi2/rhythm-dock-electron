@@ -40,6 +40,12 @@ app.whenReady().then(() => {
         assert.ok(backups.length > 0, 'schema upgrade must create a backup');
         const root = libraryStore.addRoot('C:\\music');
         libraryStore.syncRoot(root.id, ['C:\\music\\one.mp3', 'C:\\music\\two.mp3']);
+        assert.equal(libraryStore.scanSnapshot(root.id).length, 2);
+        libraryStore.syncRoot(root.id, [{filePath: 'C:\\music\\one.mp3', fileMtimeMs: 123, fileSize: 456}],
+            {complete: false});
+        assert.equal(libraryStore.scanSnapshot(root.id)[0].fileSize, 456);
+        assert.equal(libraryStore.stats().missing, 0,
+            'incomplete scan must not mark unvisited files missing');
         libraryStore.updateTrackMetadata('C:\\music\\one.mp3', {artist: 'Artist', genre: 'Jazz'});
         libraryStore.updateTrackMetadata('C:\\music\\two.mp3', {artist: 'Artist', genre: 'Jazz'});
         libraryStore.recordPlay('C:\\music\\two.mp3', 120000);

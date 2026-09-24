@@ -30,9 +30,9 @@ Updated 2026-09-24 from `docs/PHASES.md`, `docs/ROADMAP.md`, `server/README.md`,
 ### Phase 7 — library foundation
 
 - [x] SQLite library tables, multiple roots, missing-file flags, play/skip counts, recent/added views, and JSON library backup/restore exist in `src/main/services/library-store.js` and database migrations.
-- [ ] Incremental scan based on file mtime/size; avoid re-reading unchanged metadata.
+- [x] Incremental scan based on file mtime/size; unchanged files keep their metadata without a tag read. Schema v8 stores fingerprints. The worker reads tags only for new or changed files.
 - [ ] Watch library roots for adds/deletes and update the index while running.
-- [ ] Run large scans and metadata parsing off the main process with progress/cancellation.
+- [ ] Run large scans and metadata parsing off the main process with progress/cancellation. Persistent-root walking and tag reads now run in a worker with progress messages and a visible Cancel Scan control; cover cancellation in an integration test before checking this off. Incomplete scans preserve prior missing-file flags.
 - [ ] Add a content-keyed album-art thumbnail cache for larger views.
 - [ ] Add persistent ratings (and optional tag sync) without confusing them with the existing Like control.
 

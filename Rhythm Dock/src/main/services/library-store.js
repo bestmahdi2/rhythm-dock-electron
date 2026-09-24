@@ -93,6 +93,12 @@ function removeRoot(rootId) {
     }
 }
 
+function scanSnapshot(rootId) {
+    const handle = db();
+    if (!handle) return [];
+    return handle.prepare('SELECT filePath, fileMtimeMs, fileSize FROM tracks WHERE rootId = ?').all(rootId);
+}
+
 // --- Tracks ----------------------------------------------------------------------
 
 /**
@@ -104,7 +110,7 @@ function removeRoot(rootId) {
  * Returns `{seen, added, restored, missing}` - `restored` counts tracks that were
  * marked missing and have come back, which is the number the UI reports.
  */
-function syncRoot(rootId, files = []) {
+function syncRoot(rootId, files = [], {complete = true} = {}) {
     const handle = db();
     if (!handle) return {seen: 0, added: 0, restored: 0, missing: 0};
 
@@ -120,8 +126,8 @@ function syncRoot(rootId, files = []) {
 
         const upsert = handle.prepare(`
             INSERT INTO tracks (filePath, rootId, basename, title, artist, album, genre,
-                                durationSeconds, addedAt, lastSeenAt, missing)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                                durationSeconds, addedAt, lastSeenAt, missing, fileMtimeMs, fileSize)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             ON CONFLICT(filePath) DO UPDATE SET rootId     = excluded.rootId,
                                                 basename   = excluded.basename,
                                                 -- COALESCE: a scan carries filename-derived
@@ -131,6 +137,9 @@ function syncRoot(rootId, files = []) {
                                                 artist     = COALESCE(excluded.artist, tracks.artist),
                                                 album      = COALESCE(excluded.album, tracks.album),
                                                 genre      = COALESCE(excluded.genre, tracks.genre),
+                                                durationSeconds = COALESCE(excluded.durationSeconds, tracks.durationSeconds),
+                                                fileMtimeMs = COALESCE(excluded.fileMtimeMs, tracks.fileMtimeMs),
+                                                fileSize = COALESCE(excluded.fileSize, tracks.fileSize),
                                                 lastSeenAt = excluded.lastSeenAt,
                                                 missing    = 0
         `);
@@ -155,15 +164,19 @@ function syncRoot(rootId, files = []) {
                     (typeof file === 'object' && file.genre) || null,
                     (typeof file === 'object' && file.durationSeconds) || null,
                     timestamp,
-                    timestamp
+                    timestamp,
+                    typeof file === 'object' ? (file.fileMtimeMs ?? null) : null,
+                    typeof file === 'object' ? (file.fileSize ?? null) : null
                 );
             }
 
             // Whatever is left in `previous` was not seen this time.
-            const markMissing = handle.prepare('UPDATE tracks SET missing = 1 WHERE filePath = ?');
-            for (const [filePath, wasMissing] of previous) {
-                markMissing.run(filePath);
-                if (!wasMissing) result.missing += 1;
+            if (complete) {
+                const markMissing = handle.prepare('UPDATE tracks SET missing = 1 WHERE filePath = ?');
+                for (const [filePath, wasMissing] of previous) {
+                    markMissing.run(filePath);
+                    if (!wasMissing) result.missing += 1;
+                }
             }
 
             handle.prepare('UPDATE roots SET lastScanAt = ? WHERE id = ?').run(timestamp, rootId);
@@ -578,6 +591,7 @@ module.exports = {
     listRoots,
     addRoot,
     removeRoot,
+    scanSnapshot,
     syncRoot,
     recheckMissing,
     updateTrackMetadata,

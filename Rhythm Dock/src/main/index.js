@@ -1,6 +1,7 @@
 const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen} = require('electron');
 const path = require('path');
 const fs = require('fs');
+const {Worker} = require('worker_threads');
 const mm = require('music-metadata');
 const Store = require('electron-store');
 const pkg = require('../../package.json');
@@ -1097,15 +1098,45 @@ ipcMain.handle('scan-folder-path', async (_event, dirPath) => scanAndIndex(dirPa
  * Returns the sync summary so the caller can report how many missing tracks came back.
  */
 async function scanRoot(root) {
-    const {files, truncated} = await scanner.scanDirectory(root.path, SUPPORTED_EXTENSIONS, {
-        onProgress: ({found, current}) => sendToRenderer('scan-progress', {found, current}),
-    });
-
-    library.ingest(files);
-    if (truncated) sendToRenderer('scan-truncated', {count: files.length});
-
-    return libraryStore.syncRoot(root.id, files);
+    const previous = libraryStore.scanSnapshot(root.id);
+    const result = await new Promise((resolve, reject) => {
+        const worker = new Worker(path.join(__dirname, 'library', 'scan-worker.js'), {
+            workerData: {rootPath: root.path, extensions: SUPPORTED_EXTENSIONS, previous},
+        });
+        let settled = false;
+        worker.on('message', (message) => {
+            if (message.type === 'progress') sendToRenderer('scan-progress', message);
+            if (message.type === 'metadata-progress') sendToRenderer('scan-metadata-progress', message);
+            if (message.type === 'done') {
+                settled = true;
+                resolve(message);
+                worker.terminate();
+            }
+            if (message.type === 'error') {
+                settled = true;
+                reject(new Error(message.error));
+                worker.terminate();
+            }
+        });
+        worker.on('error', reject);
+        worker.on('exit', (code) => { if (!settled) reject(new Error(`Library scan worker exited (${code})`)); });
+        activeScanWorker = worker;
+    }).finally(() => { activeScanWorker = null; });
+    if (result.cancelled) return {seen: 0, added: 0, restored: 0, missing: 0, cancelled: true};
+    const scannedTags = new Map(result.files.map((file) => [file.filePath, file]));
+    library.ingest(result.files.map((file) => file.filePath),
+        (filePath) => scannedTags.get(filePath) || {});
+    if (result.truncated) sendToRenderer('scan-truncated', {count: result.files.length});
+    return {...libraryStore.syncRoot(root.id, result.files, {complete: result.complete}),
+        reparsed: result.reparsed, incomplete: !result.complete};
 }
+
+let activeScanWorker = null;
+ipcMain.handle('library-cancel-scan', () => {
+    if (!activeScanWorker) return false;
+    activeScanWorker.postMessage('cancel');
+    return true;
+});
 
 async function importRoomUpload(upload) {
     const client = roomClient;
@@ -1220,7 +1251,7 @@ ipcMain.handle('library-add-root', async () => {
     });
     sendToRenderer('scan-complete', {
         total: result.seen,
-        reparsed: result.added,
+        reparsed: result.reparsed,
         missing: result.missing,
     });
     return {root, ...result};
@@ -1233,11 +1264,12 @@ ipcMain.handle('library-rescan', async (_event, rootId) => {
     const roots = libraryStore.listRoots()
         .filter((root) => rootId == null || root.id === rootId);
 
-    const totals = {seen: 0, added: 0, restored: 0, missing: 0};
+    const totals = {seen: 0, added: 0, restored: 0, missing: 0, reparsed: 0};
     for (const root of roots) {
         // Sequential on purpose: two concurrent scans of a spinning disk or a network
         // share are slower than one, and they interleave their progress events.
         const result = await scanRoot(root);
+        if (result.cancelled) { totals.cancelled = true; break; }
         for (const key of Object.keys(totals)) totals[key] += result[key];
     }
 
@@ -1247,7 +1279,7 @@ ipcMain.handle('library-rescan', async (_event, rootId) => {
     });
     sendToRenderer('scan-complete', {
         total: totals.seen,
-        reparsed: totals.added,
+        reparsed: totals.reparsed,
         missing: totals.missing,
     });
     return totals;

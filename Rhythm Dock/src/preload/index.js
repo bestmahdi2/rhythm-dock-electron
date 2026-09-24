@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('api', {
     libraryAddRoot: () => ipcRenderer.invoke('library-add-root'),
     libraryRemoveRoot: (rootId) => ipcRenderer.invoke('library-remove-root', rootId),
     libraryRescan: (rootId) => ipcRenderer.invoke('library-rescan', rootId ?? null),
+    libraryCancelScan: () => ipcRenderer.invoke('library-cancel-scan'),
     libraryRecheckMissing: () => ipcRenderer.invoke('library-recheck-missing'),
     libraryRecordPlay: (filePath, listenedMs) => ipcRenderer.send('library-record-play', filePath, listenedMs),
     libraryRecordSkip: (filePath, listenedMs) => ipcRenderer.send('library-record-skip', filePath, listenedMs),

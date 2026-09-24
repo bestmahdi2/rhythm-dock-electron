@@ -2313,11 +2313,15 @@ async function renderLibraryPanel() {
 }
 
 async function rescanLibrary(rootId) {
+    const cancelButton = document.getElementById('library-cancel-scan');
+    if (cancelButton) cancelButton.disabled = false;
     setLibraryStatus('Scanning...');
-    const result = await window.api.libraryRescan(rootId);
+    let result;
+    try { result = await window.api.libraryRescan(rootId); }
+    finally { if (cancelButton) cancelButton.disabled = true; }
     await renderLibraryPanel();
     setLibraryStatus(
-        result?.restored
+        result?.cancelled ? 'Scan cancelled. Your existing library is unchanged.' : result?.restored
             ? `Scan finished. ${result.restored} missing track(s) came back.`
             : 'Scan finished.',
         'ok'
@@ -2326,11 +2330,16 @@ async function rescanLibrary(rootId) {
 
 /** Wires the library card. Called once from the DOM-ready block. */
 function initLibraryPanel() {
+    document.getElementById('library-cancel-scan')?.addEventListener('click', () => window.api.libraryCancelScan());
     document.getElementById('library-add-root')?.addEventListener('click', async () => {
+        const cancelButton = document.getElementById('library-cancel-scan');
+        if (cancelButton) cancelButton.disabled = false;
         setLibraryStatus('Scanning...');
-        await window.api.libraryAddRoot();
+        let result;
+        try { result = await window.api.libraryAddRoot(); }
+        finally { if (cancelButton) cancelButton.disabled = true; }
         await renderLibraryPanel();
-        setLibraryStatus('Folder added.', 'ok');
+        setLibraryStatus(result?.cancelled ? 'Scan cancelled. You can rescan this folder later.' : 'Folder added.', 'ok');
     });
 
     document.getElementById('library-rescan-all')?.addEventListener('click', () => rescanLibrary(null));
