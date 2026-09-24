@@ -81,7 +81,8 @@ let showTranslation = false;
 let translatedLines = null;
 
 // Room / streaming state.
-let room = {connected: false, isHost: false, code: null, serverUrl: null, members: []};
+let room = {connected: false, isHost: false, code: null, serverUrl: null,
+            members: [], role: 'listener', remoteLibrary: {tracks: [], queue: []}};
 let roomPublishTimer = null;
 
 // --- Get references to ALL UI elements (Single Source of Truth) ---
@@ -286,6 +287,7 @@ function updateAppSettingsMenu() {
     const isLightMode = containerEl.classList.contains('light-mode');
     lightModeLabel.textContent = isLightMode ? 'Disable Light Mode' : 'Enable Light Mode';
     lightModeBtn.classList.toggle('active', isLightMode);
+    lightModeBtn.setAttribute('aria-checked', String(isLightMode));
 
     // 2. Check for Vertical Orientation
     const isVertical = containerEl.classList.contains('vertical-mode');
@@ -1438,6 +1440,9 @@ function renderRoomUI() {
 
     roomSetupEl?.classList.toggle('hidden', room.connected);
     roomActiveEl?.classList.toggle('hidden', !room.connected);
+    document.getElementById('room-upload-controls')?.classList.toggle('hidden',
+        !room.connected || room.isHost || room.role !== 'controller');
+    document.getElementById('room-telegram-controls')?.classList.toggle('hidden', !room.connected || !room.isHost);
     if (roomCodeValueEl) roomCodeValueEl.textContent = room.code || '------';
 
     if (!roomMembersEl) return;
@@ -1510,6 +1515,7 @@ function publishRoomState() {
  * only for the state message; the authoritative mapping lives in main.
  */
 let trackIdCache = new Map();
+let roomLibraryRevision = 0;
 
 function hashPath(filePath) {
     return trackIdCache.get(filePath) || null;
@@ -1519,13 +1525,18 @@ function hashPath(filePath) {
 async function publishRoomLibrary() {
     if (!room.connected || !room.isHost) return;
 
+    const revision = ++roomLibraryRevision;
+    const catalog = await window.api.libraryCatalog();
+    const byPath = new Map(catalog.map((track) => [track.filePath, track]));
+
     const info = {};
     for (const filePath of playlist) {
-        const track = await window.api.libraryGetTrack(filePath);
+        const track = byPath.get(filePath) || await window.api.libraryGetTrack(filePath);
         if (track) info[filePath] = {title: track.title, artist: track.artist, album: track.album};
     }
 
-    window.api.roomPublishLibrary({queue: playlist, info});
+    if (revision !== roomLibraryRevision || !room.connected || !room.isHost) return;
+    window.api.roomPublishLibrary({queue: [...playlist], info, catalog});
 }
 
 /** Mirrors theme, lyric offset and playback shape so members match the host. */
@@ -1594,7 +1605,8 @@ function applyRemoteState(state) {
     if (state.trackId !== remoteTrackId) {
         remoteTrackId = state.trackId;
         if (state.trackId) {
-            const url = `${room.serverUrl}/api/rooms/${room.code}/stream/${encodeURIComponent(state.trackId)}`;
+            const query = room.password ? `?password=${encodeURIComponent(room.password)}` : '';
+            const url = `${room.serverUrl}/api/rooms/${room.code}/stream/${encodeURIComponent(state.trackId)}${query}`;
             audio.load(url, {autoplay: state.playing});
         } else {
             audio.unload();
@@ -1676,6 +1688,7 @@ function applyRemoteLyrics(payload) {
 
 /** Applies a control intent forwarded from a member. Host only. */
 function applyRoomControl({action, value}) {
+    if (!room.connected || !room.isHost) return;
     switch (action) {
         case 'play':     audio.play(); break;
         case 'pause':    audio.pause(); break;
@@ -1686,6 +1699,31 @@ function applyRoomControl({action, value}) {
         case 'rate':     setPlaybackRate(value); break;
         case 'select':   if (value >= 0 && value < playlist.length) playTrack(value); break;
         case 'shuffle':  shuffleBtn.click(); break;
+        case 'queue:add': {
+            const trackId = typeof value === 'object' && value?.trackId;
+            const filePath = [...trackIdCache.entries()].find(([, id]) => id === trackId)?.[0];
+            if (!filePath) return; // Only tracks in the host-published catalog.
+            const position = [QUEUE_POSITIONS.FIRST, QUEUE_POSITIONS.NEXT, QUEUE_POSITIONS.END]
+                .includes(value.position) ? value.position : QUEUE_POSITIONS.END;
+            enqueue(filePath, position);
+            break;
+        }
+        case 'queue:remove': {
+            const index = playlist.findIndex((filePath) => hashPath(filePath) === value?.trackId);
+            if (index < 0) return;
+            removeFromQueue(index);
+            break;
+        }
+        case 'queue:move': {
+            const from = playlist.findIndex((filePath) => hashPath(filePath) === value?.trackId);
+            const direction = value?.direction;
+            if (from < 0 || !['up', 'down'].includes(direction)) return;
+            const to = from + (direction === 'up' ? -1 : 1);
+            if (to < 0 || to >= playlist.length) return;
+            moveQueueItem(from, to);
+            break;
+        }
+        default: return;
     }
     // Answer immediately rather than waiting for the next throttled tick, so the
     // member who pressed the button sees it respond at once.
@@ -1789,6 +1827,16 @@ function renderAbState() {
     if (!abButton) return;
     const {start, end} = audio.getLoop();
     const looping = start != null && end != null;
+
+    const range = document.getElementById('ab-range');
+    if (range) {
+        const duration = audio.duration();
+        range.classList.toggle('visible', looping && duration > 0);
+        if (looping && duration > 0) {
+            range.style.left = `${Math.max(0, Math.min(100, start / duration * 100))}%`;
+            range.style.width = `${Math.max(0, Math.min(100, (end - start) / duration * 100))}%`;
+        }
+    }
 
     abButton.classList.toggle('active', looping || pendingLoopStart != null);
     if (abLabel) {
@@ -2057,7 +2105,13 @@ function initAudioPanel() {
 
     bind('output-device', 'change', async (event) => {
         const ok = await audio.setOutputDevice(event.target.value);
-        if (ok) saveAudioSetting('outputDeviceId', event.target.value);
+        if (ok) {
+            saveAudioSetting('outputDeviceId', event.target.value);
+            persistExtraOutputs();
+        } else {
+            event.target.value = audio.outputDeviceId;
+            showToast('Could not switch audio output.', 2500);
+        }
         // The new primary must disappear from the mirror list, or it would be
         // played twice.
         renderExtraOutputs();
@@ -2949,6 +3003,7 @@ function enqueue(filePath, position = QUEUE_POSITIONS.END) {
     // A track already queued is moved rather than duplicated: two copies of the
     // same file in a queue is almost never what anyone meant.
     const existing = playlist.indexOf(filePath);
+    if (existing === currentIndex) return;
     if (existing !== -1 && existing !== currentIndex) {
         playlist.splice(existing, 1);
         if (existing < currentIndex) currentIndex--;
@@ -3068,6 +3123,7 @@ function renderQueue() {
  * Getting this wrong silently shifts playback onto a neighbouring song.
  */
 function removeFromQueue(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= playlist.length) return;
     const removedPath = playlist[index];
     playlist.splice(index, 1);
 
@@ -3085,6 +3141,24 @@ function removeFromQueue(index) {
 
     renderQueue();
     savePlaybackState();
+    updateNextTrackHint();
+    publishRoomLibrary();
+    publishRoomState();
+}
+
+/** Reorder while preserving the identity of the currently playing track. */
+function moveQueueItem(from, to) {
+    if (from === to) return;
+    const playingPath = playlist[currentIndex];
+    const [item] = playlist.splice(from, 1);
+    playlist.splice(to, 0, item);
+    currentIndex = playingPath ? playlist.indexOf(playingPath) : -1;
+    originalPlaylist = [...playlist];
+    updateNextTrackHint();
+    renderQueue();
+    savePlaybackState();
+    publishRoomLibrary();
+    publishRoomState();
 }
 
 // --- Shortcuts guide -------------------------------------------------------------
@@ -3195,6 +3269,8 @@ const LIBRARY_VIEWS = [
 function renderLibraryViewChips() {
     const bar = document.getElementById('library-view-chips');
     if (!bar) return;
+    bar.classList.toggle('hidden', room.connected && !room.isHost);
+    if (room.connected && !room.isHost) return;
 
     if (bar.childElementCount === 0) {
         for (const view of LIBRARY_VIEWS) {
@@ -3226,6 +3302,11 @@ function setLibraryView(view) {
 /** Draws whichever view is selected. */
 async function renderActiveLibraryView() {
     if (!playlistResults) return;
+
+    if (room.connected && !room.isHost) {
+        renderRemoteQueue();
+        return;
+    }
 
     if (activeLibraryView === 'queue') {
         renderQueue();
@@ -3264,6 +3345,31 @@ async function renderActiveLibraryView() {
     });
 }
 
+function renderRemoteQueue() {
+    const queue = room.remoteLibrary?.queue || [];
+    playlistResults.replaceChildren();
+    setPlaylistStatus(`${queue.length} shared track${queue.length === 1 ? '' : 's'}`);
+    queue.forEach((track, index) => {
+        const actions = room.role === 'controller' ? [
+            {label: '↑', title: 'Move up', onClick: () =>
+                window.api.roomControl('queue:move', {trackId: track.id, direction: 'up'})},
+            {label: '↓', title: 'Move down', onClick: () =>
+                window.api.roomControl('queue:move', {trackId: track.id, direction: 'down'})},
+            {label: '×', title: 'Remove from shared queue', onClick: () =>
+                window.api.roomControl('queue:remove', {trackId: track.id})},
+        ] : [];
+        if (index === 0) actions.shift();
+        if (index === queue.length - 1) actions.splice(index === 0 ? 0 : 1, 1);
+        playlistResults.appendChild(makeRow({
+            title: track.title || track.id,
+            subtitle: track.artist,
+            active: index === remoteState?.queueIndex,
+            onPlay: () => room.role === 'controller' && window.api.roomControl('select', index),
+            actions,
+        }));
+    });
+}
+
 /** The liked-songs list, which lives in settings rather than the database. */
 function renderLikedSongs() {
     playlistResults.innerHTML = '';
@@ -3297,6 +3403,29 @@ function renderLikedSongs() {
 /** Renders search results: artists first, then individual tracks. */
 async function runLibrarySearch(query) {
     if (!playlistResults) return;
+
+    if (room.connected && !room.isHost) {
+        const needle = (query || '').trim().toLocaleLowerCase();
+        if (!needle) return renderRemoteQueue();
+        const tracks = (room.remoteLibrary?.tracks || []).filter((track) =>
+            `${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(needle)).slice(0, 50);
+        playlistResults.replaceChildren();
+        setPlaylistStatus(`${tracks.length} shared song${tracks.length === 1 ? '' : 's'} found`);
+        for (const track of tracks) {
+            playlistResults.appendChild(makeRow({
+                title: track.title || track.id,
+                subtitle: track.artist,
+                onPlay: () => room.role === 'controller' &&
+                    window.api.roomControl('queue:add', {trackId: track.id, position: 'end'}),
+                actions: room.role === 'controller' ? [
+                    {label: '↑', title: 'Add at top', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'first'})},
+                    {label: '⏭', title: 'Play next', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'next'})},
+                    {label: '+', title: 'Add at end', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'end'})},
+                ] : [],
+            }));
+        }
+        return;
+    }
 
     if (!query || query.trim().length === 0) {
         renderActiveLibraryView();
@@ -3536,6 +3665,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // progress bar becomes usable almost immediately.
         progressBar.max = duration || 0;
         updateProgressFill(audio.seek(), duration);
+        renderAbState();
         updateTimeDisplay();
 
         const songId = getSongIdentifier();
@@ -3734,6 +3864,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Playback Controls
     playPauseBtn.addEventListener('click', () => {
+        if (room.connected && !room.isHost) {
+            if (room.role === 'controller') window.api.roomControl('toggle');
+            return;
+        }
         if (currentSound) {
             // The engine handles the finished-track case itself: play() notices the
             // ENDED state (or a position at the very end) and rewinds before starting,
@@ -3745,6 +3879,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     prevBtn.addEventListener('click', () => {
+        if (room.connected && !room.isHost) {
+            if (room.role === 'controller') window.api.roomControl('previous');
+            return;
+        }
         if (!currentSound) return;
         if (audio.seek() > 3) {
             audio.seek(0);
@@ -3757,6 +3895,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     nextBtn.addEventListener('click', () => {
+        if (room.connected && !room.isHost) {
+            if (room.role === 'controller') window.api.roomControl('next');
+            return;
+        }
         const nextIndex = currentIndex + 1;
         if (nextIndex < playlist.length) {
             playTrack(nextIndex);
@@ -3781,6 +3923,10 @@ document.addEventListener('DOMContentLoaded', () => {
     progressBar.addEventListener('input', () => {
         const value = parseFloat(progressBar.value);
         updateProgressFill(value, audio.duration());
+        if (room.connected && !room.isHost) {
+            if (room.role === 'controller') window.api.roomControl('seek', Math.round(value * 1000));
+            return;
+        }
         if (currentSound) audio.seek(value);
         updateTimeDisplay();
     });
@@ -3793,14 +3939,20 @@ document.addEventListener('DOMContentLoaded', () => {
      * 10px of padding, giving a ~24px tall target.
      */
     const seekByWheel = (event) => {
-        if (!currentSound) return;
+        if (!currentSound && !(room.connected && !room.isHost)) return;
         event.preventDefault();
         event.stopPropagation();
+        if (room.connected && !room.isHost && room.role !== 'controller') return;
 
         // Shift gives fine control, matching the volume scroll modifier.
         const step = event.shiftKey ? 1 : 5;
         const seek = audio.seek() + (event.deltaY < 0 ? step : -step);
-        const clamped = audio.seek(seek);
+        const clamped = Math.max(0, Math.min(audio.duration(), seek));
+        if (room.connected && !room.isHost) {
+            window.api.roomControl('seek', Math.round(clamped * 1000));
+        } else {
+            audio.seek(clamped);
+        }
         progressBar.value = clamped;
         updateProgressFill(clamped, audio.duration());
         updateTimeDisplay();
@@ -3810,11 +3962,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Middle-click anywhere in the padded strip jumps to that position.
     (progressWrapper || progressBar).addEventListener('auxclick', (event) => {
-        if (event.button !== 1 || !currentSound) return;
+        if (event.button !== 1 || (!currentSound && !(room.connected && !room.isHost))) return;
         event.preventDefault();
+        if (room.connected && !room.isHost && room.role !== 'controller') return;
         const rect = progressBar.getBoundingClientRect();
         const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-        const target = audio.seek(ratio * audio.duration());
+        const target = ratio * audio.duration();
+        if (room.connected && !room.isHost) {
+            window.api.roomControl('seek', Math.round(target * 1000));
+        } else {
+            audio.seek(target);
+        }
         progressBar.value = target;
         updateProgressFill(target, audio.duration());
     });
@@ -4330,8 +4488,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!result.ok) return setPlaylistStatus(`Could not join: ${result.error}`);
 
         room = {connected: true, isHost: false, code: result.room.code,
-                serverUrl: roomServerEl.value.trim(), members: []};
+                serverUrl: roomServerEl.value.trim(), members: [],
+                password: roomPasswordEl.value, role: result.room.role,
+                remoteLibrary: {tracks: [], queue: []}};
         renderRoomUI();
+    });
+
+    document.getElementById('room-upload-song')?.addEventListener('click', async () => {
+        const button = document.getElementById('room-upload-song');
+        button.disabled = true;
+        try {
+            const result = await window.api.roomUploadSong(document.getElementById('room-upload-position').value);
+            if (!result.ok && !result.cancelled) setPlaylistStatus(`Upload failed: ${result.error}`);
+            else if (result.ok) setPlaylistStatus('Song uploaded; host is adding it to the queue');
+        } finally { button.disabled = false; }
+    });
+
+    document.getElementById('room-telegram-pair')?.addEventListener('click', async () => {
+        const result = await window.api.roomTelegramPair();
+        document.getElementById('room-telegram-code').textContent = result.ok
+            ? `Send /pair ${result.code} to @${result.botUsername} within 10 minutes`
+            : `Telegram unavailable: ${result.error}`;
     });
 
     roomLeaveBtn?.addEventListener('click', async () => {
@@ -4354,7 +4531,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.api.onRoomEvent('room:lyrics', ({lyrics: payload}) => applyRemoteLyrics(payload));
     window.api.onRoomEvent('room:library', ({library}) => {
         if (room.isHost || !library) return;
-        setPlaylistStatus(`Host shared ${(library.queue || []).length} tracks`);
+        room.remoteLibrary = library;
+        if (librarySearchInput?.value.trim()) runLibrarySearch(librarySearchInput.value);
+        else renderRemoteQueue();
     });
     window.api.onRoomEvent('room:host-gone', () => {
         audio.pause();
@@ -4378,11 +4557,20 @@ document.addEventListener('DOMContentLoaded', () => {
     window.api.onRoomEvent('room:control', (message) => {
         if (room.isHost) applyRoomControl(message);
     });
+    window.api.onRoomEvent('room:incoming-track', ({filePath, position}) => {
+        if (room.isHost) enqueue(filePath, position);
+    });
+    window.api.onRoomEvent('room:upload-accepted', () =>
+        setPlaylistStatus('The host added your song to the queue'));
 
     window.api.onRoomEvent('room:welcome', (message) => {
         room.members = message.members || room.members;
         if (message.role) room.isHost = message.role === 'host';
+        room.role = message.role || room.role;
+        if (message.library) room.remoteLibrary = message.library;
         renderRoomUI();
+        renderLibraryViewChips();
+        renderActiveLibraryView();
     });
 
     window.api.onRoomEvent('room:disconnected', () => {

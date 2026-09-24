@@ -287,6 +287,16 @@ function recordSkip(filePath, listenedMs = 0) {
 
 // --- Views -----------------------------------------------------------------------
 
+/** Tracks a room host may offer to guests, including roots not opened this session. */
+function roomCatalog() {
+    const handle = db();
+    if (!handle) return [];
+    return handle.prepare(`
+        SELECT filePath, basename, title, artist, album, durationSeconds
+        FROM tracks WHERE missing = 0 ORDER BY artist, title, basename
+    `).all();
+}
+
 const VIEWS = {
     'recently-added': {
         where: 't.missing = 0',
@@ -453,6 +463,7 @@ module.exports = {
     recordPlay,
     recordSkip,
     view,
+    roomCatalog,
     exportAll,
     importAll,
 };

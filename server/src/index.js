@@ -8,20 +8,26 @@
  *   1. Rendezvous: hand out room codes and let members find each other.
  *   2. State fan-out: mirror the host's playback state, queue, lyrics and settings to
  *      every member, and forward controller intents back to the host.
- *   3. Audio relay: stream the host's files to listeners without storing them.
+ *   3. Audio relay: stream the host's files to listeners; hold guest contributions
+ *      temporarily until the host imports them.
  *   4. Clock: be the single authority members synchronise against.
  *
- * It stores nothing on disk and holds no music. Restarting it costs a reconnect.
+ * Room state is in memory. Guest upload files live in a temporary directory and
+ * expire after two days; a restart deletes that temporary directory.
  */
 
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 const express = require('express');
 const {WebSocketServer} = require('ws');
 
 const protocol = require('./protocol');
 const {RoomRegistry} = require('./rooms');
 const {AudioRelay, parseRange} = require('./relay');
+const {TelegramIntake} = require('./telegram');
 
 const {ROLES, CLIENT, SERVER} = protocol;
 
@@ -42,6 +48,30 @@ app.use(express.json({limit: '1mb'}));
 
 const registry = new RoomRegistry();
 const relay = new AudioRelay();
+const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+const UPLOAD_TTL_MS = 2 * 24 * 60 * 60 * 1000;
+const UPLOAD_EXTENSIONS = new Set(['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff']);
+const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-dock-uploads-'));
+const uploads = new Map();
+function hasUploadCapacity(roomCode) {
+    return uploads.size < 100 && [...uploads.values()].filter((item) => item.roomCode === roomCode).length < 10;
+}
+const telegram = new TelegramIntake({token: process.env.TELEGRAM_BOT_TOKEN || '', registry,
+    onAudio: async ({room, fileName, bytes, chatId}) => {
+        if (!room.hostOnline) throw new Error('The host is offline');
+        if (!hasUploadCapacity(room.code)) throw new Error('Too many pending songs; try again after the host imports them');
+        const extension = path.extname(fileName).toLowerCase();
+        if (!UPLOAD_EXTENSIONS.has(extension) || bytes.length > 20 * 1024 * 1024)
+            throw new Error('Unsupported song or over the Telegram 20 MB limit');
+        const id = crypto.randomBytes(18).toString('hex');
+        const filePath = path.join(uploadDir, id + extension);
+        fs.writeFileSync(filePath, bytes, {flag: 'wx'});
+        uploads.set(id, {filePath, roomCode: room.code, fileName, size: bytes.length,
+            position: 'end', at: Date.now(), chatId});
+        send(room.host.socket, 'upload:ready', {id, fileName, size: bytes.length,
+            position: 'end', by: {id: `telegram:${chatId}`, name: 'Telegram'}});
+    },
+});
 
 // --- HTTP -----------------------------------------------------------------------
 
@@ -71,6 +101,96 @@ app.get('/api/rooms/:code', (req, res) => {
     const room = registry.get(req.params.code);
     if (!room) return res.status(404).json({error: 'no such room'});
     res.json(room.summary());
+});
+
+app.post('/api/rooms/:code/telegram-pair', async (req, res) => {
+    const room = registry.get(req.params.code);
+    const a = crypto.createHash('sha256').update(req.get('Authorization') || '').digest();
+    const b = crypto.createHash('sha256').update(`Bearer ${room?.hostToken || ''}`).digest();
+    if (!room || !crypto.timingSafeEqual(a, b)) return res.sendStatus(403);
+    if (!telegram.enabled) return res.status(503).json({error: 'Telegram bot is not configured'});
+    try {
+        const bot = await telegram.call('getMe', {});
+        res.json({code: telegram.createPairCode(room), expiresInSeconds: 600,
+            botUsername: bot.username});
+    } catch (_) { res.status(503).json({error: 'Telegram bot is not reachable'}); }
+});
+
+// A controller may contribute one bounded audio file. Only the authenticated host
+// can fetch it; pending bytes expire and are removed after successful import.
+app.post('/api/rooms/:code/uploads', (req, res) => {
+    const room = registry.get(req.params.code);
+    const member = room && [...room.members.values()].find((item) =>
+        item.id === req.get('X-Member-Id') &&
+        item.uploadToken === req.get('X-Upload-Token'));
+    if (!member || member.role !== ROLES.CONTROLLER) return res.status(403).json({error: 'controller access required'});
+    if (!room.hostOnline) return res.status(409).json({error: 'host is offline'});
+    if (!hasUploadCapacity(room.code)) return res.status(429).json({error: 'too many pending songs'});
+    let fileName;
+    try { fileName = path.basename(decodeURIComponent(req.get('X-File-Name') || '')); }
+    catch (_) { return res.status(400).json({error: 'invalid file name'}); }
+    const extension = path.extname(fileName).toLowerCase();
+    if (!UPLOAD_EXTENSIONS.has(extension)) return res.status(415).json({error: 'unsupported audio type'});
+    const length = Number(req.get('Content-Length'));
+    if (!Number.isSafeInteger(length) || length < 1 || length > MAX_UPLOAD_BYTES)
+        return res.status(413).json({error: 'file exceeds 30 MB limit'});
+    const position = ['first', 'next', 'end'].includes(req.query.position) ? req.query.position : 'end';
+    const id = crypto.randomBytes(18).toString('hex');
+    const filePath = path.join(uploadDir, id + extension);
+    const output = fs.createWriteStream(filePath, {flags: 'wx'});
+    let received = 0;
+    let failed = false;
+    const fail = (status, error) => {
+        if (failed) return;
+        failed = true;
+        output.destroy();
+        fs.rm(filePath, {force: true}, () => {});
+        if (!res.headersSent) res.status(status).json({error});
+    };
+    req.on('data', (chunk) => {
+        received += chunk.length;
+        if (received > MAX_UPLOAD_BYTES || received > length) {
+            fail(413, 'file exceeds declared size');
+            req.destroy();
+        }
+    });
+    req.on('aborted', () => fail(400, 'upload aborted'));
+    output.on('error', () => fail(500, 'upload failed'));
+    output.on('finish', () => {
+        if (failed) return;
+        if (received !== length) return fail(400, 'incomplete upload');
+        uploads.set(id, {filePath, roomCode: room.code, fileName, size: received, position,
+            memberId: member.id, at: Date.now()});
+        send(room.host.socket, 'upload:ready', {id, fileName, size: received, position, by: {id: member.id, name: member.name}});
+        res.status(201).json({id, status: 'pending'});
+    });
+    req.pipe(output);
+});
+
+app.get('/api/rooms/:code/uploads/:id', (req, res) => {
+    const room = registry.get(req.params.code);
+    const upload = uploads.get(req.params.id);
+    if (!room || !upload || upload.roomCode !== room.code) return res.sendStatus(404);
+    const a = crypto.createHash('sha256').update(req.get('Authorization') || '').digest();
+    const b = crypto.createHash('sha256').update(`Bearer ${room.hostToken}`).digest();
+    if (!crypto.timingSafeEqual(a, b)) return res.sendStatus(403);
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Content-Length', String(upload.size));
+    fs.createReadStream(upload.filePath).on('error', () => res.destroy()).pipe(res);
+});
+
+app.delete('/api/rooms/:code/uploads/:id', (req, res) => {
+    const room = registry.get(req.params.code);
+    const upload = uploads.get(req.params.id);
+    if (!room || !upload || upload.roomCode !== room.code) return res.sendStatus(404);
+    const a = crypto.createHash('sha256').update(req.get('Authorization') || '').digest();
+    const b = crypto.createHash('sha256').update(`Bearer ${room.hostToken}`).digest();
+    if (!crypto.timingSafeEqual(a, b)) return res.sendStatus(403);
+    uploads.delete(req.params.id);
+    fs.rm(upload.filePath, {force: true}, () => {});
+    if (upload.memberId) send(room.members.get(upload.memberId)?.socket, 'upload:accepted', {id: req.params.id});
+    if (upload.chatId) telegram.reply(upload.chatId, 'The host imported your song.').catch(() => {});
+    res.sendStatus(204);
 });
 
 /**
@@ -220,6 +340,7 @@ wss.on('connection', (socket, request) => {
         send(socket, SERVER.WELCOME, {
             protocolVersion: protocol.PROTOCOL_VERSION,
             memberId: member.id,
+            uploadToken: member.role === ROLES.CONTROLLER ? member.uploadToken : undefined,
             role: member.role,
             room: room.summary(),
             // Everything a joiner needs to render immediately, in one message.
@@ -235,6 +356,12 @@ wss.on('connection', (socket, request) => {
         broadcastMembers(room);
 
         if (member.role === ROLES.HOST && isReturningHost) {
+            for (const [id, upload] of uploads) {
+                if (upload.roomCode === room.code) send(socket, 'upload:ready', {
+                    id, fileName: upload.fileName, size: upload.size, position: upload.position,
+                    by: {id: 'pending', name: 'Pending upload'},
+                });
+            }
             broadcast(room, SERVER.HOST_BACK, {}, member.id);
         }
     }
@@ -330,6 +457,7 @@ function handleMessage(room, member, message) {
                 const target = room.members.get(message.memberId);
                 send(target.socket, SERVER.WELCOME, {
                     roleChanged: true, role: target.role, memberId: target.id,
+                    uploadToken: target.role === ROLES.CONTROLLER ? target.uploadToken : undefined,
                     state: room.state, settings: room.settings, library: room.library,
                     lyrics: room.lyrics, members: room.memberList(),
                     room: room.summary(), serverTime: Date.now(),
@@ -358,6 +486,12 @@ function handleMessage(room, member, message) {
 
 // Drop half-open connections.
 const heartbeat = setInterval(() => {
+    for (const [id, upload] of uploads) {
+        if (Date.now() - upload.at > UPLOAD_TTL_MS || !registry.get(upload.roomCode)) {
+            uploads.delete(id);
+            fs.rm(upload.filePath, {force: true}, () => {});
+        }
+    }
     for (const socket of wss.clients) {
         if (socket.isAlive === false) {
             socket.terminate();
@@ -372,6 +506,8 @@ const heartbeat = setInterval(() => {
 
 wss.on('close', () => clearInterval(heartbeat));
 
+if (telegram.enabled) telegram.start();
+
 server.listen(PORT, HOST, () => {
     console.log(`Rhythm Dock room server listening on http://${HOST}:${PORT}`);
     if (!CREATE_SECRET) {
@@ -385,6 +521,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     process.on(signal, () => {
         console.log(`\n[server] ${signal} received, shutting down`);
         clearInterval(heartbeat);
+        telegram.stop();
         for (const socket of wss.clients) {
             try {
                 socket.close(1001, 'server shutting down');

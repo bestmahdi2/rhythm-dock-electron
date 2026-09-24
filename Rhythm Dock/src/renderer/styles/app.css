@@ -883,6 +883,20 @@ label,
     transition: width 0.3s linear;
 }
 
+.ab-range {
+    display: none;
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: 0;
+    background: var(--accent);
+    opacity: 0.8;
+    border-radius: var(--r-pill);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.ab-range.visible { display: block; }
+
 #progress-bar {
     position: relative;
     z-index: 1;

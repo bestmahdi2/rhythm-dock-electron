@@ -26,7 +26,12 @@ let roomClient = null;
 
 function getRoomClient() {
     if (!roomClient) {
-        roomClient = new RoomClient({emit: (event, payload) => sendToRenderer(event, payload)});
+        roomClient = new RoomClient({emit: (event, payload) => {
+            if (event === 'room:upload-ready') {
+                importRoomUpload(payload).catch((error) =>
+                    sendToRenderer('room:error', {error: `Could not import song: ${error.message}`}));
+            } else sendToRenderer(event, payload);
+        }});
     }
     return roomClient;
 }
@@ -864,6 +869,7 @@ ipcMain.handle('get-app-version', () => {
 // --- Library IPC (requests #13, #16, #17) ---------------------------------------
 
 ipcMain.handle('library-search', (_event, query) => library.search(query || ''));
+ipcMain.handle('library-catalog', () => libraryStore.roomCatalog());
 
 ipcMain.handle('library-artists', () => library.listArtists());
 
@@ -1001,6 +1007,32 @@ async function scanRoot(root) {
     if (truncated) sendToRenderer('scan-truncated', {count: files.length});
 
     return libraryStore.syncRoot(root.id, files);
+}
+
+async function importRoomUpload(upload) {
+    const client = roomClient;
+    if (!client?.isHost || !client.hostToken || !/^[a-f0-9]{36}$/.test(upload.id)) return;
+    const extension = path.extname(upload.fileName || '').toLowerCase();
+    if (!SUPPORTED_EXTENSIONS.includes(extension) || upload.size > 30 * 1024 * 1024) return;
+    const address = `${client.serverUrl}/api/rooms/${encodeURIComponent(client.roomCode)}/uploads/${upload.id}`;
+    const headers = {Authorization: `Bearer ${client.hostToken}`};
+    const response = await fetch(address, {headers});
+    if (!response.ok) throw new Error(`server returned ${response.status}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length !== upload.size || bytes.length > 30 * 1024 * 1024) throw new Error('incomplete file');
+    const incomingDir = path.join(paths.getDataRoot(), 'incoming');
+    fs.mkdirSync(incomingDir, {recursive: true});
+    const filePath = path.join(incomingDir, `${upload.id}${extension}`);
+    await fs.promises.writeFile(filePath, bytes, {flag: 'wx'});
+    try {
+        const root = libraryStore.addRoot(incomingDir);
+        await scanRoot(root);
+        sendToRenderer('room:incoming-track', {filePath, position: upload.position || 'end'});
+        await fetch(address, {method: 'DELETE', headers});
+    } catch (error) {
+        fs.rmSync(filePath, {force: true});
+        throw error;
+    }
 }
 
 ipcMain.handle('library-roots', () => libraryStore.listRoots());
@@ -1228,10 +1260,45 @@ ipcMain.handle('room-create', async (_event, options) => {
 ipcMain.handle('room-join', async (_event, options) => {
     try {
         const room = await getRoomClient().joinRoom(options.serverUrl, options.code, options);
-        return {ok: true, room};
+        return {ok: true, room: {...room, role: roomClient.role}};
     } catch (error) {
         return {ok: false, error: error.message};
     }
+});
+
+ipcMain.handle('room-upload-song', async (_event, position = 'end') => {
+    const client = roomClient;
+    if (!client?.connected || client.role !== 'controller' || !client.uploadToken)
+        return {ok: false, error: 'This room is listen-only or disconnected'};
+    const selection = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'], filters: [{name: 'Audio', extensions: SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1))}],
+    });
+    if (selection.canceled || !selection.filePaths.length) return {ok: false, cancelled: true};
+    const filePath = selection.filePaths[0];
+    const size = (await fs.promises.stat(filePath)).size;
+    if (size < 1 || size > 30 * 1024 * 1024) return {ok: false, error: 'Song must be 30 MB or smaller'};
+    const endpoint = `${client.serverUrl}/api/rooms/${encodeURIComponent(client.roomCode)}/uploads?position=${encodeURIComponent(position)}`;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/octet-stream', 'Content-Length': String(size),
+            'X-Member-Id': client.memberId, 'X-Upload-Token': client.uploadToken,
+            'X-File-Name': encodeURIComponent(path.basename(filePath))},
+        body: await fs.promises.readFile(filePath),
+    });
+    const result = await response.json().catch(() => ({}));
+    return response.ok ? {ok: true, id: result.id} : {ok: false, error: result.error || `Server returned ${response.status}`};
+});
+
+ipcMain.handle('room-telegram-pair', async () => {
+    const client = roomClient;
+    if (!client?.connected || !client.isHost) return {ok: false, error: 'Start a room first'};
+    try {
+        const response = await fetch(`${client.serverUrl}/api/rooms/${encodeURIComponent(client.roomCode)}/telegram-pair`, {
+            method: 'POST', headers: {Authorization: `Bearer ${client.hostToken}`},
+        });
+        const result = await response.json();
+        return response.ok ? {ok: true, ...result} : {ok: false, error: result.error};
+    } catch (error) { return {ok: false, error: error.message}; }
 });
 
 ipcMain.handle('room-leave', () => {
@@ -1253,9 +1320,9 @@ ipcMain.handle('room-status', () => {
 // Host publications. Each is a no-op unless this instance is the host, so the renderer
 // can call them unconditionally.
 ipcMain.on('room-publish-state', (_e, state) => roomClient?.publishState(state));
-ipcMain.on('room-publish-library', (_e, {queue, info}) => {
+ipcMain.on('room-publish-library', (_e, {queue, info, catalog}) => {
     if (!roomClient) return;
-    roomClient.publishLibrary(queue || [], info || {});
+    roomClient.publishLibrary(queue || [], info || {}, catalog || []);
     // The renderer needs the same path -> id mapping so its state messages reference
     // ids members can actually resolve. Sending it back keeps one authority (main).
     const map = {};

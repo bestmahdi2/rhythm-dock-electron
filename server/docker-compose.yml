@@ -15,6 +15,7 @@ services:
       # Without this, anyone who finds your server can use it as a free relay.
       CREATE_SECRET: "${CREATE_SECRET:?set CREATE_SECRET in .env}"
       MAX_ROOMS: "${MAX_ROOMS:-50}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
 
     # The process is stateless; a read-only root filesystem costs nothing and removes
     # a whole class of attack.

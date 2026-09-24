@@ -61,6 +61,7 @@ class RoomClient {
         this.password = '';
         this.role = null;
         this.memberId = null;
+        this.uploadToken = null;
         this.connected = false;
 
         /** @type {Map<string, string>} trackId -> absolute path */
@@ -156,6 +157,7 @@ class RoomClient {
                     this.connected = true;
                     this.role = message.role;
                     this.memberId = message.memberId;
+                    this.uploadToken = message.uploadToken || null;
                     resolve(message);
                 }
                 this._handle(message);
@@ -197,6 +199,7 @@ class RoomClient {
         }
         this.connected = false;
         this.role = null;
+        this.uploadToken = null;
         this.roomCode = null;
     }
 
@@ -216,24 +219,25 @@ class RoomClient {
      * Publishes the queue. Paths are converted to opaque ids here — this is the only
      * place the id/path mapping is created.
      */
-    publishLibrary(queuePaths, trackInfo = {}) {
+    publishLibrary(queuePaths, trackInfo = {}, catalog = []) {
         if (!this.isHost) return;
 
         this.trackPaths.clear();
-        const queue = queuePaths.map((filePath) => {
+        const describe = (filePath, info = {}) => {
             const id = trackIdFor(filePath);
             this.trackPaths.set(id, filePath);
-            const info = trackInfo[filePath] || {};
             return {
                 id,
                 title: info.title || path.basename(filePath, path.extname(filePath)),
                 artist: info.artist || '',
                 album: info.album || '',
-                durationMs: info.durationMs || 0,
+                durationMs: info.durationMs || Math.round((info.durationSeconds || 0) * 1000),
             };
-        });
+        };
+        const tracks = catalog.map((track) => describe(track.filePath, track));
+        const queue = queuePaths.map((filePath) => describe(filePath, trackInfo[filePath] || {}));
 
-        this._send({type: 'library', queue, tracks: queue});
+        this._send({type: 'library', queue, tracks});
     }
 
     publishState(state) {
@@ -276,6 +280,7 @@ class RoomClient {
         switch (message.type) {
             case 'welcome':
                 this.role = message.role;
+                this.uploadToken = message.uploadToken || null;
                 this.emit('room:welcome', message);
                 break;
 
@@ -300,6 +305,13 @@ class RoomClient {
             case 'control':
                 // Only the host acts on these; the renderer performs the action.
                 this.emit('room:control', message);
+                break;
+
+            case 'upload:ready':
+                if (this.isHost) this.emit('room:upload-ready', message);
+                break;
+            case 'upload:accepted':
+                this.emit('room:upload-accepted', message);
                 break;
 
             case 'state':    this.emit('room:state', message); break;

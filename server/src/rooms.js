@@ -6,10 +6,8 @@
  * A room is a host plus any number of members. All shared state (playback, library,
  * lyrics, settings) is held here in memory and mirrored to members as it changes.
  *
- * Nothing is persisted and no audio is stored: the VPS is a rendezvous point and a
- * relay, not a library. That is deliberate — it keeps the deployment stateless, means a
- * restart costs nothing but a reconnect, and avoids putting the user's music on a
- * server they may not want it on.
+ * Room state is not persisted. Guest uploads are temporarily stored by the server
+ * until the host imports them, separately from this room registry.
  */
 
 const crypto = require('crypto');
@@ -132,6 +130,7 @@ class Room {
 
         const member = {
             id: memberId,
+            uploadToken: crypto.randomBytes(24).toString('hex'),
             name: String(name || 'Guest').slice(0, 40),
             role: resolvedRole,
             socket,

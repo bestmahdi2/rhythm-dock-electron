@@ -36,6 +36,7 @@ const app = {
     socket: null,
     room: null,
     memberId: null,
+    uploadToken: null,
     role: 'listener',
     password: '',
     state: null,
@@ -167,6 +168,7 @@ function handleMessage(message) {
     switch (message.type) {
         case 'welcome':
             app.memberId = message.memberId;
+            app.uploadToken = message.uploadToken || null;
             app.role = message.role;
             app.room = message.room;
             applySettings(message.settings);
@@ -193,6 +195,9 @@ function handleMessage(message) {
         case 'library':  applyLibrary(message.library); break;
         case 'lyrics':   applyLyrics(message.lyrics); break;
         case 'members':  applyMembers(message.members); break;
+        case 'upload:accepted':
+            el('upload-status').textContent = 'Your song was added by the host.';
+            break;
 
         case 'host:gone':
             toast('The host disconnected');
@@ -364,10 +369,13 @@ function applyLibrary(library) {
     const queue = library.queue || [];
     if (queue.length === 0) {
         list.innerHTML = '<p class="empty">The host has not shared a queue.</p>';
+        renderCatalogResults();
         return;
     }
 
     queue.forEach((track, index) => {
+        const item = document.createElement('div');
+        item.className = 'queue-item';
         const row = document.createElement('button');
         row.className = 'row' + (index === (app.state && app.state.queueIndex) ? ' active' : '');
         row.innerHTML =
@@ -382,8 +390,57 @@ function applyLibrary(library) {
         } else {
             row.addEventListener('click', () => sendControl('select', index));
         }
-        list.appendChild(row);
+        item.appendChild(row);
+        if (app.role !== 'listener') {
+            for (const [label, title, action, value] of [
+                ['↑', 'Move up', 'queue:move', {trackId: track.id, direction: 'up'}],
+                ['↓', 'Move down', 'queue:move', {trackId: track.id, direction: 'down'}],
+                ['×', 'Remove', 'queue:remove', {trackId: track.id}],
+            ]) {
+                if (action === 'queue:move' &&
+                    ((value.direction === 'up' && index === 0) ||
+                     (value.direction === 'down' && index === queue.length - 1))) continue;
+                const button = document.createElement('button');
+                button.className = 'queue-action';
+                button.textContent = label;
+                button.title = title;
+                button.setAttribute('aria-label', `${title}: ${track.title || track.id}`);
+                button.addEventListener('click', () => sendControl(action, value));
+                item.appendChild(button);
+            }
+        }
+        list.appendChild(item);
     });
+    renderCatalogResults();
+}
+
+function renderCatalogResults() {
+    const editor = el('queue-editor');
+    const results = el('catalog-results');
+    if (!editor || !results) return;
+    editor.classList.toggle('hidden', app.role === 'listener');
+    results.replaceChildren();
+    if (app.role === 'listener') return;
+    const query = el('catalog-search').value.trim().toLocaleLowerCase();
+    if (!query) return;
+    const tracks = (app.library.tracks || []).filter((track) =>
+        `${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(query)).slice(0, 30);
+    for (const track of tracks) {
+        const row = document.createElement('div');
+        row.className = 'catalog-result';
+        const name = document.createElement('span');
+        name.textContent = `${track.title || track.id} — ${track.artist || ''}`;
+        row.appendChild(name);
+        for (const [label, position] of [['Top', 'first'], ['Next', 'next'], ['End', 'end']]) {
+            const button = document.createElement('button');
+            button.className = 'queue-action';
+            button.textContent = label;
+            button.title = `Add ${track.title || track.id} ${position}`;
+            button.addEventListener('click', () => sendControl('queue:add', {trackId: track.id, position}));
+            row.appendChild(button);
+        }
+        results.appendChild(row);
+    }
 }
 
 function applyLyrics(lyrics) {
@@ -452,6 +509,7 @@ function applyMembers(members) {
     // Hide transport entirely for listeners: a disabled button they can press and get
     // an error from is worse than no button.
     el('transport').classList.toggle('hidden', app.role === 'listener');
+    applyLibrary(app.library);
 
     const list = el('members-list');
     list.innerHTML = '';
@@ -465,6 +523,34 @@ function applyMembers(members) {
         list.appendChild(row);
     }
 }
+
+el('catalog-search')?.addEventListener('input', renderCatalogResults);
+
+el('upload-song')?.addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file || !app.room || !app.uploadToken) return;
+    const status = el('upload-status');
+    if (file.size > 30 * 1024 * 1024) {
+        status.textContent = 'This song exceeds the 30 MB limit.';
+        return;
+    }
+    status.textContent = 'Uploading song to the host…';
+    try {
+        const position = el('upload-position').value;
+        const response = await fetch(`/api/rooms/${encodeURIComponent(app.room.code)}/uploads?position=${position}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/octet-stream', 'X-Member-Id': app.memberId,
+                'X-Upload-Token': app.uploadToken, 'X-File-Name': encodeURIComponent(file.name)},
+            body: file,
+        });
+        const result = await response.json();
+        status.textContent = response.ok ? 'Uploaded. Waiting for the host to add it to the queue.' : `Upload failed: ${result.error}`;
+    } catch (error) {
+        status.textContent = `Upload failed: ${error.message}`;
+    } finally {
+        event.target.value = '';
+    }
+});
 
 // ---- UI plumbing -----------------------------------------------------------
 

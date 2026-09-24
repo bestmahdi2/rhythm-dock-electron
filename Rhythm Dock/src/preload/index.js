@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('api', {
 
     // --- Library (#16, #17) ---
     librarySearch: (query) => ipcRenderer.invoke('library-search', query),
+    libraryCatalog: () => ipcRenderer.invoke('library-catalog'),
     libraryArtists: () => ipcRenderer.invoke('library-artists'),
     libraryTracksByArtist: (artistKey) => ipcRenderer.invoke('library-tracks-by-artist', artistKey),
     libraryGetTrack: (filePath) => ipcRenderer.invoke('library-get-track', filePath),
@@ -123,6 +124,8 @@ contextBridge.exposeInMainWorld('api', {
     roomJoin: (options) => ipcRenderer.invoke('room-join', options),
     roomLeave: () => ipcRenderer.invoke('room-leave'),
     roomStatus: () => ipcRenderer.invoke('room-status'),
+    roomUploadSong: (position) => ipcRenderer.invoke('room-upload-song', position),
+    roomTelegramPair: () => ipcRenderer.invoke('room-telegram-pair'),
     roomPublishState: (state) => ipcRenderer.send('room-publish-state', state),
     roomPublishLibrary: (payload) => ipcRenderer.send('room-publish-library', payload),
     roomPublishLyrics: (payload) => ipcRenderer.send('room-publish-lyrics', payload),

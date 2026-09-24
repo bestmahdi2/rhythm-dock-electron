@@ -98,6 +98,7 @@
                 <div id="progress-wrapper" class="progress-wrapper">
                     <div class="progress-track">
                         <div id="progress-buffered" class="progress-buffered"></div>
+                        <div id="ab-range" class="ab-range" aria-hidden="true"></div>
                     </div>
                     <input id="progress-bar" type="range" min="0" value="0" step="0.1"
                            aria-label="Seek"/>
@@ -248,7 +249,7 @@
                     <span id="transparency-value" class="settings-value">85%</span>
                 </div>
 
-                <button class="settings-action" id="light-mode-btn">
+                <button class="settings-action" id="light-mode-btn" role="switch" aria-checked="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5h-1v3h2V2h-1zm0 17h-1v3h2v-3h-1zM4.2 5.6 2.8 7l2.1 2.1L6.3 7.7 4.2 5.6zm13.5 13.5-1.4 1.4 2.1 2.1 1.4-1.4-2.1-2.1zM2 11v2h3v-2H2zm17 0v2h3v-2h-3zM4.9 19.1l2.1-2.1-1.4-1.4-2.1 2.1 1.4 1.4zM17.7 6.3l2.1-2.1-1.4-1.4-2.1 2.1 1.4 1.4z"></path></svg>
                     <span id="light-mode-label">Enable Light Mode</span>
                 </button>
@@ -550,6 +551,16 @@
                         <button id="room-copy-link" class="settings-button">Copy Link</button>
                     </div>
                     <div id="room-members" class="room-members"></div>
+                    <div id="room-telegram-controls" class="settings-row hidden">
+                        <button id="room-telegram-pair" class="settings-button">Pair Telegram chat</button>
+                        <span id="room-telegram-code" class="settings-value" role="status"></span>
+                    </div>
+                    <div id="room-upload-controls" class="settings-row hidden">
+                        <button id="room-upload-song" class="settings-button">Add song from this device</button>
+                        <select id="room-upload-position" class="settings-select" aria-label="Where to add song">
+                            <option value="end">End of queue</option><option value="next">Play next</option><option value="first">Top of queue</option>
+                        </select>
+                    </div>
                     <div class="settings-row">
                         <button id="room-leave-btn" class="settings-button danger">Leave Room</button>
                     </div>
