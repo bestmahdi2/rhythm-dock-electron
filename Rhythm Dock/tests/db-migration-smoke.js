@@ -28,6 +28,7 @@ app.whenReady().then(() => {
 
     const paths = require('../src/main/core/paths');
     const database = require('../src/main/services/database');
+    const libraryStore = require('../src/main/services/library-store');
     try {
         const handle = database.initialize();
         assert.equal(database.getLyrics('test-song'), 'keep these lyrics');
@@ -37,12 +38,23 @@ app.whenReady().then(() => {
         assert.ok(fs.existsSync(legacyPath), 'migration must keep the original');
         const backups = fs.readdirSync(paths.getBackupDir()).filter((name) => name.endsWith('.db'));
         assert.ok(backups.length > 0, 'schema upgrade must create a backup');
+        const playlist = libraryStore.createPlaylist('Test playlist', ['C:\\music\\one.mp3']);
+        assert.equal(playlist.ok, true);
+        assert.equal(libraryStore.playlistTracks(playlist.id).length, 1);
+        const snapshot = libraryStore.exportAll();
+        assert.equal(snapshot.playlists[0].name, 'Test playlist');
+        assert.equal(snapshot.playlists[0].tracks.length, 1);
+        assert.equal(libraryStore.importAll(snapshot).ok, true);
+        assert.equal(libraryStore.playlistTracks(playlist.id).length, 1,
+            'restoring the same backup must not duplicate playlist entries');
         database.close();
 
         database.initialize();
         assert.equal(database.getLyrics('test-song'), 'keep these lyrics', 'reopening must preserve data');
+        assert.equal(libraryStore.playlistTracks(playlist.id).length, 1,
+            'reopening must preserve named playlists');
         database.close();
-        console.log('PASS: legacy import, schema upgrade, backup, and reopen preserve lyrics');
+        console.log('PASS: legacy import, schema upgrade, backup, and reopen preserve lyrics and playlists');
         app.exit(0);
     } catch (error) {
         database.close();

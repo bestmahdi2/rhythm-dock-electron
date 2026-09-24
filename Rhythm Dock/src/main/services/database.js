@@ -152,6 +152,25 @@ const MIGRATIONS = [
         db.exec(`CREATE INDEX IF NOT EXISTS idx_stats_played ON track_stats (lastPlayedAt);`);
         db.exec(`CREATE INDEX IF NOT EXISTS idx_stats_count ON track_stats (playCount);`);
     },
+
+    // 5 -> 6: named playlists are independent of the live playback queue.
+    (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                createdAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS playlist_items (
+                playlistId INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                filePath TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (playlistId, filePath)
+            );
+            CREATE INDEX IF NOT EXISTS idx_playlist_items_order
+                ON playlist_items (playlistId, position);
+        `);
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;

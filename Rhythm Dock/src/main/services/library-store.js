@@ -344,6 +344,68 @@ function view(name, limit = 100) {
     }
 }
 
+// --- Named playlists -------------------------------------------------------------
+
+function listPlaylists() {
+    const handle = db();
+    if (!handle) return [];
+    return handle.prepare(`
+        SELECT p.id, p.name, p.createdAt, COUNT(i.filePath) AS trackCount
+        FROM playlists p LEFT JOIN playlist_items i ON i.playlistId = p.id
+        GROUP BY p.id ORDER BY p.name COLLATE NOCASE
+    `).all();
+}
+
+function playlistTracks(id) {
+    const handle = db();
+    if (!handle) return [];
+    return handle.prepare(`
+        SELECT i.filePath, i.position, t.basename, t.title, t.artist, t.missing
+        FROM playlist_items i LEFT JOIN tracks t ON t.filePath = i.filePath
+        WHERE i.playlistId = ? ORDER BY i.position
+    `).all(id);
+}
+
+function createPlaylist(name, filePaths = []) {
+    const handle = db();
+    const trimmed = String(name || '').trim().slice(0, 80);
+    if (!handle || !trimmed) return {ok: false, error: 'Enter a playlist name.'};
+    try {
+        const create = handle.transaction(() => {
+            const result = handle.prepare('INSERT INTO playlists (name, createdAt) VALUES (?, ?)')
+                .run(trimmed, nowIso());
+            const add = handle.prepare('INSERT OR IGNORE INTO playlist_items (playlistId, filePath, position) VALUES (?, ?, ?)');
+            let position = 0;
+            for (const filePath of filePaths) {
+                if (typeof filePath === 'string' && filePath) add.run(result.lastInsertRowid, filePath, position++);
+            }
+            return Number(result.lastInsertRowid);
+        });
+        return {ok: true, id: create()};
+    } catch (error) {
+        return {ok: false, error: /UNIQUE/i.test(error.message) ? 'A playlist with that name already exists.' : error.message};
+    }
+}
+
+function addToPlaylist(id, filePath) {
+    const handle = db();
+    if (!handle || !filePath || !handle.prepare('SELECT id FROM playlists WHERE id = ?').get(id)) return false;
+    const next = handle.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS position FROM playlist_items WHERE playlistId = ?').get(id);
+    return handle.prepare('INSERT OR IGNORE INTO playlist_items (playlistId, filePath, position) VALUES (?, ?, ?)')
+        .run(id, filePath, next.position).changes > 0;
+}
+
+function removeFromPlaylist(id, filePath) {
+    const handle = db();
+    return Boolean(handle && handle.prepare('DELETE FROM playlist_items WHERE playlistId = ? AND filePath = ?')
+        .run(id, filePath).changes);
+}
+
+function deletePlaylist(id) {
+    const handle = db();
+    return Boolean(handle && handle.prepare('DELETE FROM playlists WHERE id = ?').run(id).changes);
+}
+
 // --- Backup and restore ----------------------------------------------------------
 
 /**
@@ -359,7 +421,7 @@ function exportAll() {
     try {
         return {
             format: 'rhythm-dock-library',
-            version: 1,
+            version: 2,
             exportedAt: nowIso(),
             roots: handle.prepare('SELECT path, addedAt, lastScanAt FROM roots').all(),
             tracks: handle.prepare(`
@@ -371,6 +433,13 @@ function exportAll() {
                 SELECT filePath, playCount, skipCount, listenedMs, lastPlayedAt
                 FROM track_stats
             `).all(),
+            playlists: handle.prepare('SELECT name, createdAt FROM playlists').all().map((playlist) => ({
+                ...playlist,
+                tracks: handle.prepare(`
+                    SELECT i.filePath FROM playlist_items i JOIN playlists p ON p.id = i.playlistId
+                    WHERE p.name = ? ORDER BY i.position
+                `).all(playlist.name).map((item) => item.filePath),
+            })),
         };
     } catch (error) {
         console.error('[library] Export failed:', error);
@@ -442,6 +511,19 @@ function importAll(payload) {
                     stat.lastPlayedAt || null
                 );
             }
+            for (const playlist of payload.playlists || []) {
+                const name = String(playlist.name || '').trim().slice(0, 80);
+                if (!name) continue;
+                handle.prepare('INSERT OR IGNORE INTO playlists (name, createdAt) VALUES (?, ?)')
+                    .run(name, playlist.createdAt || nowIso());
+                const row = handle.prepare('SELECT id FROM playlists WHERE name = ? COLLATE NOCASE').get(name);
+                const insert = handle.prepare('INSERT OR IGNORE INTO playlist_items (playlistId, filePath, position) VALUES (?, ?, ?)');
+                let position = handle.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS value FROM playlist_items WHERE playlistId = ?')
+                    .get(row.id).value;
+                for (const filePath of playlist.tracks || []) {
+                    if (typeof filePath === 'string' && filePath) insert.run(row.id, filePath, position++);
+                }
+            }
         });
 
         apply();
@@ -464,6 +546,12 @@ module.exports = {
     recordSkip,
     view,
     roomCatalog,
+    listPlaylists,
+    playlistTracks,
+    createPlaylist,
+    addToPlaylist,
+    removeFromPlaylist,
+    deletePlaylist,
     exportAll,
     importAll,
 };
