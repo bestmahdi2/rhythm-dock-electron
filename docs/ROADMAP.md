@@ -96,8 +96,8 @@ code and real-device acceptance are separate; `TASKS.md` tracks the latter.
    The current development machine exposes only one playback endpoint.
 4. Queue placement: local and room controls offer top, after-current, and end.
 5. Lock: controls are blocked until unlock, including in the wall strip.
-6. Recommendations: offline track suggestions use artist, album, genre, ratings,
-   likes, plays, and skips. Album-level suggestions, vibe inference, learning from
+6. Recommendations: offline track and album suggestions use artist, album,
+   genre, ratings, likes, plays, and skips. Vibe inference, learning from
    explicit feedback, and optional online enrichment remain in Phase 14.
 7. Online sources: direct HTTPS audio is streamed into a two-day bounded cache
    and can be saved. YouTube/Spotify links and playlists need provider-specific
