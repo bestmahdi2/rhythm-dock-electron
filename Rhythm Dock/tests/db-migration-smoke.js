@@ -77,6 +77,28 @@ app.whenReady().then(() => {
             album: 'First', genre: 'Jazz'});
         assert.equal(albumSuggestions[0].album, 'Second');
         assert.equal(albumSuggestions[0].tracks.length, 2);
+        assert.equal(libraryStore.setPreference('C:\\music\\three.mp3', {mood: 'focus', feedback: 1}), true);
+        assert.equal(libraryStore.setPreference('C:\\music\\four.mp3', {mood: 'focus'}), true);
+        assert.equal(libraryStore.setPreference('C:\\music\\two.mp3', {feedback: -1}), true);
+        assert.equal(libraryStore.setPreference('C:\\music\\one.mp3', {mood: 'invalid'}), false);
+        const feedbackSuggestions = libraryStore.recommendations({mood: 'focus'});
+        assert.equal(feedbackSuggestions.length, 2);
+        assert.equal(feedbackSuggestions[0].filePath, 'C:\\music\\three.mp3');
+        assert.ok(feedbackSuggestions.every((row) => row.mood === 'focus'));
+        assert.equal(libraryStore.recommendations().some((row) => row.filePath === 'C:\\music\\two.mp3'), false);
+        const audioAnalysis = require('../src/main/services/audio-analysis');
+        const analysed = path.join(scratch, 'analysed.wav');
+        fs.writeFileSync(analysed, 'audio fixture');
+        audioAnalysis.save(analysed, {integratedLufs: -20, truePeakDb: -4, gainDb: 2, targetLufs: -18});
+        assert.equal(audioAnalysis.get(analysed).gainDb, 2);
+        const albumSecond = path.join(scratch, 'album-second.wav');
+        fs.writeFileSync(albumSecond, 'second audio fixture');
+        audioAnalysis.saveAlbum([analysed, albumSecond], {gainDb: 1});
+        assert.equal(audioAnalysis.get(analysed).albumGainDb, 1);
+        fs.appendFileSync(albumSecond, 'changed');
+        assert.equal(audioAnalysis.get(analysed).albumGainDb, null, 'any changed album file invalidates album gain');
+        fs.appendFileSync(analysed, 'changed');
+        assert.equal(audioAnalysis.get(analysed), null, 'changed files invalidate stored loudness');
         const playlist = libraryStore.createPlaylist('Test playlist', ['C:\\music\\one.mp3']);
         assert.equal(playlist.ok, true);
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1);
@@ -85,6 +107,8 @@ app.whenReady().then(() => {
         assert.equal(snapshot.bookPositions[0].seconds, 234.5);
         assert.equal(snapshot.playlists[0].name, 'Test playlist');
         assert.equal(snapshot.playlists[0].tracks.length, 1);
+        assert.equal(snapshot.preferences.length, 3);
+        assert.equal(snapshot.audioAnalysis.length, 1);
         assert.equal(libraryStore.importAll(snapshot).ok, true);
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1,
             'restoring the same backup must not duplicate playlist entries');
@@ -98,6 +122,7 @@ app.whenReady().then(() => {
             'reopening must preserve ratings');
         assert.equal(libraryStore.getBookPosition('C:\\music\\book.m4b'), 234.5,
             'reopening must preserve audiobook position');
+        assert.equal(libraryStore.preferences().length, 3, 'reopen must preserve discovery feedback');
         database.close();
         console.log('PASS: legacy import, schema upgrade, backup, and reopen preserve lyrics and playlists');
         app.exit(0);

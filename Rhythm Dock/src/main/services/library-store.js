@@ -345,36 +345,70 @@ function roomCatalog() {
     `).all();
 }
 
-function recommendations({filePath, artist, album, genre, liked = [], hidden = [], limit = 20} = {}) {
+const MOODS = ['', 'calm', 'energetic', 'focus', 'happy', 'melancholy'];
+function setPreference(filePath, {mood, feedback} = {}) {
+    const handle = db();
+    if (!handle || typeof filePath !== 'string' || !filePath ||
+        (mood !== undefined && !MOODS.includes(mood)) ||
+        (feedback !== undefined && ![-1, 0, 1].includes(feedback))) return false;
+    const old = handle.prepare('SELECT * FROM track_preferences WHERE filePath = ?').get(filePath);
+    handle.prepare(`INSERT INTO track_preferences (filePath, mood, feedback, updatedAt) VALUES (?, ?, ?, ?)
+        ON CONFLICT(filePath) DO UPDATE SET mood=excluded.mood, feedback=excluded.feedback, updatedAt=excluded.updatedAt`)
+        .run(filePath, mood ?? old?.mood ?? '', feedback ?? old?.feedback ?? 0, nowIso());
+    return true;
+}
+
+function preferences() {
+    return db()?.prepare('SELECT filePath, mood, feedback, updatedAt FROM track_preferences').all() || [];
+}
+
+function learnedPreferences() {
+    const rows = db().prepare(`SELECT t.artist, t.genre, p.mood, p.feedback FROM track_preferences p
+        JOIN tracks t ON t.filePath = p.filePath WHERE p.feedback <> 0`).all();
+    const weights = {artist: new Map(), genre: new Map(), mood: new Map()};
+    for (const row of rows) for (const key of Object.keys(weights)) {
+        const value = String(row[key] || '').toLocaleLowerCase();
+        if (value) weights[key].set(value, (weights[key].get(value) || 0) + row.feedback);
+    }
+    return weights;
+}
+
+function recommendations({filePath, artist, album, genre, mood = '', liked = [], hidden = [], limit = 20} = {}) {
     const handle = db();
     if (!handle) return [];
     const likedSet = new Set(Array.isArray(liked) ? liked : []);
     const hiddenSet = new Set(Array.isArray(hidden) ? hidden : []);
     const bounded = Math.min(Math.max(1, Number(limit) || 20), 50);
+    const learned = learnedPreferences();
     const rows = handle.prepare(`
         SELECT t.filePath, t.basename, t.title, t.artist, t.album, t.genre,
                COALESCE(s.playCount, 0) AS playCount,
                COALESCE(s.skipCount, 0) AS skipCount,
                COALESCE(r.rating, 0) AS rating,
-               s.lastPlayedAt
+               s.lastPlayedAt, COALESCE(p.mood, '') AS mood, COALESCE(p.feedback, 0) AS feedback
         FROM tracks t LEFT JOIN track_stats s ON s.filePath = t.filePath
                       LEFT JOIN track_ratings r ON r.filePath = t.filePath
+                      LEFT JOIN track_preferences p ON p.filePath = t.filePath
         WHERE t.missing = 0
         ORDER BY COALESCE(s.playCount, 0) DESC, t.addedAt DESC
         LIMIT 5000
     `).all();
     const same = (a, b) => Boolean(a && b && String(a).toLocaleLowerCase() === String(b).toLocaleLowerCase());
-    return rows.filter((row) => row.filePath !== filePath && !hiddenSet.has(row.filePath))
+    return rows.filter((row) => row.filePath !== filePath && !hiddenSet.has(row.filePath) && row.feedback >= 0 &&
+            (!mood || row.mood === mood))
         .map((row) => {
             const byArtist = same(row.artist, artist);
             const byGenre = same(row.genre, genre);
             const byAlbum = same(row.album, album);
             const likedTrack = likedSet.has(row.filePath);
+            const learnedScore = ['artist', 'genre', 'mood'].reduce((sum, key) => sum +
+                Math.max(-3, Math.min(3, learned[key].get(String(row[key] || '').toLocaleLowerCase()) || 0)), 0);
             const score = (byArtist ? 7 : 0) + (byGenre ? 4 : 0) + (byAlbum ? 3 : 0) +
                 (likedTrack ? 5 : 0) + row.rating * 1.5 + Math.log1p(row.playCount) * 2 - row.skipCount * 1.5 -
                 (row.lastPlayedAt && Date.now() - Date.parse(row.lastPlayedAt) < 3600000 ? 4 : 0) +
-                (row.playCount === 0 ? 0.5 : 0);
-            const reason = byArtist ? `More from ${row.artist}` : byGenre ? `Similar ${row.genre} music` :
+                (row.playCount === 0 ? 0.5 : 0) + row.feedback * 3 + learnedScore * 2;
+            const reason = mood ? `Your ${mood} music` : learnedScore > 0 ? 'Based on your discovery feedback' :
+                byArtist ? `More from ${row.artist}` : byGenre ? `Similar ${row.genre} music` :
                 byAlbum ? `From ${row.album}` : likedTrack ? 'You liked this' :
                 row.playCount > row.skipCount ? 'Based on your listening' : 'Something new';
             return {...row, score, reason};
@@ -383,33 +417,37 @@ function recommendations({filePath, artist, album, genre, liked = [], hidden = [
         .slice(0, bounded);
 }
 
-function albumRecommendations({artist, album, genre, liked = [], hidden = [], limit = 6} = {}) {
+function albumRecommendations({artist, album, genre, mood = '', liked = [], hidden = [], limit = 6} = {}) {
     const handle = db();
     if (!handle) return [];
     const hiddenSet = new Set(Array.isArray(hidden) ? hidden : []);
     const likedSet = new Set(Array.isArray(liked) ? liked : []);
+    const learned = learnedPreferences();
     const rows = handle.prepare(`
         SELECT t.filePath, t.title, t.album, t.artist, t.genre,
                COALESCE(s.playCount, 0) AS playCount,
                COALESCE(s.skipCount, 0) AS skipCount,
-               COALESCE(r.rating, 0) AS rating
+               COALESCE(r.rating, 0) AS rating, COALESCE(p.feedback, 0) AS feedback, COALESCE(p.mood, '') AS mood
         FROM tracks t LEFT JOIN track_stats s ON s.filePath = t.filePath
                       LEFT JOIN track_ratings r ON r.filePath = t.filePath
+                      LEFT JOIN track_preferences p ON p.filePath = t.filePath
         WHERE t.missing = 0 AND t.album IS NOT NULL AND TRIM(t.album) <> ''
         ORDER BY t.artist, t.album, t.title LIMIT 10000
     `).all();
     const groups = new Map();
     for (const row of rows) {
-        if (hiddenSet.has(row.filePath)) continue;
+        if (hiddenSet.has(row.filePath) || row.feedback < 0 || (mood && row.mood !== mood)) continue;
         const key = `${row.artist || ''}\u0000${row.album}`.toLocaleLowerCase();
         if (!groups.has(key)) groups.set(key, {album: row.album, artist: row.artist,
-            tracks: [], genres: new Set(), plays: 0, skips: 0, ratings: 0, liked: 0});
+            tracks: [], genres: new Set(), plays: 0, skips: 0, ratings: 0, liked: 0, learned: 0});
         const group = groups.get(key);
         group.tracks.push(row.filePath);
         if (row.genre) group.genres.add(row.genre.toLocaleLowerCase());
         group.plays += row.playCount;
         group.skips += row.skipCount;
         group.ratings += row.rating;
+        group.learned += row.feedback * 3 + ['artist', 'genre', 'mood'].reduce((sum, key) => sum +
+            Math.max(-3, Math.min(3, learned[key].get(String(row[key] || '').toLocaleLowerCase()) || 0)), 0);
         if (likedSet.has(row.filePath)) group.liked++;
     }
     const same = (left, right) => Boolean(left && right &&
@@ -421,7 +459,7 @@ function albumRecommendations({artist, album, genre, liked = [], hidden = [], li
             const byGenre = genre && group.genres.has(String(genre).toLocaleLowerCase());
             const score = (byArtist ? 8 : 0) + (byGenre ? 5 : 0) +
                 Math.min(5, group.liked * 2) + group.ratings / group.tracks.length +
-                Math.log1p(group.plays) - group.skips / group.tracks.length;
+                Math.log1p(group.plays) - group.skips / group.tracks.length + group.learned / group.tracks.length;
             return {album: group.album, artist: group.artist, tracks: group.tracks,
                 score, reason: byArtist ? `More from ${group.artist}` :
                     byGenre ? `Similar ${genre} music` : group.liked ? 'Albums you may like' : 'From your library'};
@@ -555,7 +593,7 @@ function exportAll() {
     try {
         return {
             format: 'rhythm-dock-library',
-            version: 4,
+            version: 5,
             exportedAt: nowIso(),
             roots: handle.prepare('SELECT path, addedAt, lastScanAt FROM roots').all(),
             tracks: handle.prepare(`
@@ -569,6 +607,8 @@ function exportAll() {
             `).all(),
             ratings: handle.prepare('SELECT filePath, rating, updatedAt FROM track_ratings').all(),
             bookPositions: handle.prepare('SELECT filePath, seconds, updatedAt FROM book_positions').all(),
+            preferences: preferences(),
+            audioAnalysis: handle.prepare('SELECT * FROM audio_analysis').all(),
             playlists: handle.prepare('SELECT name, createdAt FROM playlists').all().map((playlist) => ({
                 ...playlist,
                 tracks: handle.prepare(`
@@ -664,6 +704,22 @@ function importAll(payload) {
                     insertBookPosition.run(row.filePath, row.seconds, row.updatedAt || nowIso());
                 }
             }
+            for (const row of payload.preferences || []) {
+                if (typeof row.filePath !== 'string' || !MOODS.includes(row.mood) || ![-1, 0, 1].includes(row.feedback)) continue;
+                handle.prepare(`INSERT OR IGNORE INTO track_preferences (filePath, mood, feedback, updatedAt)
+                    VALUES (?, ?, ?, ?)`).run(row.filePath, row.mood, row.feedback, row.updatedAt || nowIso());
+            }
+            for (const row of payload.audioAnalysis || []) {
+                if (typeof row.filePath !== 'string' || !['fileSize', 'fileMtimeMs', 'integratedLufs',
+                    'truePeakDb', 'gainDb', 'targetLufs'].every((key) => Number.isFinite(row[key]))) continue;
+                if (row.fileSize < 0 || row.gainDb < -24 || row.gainDb > 12) continue;
+                handle.prepare(`INSERT OR IGNORE INTO audio_analysis
+                    (filePath, fileSize, fileMtimeMs, integratedLufs, truePeakDb, gainDb, targetLufs, updatedAt, albumGainDb, albumFiles)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(row.filePath, row.fileSize, row.fileMtimeMs,
+                        row.integratedLufs, row.truePeakDb, row.gainDb, row.targetLufs, row.updatedAt || nowIso(),
+                        Number.isFinite(row.albumGainDb) && row.albumGainDb >= -24 && row.albumGainDb <= 12 ? row.albumGainDb : null,
+                        typeof row.albumFiles === 'string' && row.albumFiles.length <= 65536 ? row.albumFiles : null);
+            }
             for (const playlist of payload.playlists || []) {
                 const name = String(playlist.name || '').trim().slice(0, 80);
                 if (!name) continue;
@@ -705,6 +761,8 @@ module.exports = {
     view,
     roomCatalog,
     recommendations,
+    setPreference,
+    preferences,
     albumRecommendations,
     listPlaylists,
     playlistTracks,

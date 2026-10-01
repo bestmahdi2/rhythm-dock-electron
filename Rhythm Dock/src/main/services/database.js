@@ -201,6 +201,24 @@ const MIGRATIONS = [
             updatedAt TEXT NOT NULL
         )`);
     },
+    // 10 -> 11: measured loudness and explicit discovery preferences survive rescans.
+    (db) => {
+        db.exec(`CREATE TABLE audio_analysis (
+            filePath TEXT PRIMARY KEY, fileSize INTEGER NOT NULL, fileMtimeMs REAL NOT NULL,
+            integratedLufs REAL NOT NULL, truePeakDb REAL NOT NULL, gainDb REAL NOT NULL,
+            targetLufs REAL NOT NULL, updatedAt TEXT NOT NULL
+        );
+        CREATE TABLE track_preferences (
+            filePath TEXT PRIMARY KEY, mood TEXT NOT NULL DEFAULT '',
+            feedback INTEGER NOT NULL DEFAULT 0 CHECK (feedback BETWEEN -1 AND 1),
+            updatedAt TEXT NOT NULL
+        );`);
+    },
+    // 11 -> 12: album levelling keeps relative dynamics between its tracks.
+    (db) => {
+        db.exec('ALTER TABLE audio_analysis ADD COLUMN albumGainDb REAL');
+        db.exec('ALTER TABLE audio_analysis ADD COLUMN albumFiles TEXT');
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;
