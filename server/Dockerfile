@@ -4,6 +4,7 @@ FROM node:20-alpine
 # Run as a non-root user. The container needs no privileges: it touches no host files
 # and binds an unprivileged port.
 RUN addgroup -S rhythm && adduser -S rhythm -G rhythm
+RUN mkdir -p /var/lib/rhythm-dock && chown rhythm:rhythm /var/lib/rhythm-dock
 
 WORKDIR /app
 
@@ -20,7 +21,7 @@ ENV NODE_ENV=production
 ENV PORT=8420
 EXPOSE 8420
 
-# The server holds no state, so an unhealthy container can simply be replaced.
+# Rooms are temporary; the optional Telegram polling offset uses a separate volume.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8420/healthz || exit 1
 

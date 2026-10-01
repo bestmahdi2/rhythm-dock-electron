@@ -4,20 +4,28 @@
 // WebSocket or app renderer. Pairing is temporary and tied to a live room.
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('node:fs');
 
 const PAIR_TTL_MS = 10 * 60 * 1000;
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // Official hosted Bot API getFile limit.
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff']);
 
 class TelegramIntake {
-    constructor({token, registry, onAudio, request = fetch}) {
+    constructor({token, registry, onAudio, onLink, request = fetch, statePath = ''}) {
         this.token = token;
         this.registry = registry;
         this.onAudio = onAudio;
+        this.onLink = onLink;
+        this.statePath = statePath;
         this.request = request;
         this.pairCodes = new Map();
         this.chatRooms = new Map();
         this.offset = 0;
+        this.seenUpdates = new Set();
+        try {
+            const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+            if (Number.isSafeInteger(saved.offset) && saved.offset >= 0) this.offset = saved.offset;
+        } catch (_) { /* Fresh installation or optional offset storage is unavailable. */ }
         this.running = false;
         this.abort = null;
     }
@@ -45,6 +53,11 @@ class TelegramIntake {
     }
 
     async handleUpdate(update) {
+        if (Number.isSafeInteger(update.update_id)) {
+            if (update.update_id < this.offset || this.seenUpdates.has(update.update_id)) return;
+            this.seenUpdates.add(update.update_id);
+            if (this.seenUpdates.size > 4096) this.seenUpdates.delete(this.seenUpdates.values().next().value);
+        }
         const message = update.message;
         if (!message || !message.chat || message.chat.type !== 'private') return;
         const chatId = String(message.chat.id);
@@ -56,7 +69,7 @@ class TelegramIntake {
             const room = pair && pair.expiresAt > Date.now() && this.registry.get(pair.roomCode);
             if (!room || !room.hostOnline) return this.reply(chatId, 'Pair code expired or host offline. Ask the host for a new code.');
             this.chatRooms.set(chatId, room.code);
-            return this.reply(chatId, `Paired with room ${room.code}. Send an audio file up to 20 MB to add it to the queue.`);
+            return this.reply(chatId, `Paired with room ${room.code}. Send audio up to 20 MB or a direct HTTPS audio/playlist link. Use /next or /first to choose its queue position; otherwise it goes at the end.`);
         }
         if (command === '/unpair') {
             this.chatRooms.delete(chatId);
@@ -68,7 +81,21 @@ class TelegramIntake {
             return this.reply(chatId, 'Send /pair CODE from the room host first.');
         }
         const attachment = message.audio || message.document;
-        if (!attachment) return this.reply(chatId, 'Send an audio file. Links are not supported yet.');
+        const position = /^\/next\b/.test(command || message.caption || '') ? 'next' :
+            /^\/first\b/.test(command || message.caption || '') ? 'first' : 'end';
+        if (!attachment) {
+            const link = /https:\/\/[^\s<>]+/i.exec(command)?.[0];
+            if (!link || !this.onLink) return this.reply(chatId, 'Send an audio file or a direct HTTPS audio/playlist link.');
+            try {
+                const url = new URL(link);
+                if (url.username || url.password) throw new Error('Links with embedded login details are not supported.');
+                if (/(^|\.)(youtube\.com|youtu\.be|spotify\.com)$/.test(url.hostname))
+                    throw new Error('Use a direct audio link. YouTube and Spotify playback need a separate provider integration.');
+                if (!room.hostOnline) throw new Error('The host is offline.');
+                await this.onLink({room, url: url.href, position, chatId});
+                return this.reply(chatId, 'The host is downloading your audio link into the queue.');
+            } catch (error) { return this.reply(chatId, `Could not add this link: ${error.message}`); }
+        }
         const fileName = path.basename(attachment.file_name ||
             (message.audio ? `${attachment.file_unique_id || 'song'}.mp3` : ''));
         if (!AUDIO_EXTENSIONS.has(path.extname(fileName).toLowerCase()))
@@ -83,7 +110,7 @@ class TelegramIntake {
             if (!response.ok) throw new Error('Telegram file download failed');
             const bytes = Buffer.from(await response.arrayBuffer());
             if (!bytes.length || bytes.length > MAX_FILE_BYTES) throw new Error('File exceeds the 20 MB limit');
-            await this.onAudio({room, fileName, bytes, chatId});
+            await this.onAudio({room, fileName, bytes, chatId, position});
             return this.reply(chatId, `Sent ${fileName} to room ${room.code}. The host is adding it to the queue.`);
         } catch (error) {
             return this.reply(chatId, `Could not add this song: ${error.message}`);
@@ -113,6 +140,12 @@ class TelegramIntake {
                     try { await this.handleUpdate(update); }
                     catch (error) { console.error('[telegram] Update failed:', error.message); }
                     this.offset = Math.max(this.offset, update.update_id + 1);
+                    if (this.statePath) {
+                        fs.mkdirSync(path.dirname(this.statePath), {recursive: true});
+                        const temporary = this.statePath + '.tmp';
+                        fs.writeFileSync(temporary, JSON.stringify({offset: this.offset}));
+                        fs.renameSync(temporary, this.statePath);
+                    }
                 }
             } catch (error) {
                 if (!this.running) break;

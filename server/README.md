@@ -20,15 +20,16 @@ app on any OS.
 The VPS relays playback from the host without storing those tracks. A friend's
 contributed file is held temporarily under the server's `/tmp` until the host imports
 it, then deleted; pending files expire after two days and are lost on a server restart.
-The host stores imported songs under its stable `RhythmDock/incoming` data directory.
-Room state is in memory, so a server restart requires everyone to rejoin and the host
-to republish its queue.
+The host stores imported songs under its stable `RhythmDock/incoming` directory.
+Rooms, memberships and pending uploads are temporary: a server restart requires a
+new room and Telegram pairing. The desktop saved queue survives; the optional bot
+polling offset is persisted separately.
 
 Controllers can upload supported audio files up to 30 MB from the browser or desktop
 app. Listen-only members cannot upload. The room host can click **Pair Telegram chat**
 to get a ten-minute code, then send `/pair CODE` to the configured bot. Private chats
 can send audio attachments up to the hosted Bot API's 20 MB download limit. Telegram
-links are not supported yet. Set `TELEGRAM_BOT_TOKEN` in `.env` on the server to enable
+can also send public HTTPS audio/M3U/PLS/XSPF links. Set `TELEGRAM_BOT_TOKEN` in `.env` on the server to enable
 the bot; it is never sent to room clients. The bot uses `getUpdates` polling, so do not
 also configure a webhook for that token.
 
@@ -241,6 +242,8 @@ nginx config sets it to 3600s.
 | `HOST` | `0.0.0.0` | Bind address (`127.0.0.1` behind a proxy) |
 | `CREATE_SECRET` | *(empty)* | Required to create rooms. **Set this.** |
 | `MAX_ROOMS` | `50` | Concurrent room cap |
+| `TELEGRAM_BOT_TOKEN` | *(empty)* | Optional server-only Bot API token; empty disables intake |
+| `TELEGRAM_STATE_FILE` | *(empty for direct Node run)* | Optional writable absolute offset-file path; Compose supplies a persistent volume |
 
 ### HTTP
 
@@ -261,8 +264,32 @@ nginx config sets it to 3600s.
 ### Tests
 
 ```bash
-cd "Rhythm Dock/server" && npm test
+cd server
+npm test
 ```
 
 Boots a real server and drives it with real WebSocket clients: role enforcement,
-password gating, clock projection, host disconnect and range parsing.
+password gating, clock projection, host disconnect and range parsing. Mocked
+Telegram tests also cover queue positions, links, duplicate updates and restart
+offset storage. The desktop's `npm test` adds actual room-client relay/reconnect
+tests; live server listening acceptance remains open.
+
+## Telegram setup when access is ready
+
+1. Set `TELEGRAM_BOT_TOKEN` in the server environment; never put it in desktop
+   settings or share it with room guests.
+2. Compose mounts `telegram-state` at `/var/lib/rhythm-dock`. For Node/systemd,
+   set `TELEGRAM_STATE_FILE` to a file in a directory writable by the service user.
+3. Start a room in the host app, create a pairing code, then send `/pair CODE`
+   to the bot in a private chat within ten minutes. Keep the pairing code private:
+   possession authorizes that chat to submit songs. Send `/unpair` to disconnect.
+4. Send a supported attachment (up to 20 MB) or a public HTTPS audio/M3U/PLS/XSPF
+   link. Plain submissions append; `/next` or `/first` before a link, or in the
+   attachment caption, selects queue placement. Remote files are limited to 100 MB
+   each, 512 MB cache and 50 songs per playlist. Provider pages/HLS are not audio.
+5. After a server restart, create a new room and pair again. The offset prevents
+   normal polling replay when its file is configured. A crash between delivery and
+   offset persistence can repeat the final update; delivery is not exactly-once.
+
+YouTube/Spotify player adapters remain roadmap work. No live bot, TLS deployment,
+or Docker restart acceptance is claimed by the mocked/local tests.

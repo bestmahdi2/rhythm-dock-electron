@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node test/server.test.js"
+    "test": "node test/telegram-intake.test.js && node test/server.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

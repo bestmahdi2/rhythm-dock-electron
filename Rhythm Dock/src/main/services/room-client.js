@@ -66,6 +66,7 @@ class RoomClient {
 
         /** @type {Map<string, string>} trackId -> absolute path */
         this.trackPaths = new Map();
+        this.trackSources = new Map();
         /** @type {Map<string, {cancelled: boolean, paused: boolean}>} */
         this.activeStreams = new Map();
 
@@ -122,13 +123,24 @@ class RoomClient {
 
     connect({role, name}) {
         return new Promise((resolve, reject) => {
+            clearTimeout(this.reconnectTimer);
+            for (const stream of this.activeStreams.values()) stream.cancelled = true;
+            this.activeStreams.clear();
+            if (this.socket) this.socket.terminate();
+            this.connected = false;
             const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/ws';
             const socket = new WebSocket(wsUrl);
             this.socket = socket;
             this.shouldReconnect = true;
             this._pendingHello = {role, name};
+            let welcomed = false;
+            const handshake = setTimeout(() => {
+                this.shouldReconnect = false;
+                reject(new Error('The room connection timed out. Check the server address.'));
+                socket.terminate();
+            }, 10000);
 
-            const onError = (error) => reject(error);
+            const onError = (error) => { clearTimeout(handshake); reject(error); };
             socket.once('error', onError);
 
             socket.on('open', () => {
@@ -145,6 +157,7 @@ class RoomClient {
             });
 
             socket.on('message', (data, isBinary) => {
+                if (this.socket !== socket) return;
                 if (isBinary) return;
                 let message;
                 try {
@@ -154,16 +167,27 @@ class RoomClient {
                 }
 
                 if (message.type === 'welcome' && !this.connected) {
+                    welcomed = true;
+                    clearTimeout(handshake);
                     this.connected = true;
                     this.role = message.role;
                     this.memberId = message.memberId;
                     this.uploadToken = message.uploadToken || null;
                     resolve(message);
                 }
+                if (message.type === 'error' && message.fatal) {
+                    this.shouldReconnect = false;
+                    clearTimeout(handshake);
+                    reject(new Error(message.error || 'Could not join the room.'));
+                    socket.close();
+                }
                 this._handle(message);
             });
 
             socket.on('close', (code) => {
+                clearTimeout(handshake);
+                if (this.socket !== socket) return;
+                if (!welcomed) reject(new Error('The room connection closed before joining.'));
                 this.connected = false;
                 this.emit('room:disconnected', {code});
                 // 4000/4001 are deliberate closures (room gone, kicked); do not fight them.
@@ -182,7 +206,7 @@ class RoomClient {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = setTimeout(() => {
             this.emit('room:reconnecting', {});
-            this.connect(this._pendingHello).catch(() => this._scheduleReconnect());
+            this.connect(this._pendingHello).catch(() => { if (this.shouldReconnect) this._scheduleReconnect(); });
         }, this.reconnectDelay);
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 15000);
     }
@@ -223,9 +247,11 @@ class RoomClient {
         if (!this.isHost) return;
 
         this.trackPaths.clear();
+        this.trackSources.clear();
         const describe = (filePath, info = {}) => {
             const id = trackIdFor(filePath);
-            this.trackPaths.set(id, filePath);
+            this.trackPaths.set(id, info.playbackPath || filePath);
+            this.trackSources.set(id, filePath);
             return {
                 id,
                 title: info.title || path.basename(filePath, path.extname(filePath)),
@@ -309,6 +335,9 @@ class RoomClient {
 
             case 'upload:ready':
                 if (this.isHost) this.emit('room:upload-ready', message);
+                break;
+            case 'link:ready':
+                if (this.isHost) this.emit('room:link-ready', message);
                 break;
             case 'upload:accepted':
                 this.emit('room:upload-accepted', message);

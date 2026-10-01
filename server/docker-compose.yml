@@ -16,9 +16,12 @@ services:
       CREATE_SECRET: "${CREATE_SECRET:?set CREATE_SECRET in .env}"
       MAX_ROOMS: "${MAX_ROOMS:-50}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_STATE_FILE: /var/lib/rhythm-dock/telegram-offset.json
 
-    # The process is stateless; a read-only root filesystem costs nothing and removes
-    # a whole class of attack.
+    volumes:
+      - telegram-state:/var/lib/rhythm-dock
+
+    # Only the Telegram offset volume and temporary upload area are writable.
     read_only: true
     tmpfs:
       - /tmp
@@ -37,3 +40,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  telegram-state:

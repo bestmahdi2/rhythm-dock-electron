@@ -57,7 +57,12 @@ function hasUploadCapacity(roomCode) {
     return uploads.size < 100 && [...uploads.values()].filter((item) => item.roomCode === roomCode).length < 10;
 }
 const telegram = new TelegramIntake({token: process.env.TELEGRAM_BOT_TOKEN || '', registry,
-    onAudio: async ({room, fileName, bytes, chatId}) => {
+    statePath: process.env.TELEGRAM_STATE_FILE || '',
+    onLink: async ({room, url, position}) => {
+        if (!room.hostOnline) throw new Error('The host is offline');
+        send(room.host.socket, 'link:ready', {url, position});
+    },
+    onAudio: async ({room, fileName, bytes, chatId, position = 'end'}) => {
         if (!room.hostOnline) throw new Error('The host is offline');
         if (!hasUploadCapacity(room.code)) throw new Error('Too many pending songs; try again after the host imports them');
         const extension = path.extname(fileName).toLowerCase();
@@ -67,9 +72,9 @@ const telegram = new TelegramIntake({token: process.env.TELEGRAM_BOT_TOKEN || ''
         const filePath = path.join(uploadDir, id + extension);
         fs.writeFileSync(filePath, bytes, {flag: 'wx'});
         uploads.set(id, {filePath, roomCode: room.code, fileName, size: bytes.length,
-            position: 'end', at: Date.now(), chatId});
+            position, at: Date.now(), chatId});
         send(room.host.socket, 'upload:ready', {id, fileName, size: bytes.length,
-            position: 'end', by: {id: `telegram:${chatId}`, name: 'Telegram'}});
+            position, by: {id: `telegram:${chatId}`, name: 'Telegram'}});
     },
 });
 
@@ -198,6 +203,9 @@ app.delete('/api/rooms/:code/uploads/:id', (req, res) => {
  * the host over the relay.
  */
 app.get('/api/rooms/:code/stream/:trackId', (req, res) => {
+    // Electron's file-origin WebAudio source needs CORS for the authenticated
+    // media endpoint. Authorization remains the room/password check below.
+    res.setHeader('Access-Control-Allow-Origin', '*');
     const room = registry.get(req.params.code);
     if (!room) return res.status(404).json({error: 'no such room'});
 
