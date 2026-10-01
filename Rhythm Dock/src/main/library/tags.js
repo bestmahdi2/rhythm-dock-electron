@@ -23,6 +23,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const {randomUUID} = require('node:crypto');
+
+// TagLib chooses its writer by extension. Keep the original container suffix.
+function temporaryPath(filePath) {
+    return path.join(path.dirname(filePath),`.rhythm-tag-${randomUUID()}${path.extname(filePath)}`);
+}
 
 // Formats taglib-sharp can write reliably. Deliberately narrower than the set
 // it can *read* — a format we cannot round-trip should be read-only, not
@@ -157,14 +163,11 @@ function write(filePath, tags = {}, cover) {
     }
 
     // Edit a copy and swap it in. See the module header for why.
-    const tempPath = path.join(
-        path.dirname(filePath),
-        `.${path.basename(filePath)}.rdtmp`
-    );
+    const tempPath = temporaryPath(filePath);
 
     let file = null;
     try {
-        fs.copyFileSync(filePath, tempPath);
+        fs.copyFileSync(filePath, tempPath, fs.constants.COPYFILE_EXCL);
         file = lib.File.createFromPath(tempPath);
         const tag = file.tag;
 
@@ -226,11 +229,11 @@ function writeLyrics(filePath, lyricsText) {
     }
     if (!fs.existsSync(filePath)) return {ok: false, error: 'The file no longer exists.'};
 
-    const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.rdtmp`);
+    const tempPath = temporaryPath(filePath);
 
     let file = null;
     try {
-        fs.copyFileSync(filePath, tempPath);
+        fs.copyFileSync(filePath, tempPath, fs.constants.COPYFILE_EXCL);
         file = lib.File.createFromPath(tempPath);
         file.tag.lyrics = String(lyricsText || '') || null;
         file.save();

@@ -53,7 +53,12 @@ function httpRequest(options, body = null) {
 
         request.on('response', (response) => {
             const chunks = [];
-            response.on('data', (chunk) => chunks.push(chunk));
+            let size=0;
+            response.on('data', (chunk) => {
+                if(settled)return;size+=chunk.length;
+                if(size>2*1024*1024){settled=true;clearTimeout(timer);request.abort();reject(new Error('Translation response exceeds 2 MB.'));return;}
+                chunks.push(chunk);
+            });
             response.on('end', () => {
                 if (settled) return;
                 settled = true;

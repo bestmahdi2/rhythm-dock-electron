@@ -24,6 +24,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('node:crypto');
 const {net} = require('electron');
 
 const REQUEST_TIMEOUT_MS = 12000;
@@ -54,7 +55,12 @@ function httpRequest(options, body = null) {
 
         request.on('response', (response) => {
             const chunks = [];
-            response.on('data', (chunk) => chunks.push(chunk));
+            let size=0;
+            response.on('data', (chunk) => {
+                if(settled)return;size+=chunk.length;
+                if(size>2*1024*1024){settled=true;clearTimeout(timer);request.abort();reject(new Error('Lyrics response exceeds 2 MB.'));return;}
+                chunks.push(chunk);
+            });
             response.on('end', () => {
                 if (settled) return;
                 settled = true;
@@ -137,6 +143,9 @@ function sidecarCandidates(filePath, lyricsDir) {
     const parsed = path.parse(filePath);
     const candidates = [path.join(parsed.dir, `${parsed.name}.lrc`)];
     if (lyricsDir) {
+        const key=crypto.createHash('sha256').update(path.resolve(filePath)).digest('hex').slice(0,12);
+        candidates.push(path.join(lyricsDir, `${sanitiseName(parsed.name)}--${key}.lrc`));
+        // Read old mirrors for compatibility; new saves use the path-specific name.
         candidates.push(path.join(lyricsDir, `${sanitiseName(parsed.name)}.lrc`));
     }
     return candidates;
@@ -146,6 +155,7 @@ function readSidecar(filePath, lyricsDir) {
     for (const candidate of sidecarCandidates(filePath, lyricsDir)) {
         try {
             if (!fs.existsSync(candidate)) continue;
+            if(fs.statSync(candidate).size>2*1024*1024)continue;
             const text = fs.readFileSync(candidate, 'utf8');
             if (isUsable(text)) return {text, sidecarPath: candidate};
         } catch (error) {
@@ -161,7 +171,8 @@ function readSidecar(filePath, lyricsDir) {
  * cannot leave a truncated file where a good lyric used to be.
  */
 function writeSidecar(filePath, text, lyricsDir) {
-    const targets = sidecarCandidates(filePath, lyricsDir);
+    if(typeof text!=='string'||Buffer.byteLength(text)>2*1024*1024)return {ok:false,error:'Lyrics must be text up to 2 MB.'};
+    const targets = sidecarCandidates(filePath, lyricsDir).slice(0,2);
     let lastError = null;
 
     for (const target of targets) {
@@ -317,7 +328,7 @@ const PROVIDERS = {
  * @param {object}   [config]                  { geniusToken }
  * @returns {Promise<object>} `{ok, text, source, isSynced, hasWordTiming, attempts}`
  */
-async function resolve(request = {}, config = {}) {
+async function resolve(request = {}, config = {}, providerOverrides = {}) {
     const order = Array.isArray(request.order) && request.order.length
         ? request.order
         : DEFAULT_PROVIDER_ORDER;
@@ -348,7 +359,7 @@ async function resolve(request = {}, config = {}) {
                 continue;
             }
 
-            const provider = PROVIDERS[name];
+            const provider = providerOverrides[name] || PROVIDERS[name];
             if (!provider) continue;
 
             if (request.allowNetwork === false) {
