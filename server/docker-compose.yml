@@ -17,11 +17,15 @@ services:
       MAX_ROOMS: "${MAX_ROOMS:-50}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_STATE_FILE: /var/lib/rhythm-dock/telegram-offset.json
+      ROOM_STATE_FILE: "${ROOM_STATE_FILE:-}"
+      ROOM_RETENTION_DAYS: "${ROOM_RETENTION_DAYS:-7}"
+      CRASH_REPORTS_DIR: "${CRASH_REPORTS_DIR:-}"
 
     volumes:
       - telegram-state:/var/lib/rhythm-dock
 
-    # Only the Telegram offset volume and temporary upload area are writable.
+    # State volume holds Telegram offset and optional room snapshots/crash reports.
+    # Temporary contributed audio remains in /tmp.
     read_only: true
     tmpfs:
       - /tmp

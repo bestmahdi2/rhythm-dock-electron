@@ -12,8 +12,8 @@
  *      temporarily until the host imports them.
  *   4. Clock: be the single authority members synchronise against.
  *
- * Room state is in memory. Guest upload files live in a temporary directory and
- * expire after two days; a restart deletes that temporary directory.
+ * Optional room snapshots preserve queue and identity. Guest upload files live in
+ * a temporary directory and expire after two days; restart discards pending uploads.
  */
 
 const http = require('http');
@@ -46,7 +46,8 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({limit: '1mb'}));
 
-const registry = new RoomRegistry();
+const registry = new RoomRegistry({stateFile:process.env.ROOM_STATE_FILE||'',
+    retentionMs:Math.max(1,Math.min(30,Number(process.env.ROOM_RETENTION_DAYS)||7))*86400000});
 const relay = new AudioRelay();
 const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const UPLOAD_TTL_MS = 2 * 24 * 60 * 60 * 1000;
@@ -81,6 +82,12 @@ const telegram = new TelegramIntake({token: process.env.TELEGRAM_BOT_TOKEN || ''
 // --- HTTP -----------------------------------------------------------------------
 
 app.get('/healthz', (_req, res) => res.json({ok: true, ...registry.stats()}));
+const crashReports=new (require('./crash-reports').CrashReports)(process.env.CRASH_REPORTS_DIR||'');
+app.post('/api/crash-reports',(req,res)=>{
+    if(!crashReports.root)return res.status(404).json({error:'Crash reporting is disabled'});
+    try{res.status(201).json(crashReports.accept(req.body.events,req.socket.remoteAddress));}
+    catch(_){res.status(400).json({error:'The report could not be accepted. Check its size or try again later.'});}
+});
 
 /** Creates a room. The response contains the host token, so it is returned exactly once. */
 app.post('/api/rooms', (req, res) => {
@@ -299,6 +306,7 @@ wss.on('connection', (socket, request) => {
 
         member.lastSeen = Date.now();
         handleMessage(room, member, message);
+        if([CLIENT.STATE,CLIENT.LIBRARY,CLIENT.SETTINGS].includes(message.type)&&member.id===room.hostId)registry.changed(room);
     });
 
     socket.on('close', () => {
@@ -317,6 +325,7 @@ wss.on('connection', (socket, request) => {
             broadcast(room, SERVER.STATE, {state: room.state, serverTime: Date.now()});
         }
         broadcastMembers(room);
+        registry.changed(room);
     });
 
     socket.on('error', (error) => console.error('[ws] socket error:', error.message));
@@ -329,6 +338,7 @@ wss.on('connection', (socket, request) => {
             return send(socket, SERVER.ERROR, {error: 'wrong password', fatal: true});
         }
 
+        const wasHostLost = room.hostLostAt !== null;
         const result = room.addMember({
             socket,
             name: message.name,
@@ -343,7 +353,7 @@ wss.on('connection', (socket, request) => {
         const member = result.member;
         session = {room, memberId: member.id};
 
-        const isReturningHost = member.role === ROLES.HOST && room.hostLostAt !== null;
+        const isReturningHost = member.role === ROLES.HOST && wasHostLost;
 
         send(socket, SERVER.WELCOME, {
             protocolVersion: protocol.PROTOCOL_VERSION,
@@ -362,6 +372,7 @@ wss.on('connection', (socket, request) => {
 
         console.log(`[ws] ${member.name} joined ${room.code} as ${member.role}`);
         broadcastMembers(room);
+        registry.changed(room);
 
         if (member.role === ROLES.HOST && isReturningHost) {
             for (const [id, upload] of uploads) {
@@ -530,6 +541,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
         console.log(`\n[server] ${signal} received, shutting down`);
         clearInterval(heartbeat);
         telegram.stop();
+        registry.close();
         for (const socket of wss.clients) {
             try {
                 socket.close(1001, 'server shutting down');

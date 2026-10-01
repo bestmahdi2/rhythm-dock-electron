@@ -6,11 +6,13 @@
  * A room is a host plus any number of members. All shared state (playback, library,
  * lyrics, settings) is held here in memory and mirrored to members as it changes.
  *
- * Room state is not persisted. Guest uploads are temporarily stored by the server
- * until the host imports them, separately from this room registry.
+ * Optional snapshots preserve identity, queue and settings with paused playback.
+ * Guest uploads remain temporary, separately from this room registry.
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const protocol = require('./protocol');
 
 const {ROLES} = protocol;
@@ -52,6 +54,8 @@ class Room {
         this.code = code;
         this.name = options.name || 'Rhythm Dock';
         this.createdAt = Date.now();
+        this.lastActivityAt = this.createdAt;
+        this.retentionMs = 0;
 
         // Password is stored salted+hashed even though rooms are ephemeral: a heap dump
         // or a log line should never contain it in the clear.
@@ -114,7 +118,8 @@ class Room {
 
         let resolvedRole = role;
         if (role === ROLES.HOST) {
-            if (!safeEqual(hostToken, this.hostToken)) {
+            const valid = this.hostTokenHash ? safeEqual(crypto.createHash('sha256').update(String(hostToken||'')).digest('hex'),this.hostTokenHash) : safeEqual(hostToken,this.hostToken);
+            if (!valid) {
                 return {error: 'invalid host token'};
             }
             if (this.hostOnline) {
@@ -140,6 +145,7 @@ class Room {
         };
 
         this.members.set(memberId, member);
+        this.lastActivityAt=Date.now();
         this.emptySince = null;
         return {member};
     }
@@ -149,6 +155,7 @@ class Room {
         if (!member) return null;
 
         this.members.delete(memberId);
+        this.lastActivityAt=Date.now();
 
         if (memberId === this.hostId) {
             // Keep hostId set during the grace window so a reconnecting host can be
@@ -185,6 +192,7 @@ class Room {
 
     /** True once the room should be torn down. */
     isExpired(now = Date.now()) {
+        if(this.retentionMs)return !this.hostOnline && now-this.lastActivityAt>this.retentionMs;
         if (this.emptySince && now - this.emptySince > EMPTY_ROOM_TTL_MS) return true;
         if (this.hostLostAt && !this.hostOnline && now - this.hostLostAt > HOST_GRACE_MS) return true;
         return false;
@@ -203,9 +211,11 @@ class Room {
 }
 
 class RoomRegistry {
-    constructor() {
+    constructor({stateFile='',retentionMs=7*86400000}={}) {
         /** @type {Map<string, Room>} */
         this.rooms = new Map();
+        this.stateFile=stateFile;this.retentionMs=retentionMs;this.saveTimer=null;
+        if(stateFile){if(!path.isAbsolute(stateFile))throw new Error('ROOM_STATE_FILE must be an absolute path.');this.restore();}
         this.sweeper = setInterval(() => this.sweep(), 30 * 1000);
         // Do not hold the process open just for the sweeper.
         if (this.sweeper.unref) this.sweeper.unref();
@@ -217,7 +227,9 @@ class RoomRegistry {
         while (this.rooms.has(code)) code = randomCode();
 
         const room = new Room(code, options);
+        if(this.stateFile)room.retentionMs=this.retentionMs;
         this.rooms.set(code, room);
+        this.flush();
         return room;
     }
 
@@ -234,8 +246,54 @@ class RoomRegistry {
             } catch (_) { /* already gone */ }
         }
         this.rooms.delete(code);
+        this.flush();
         return true;
     }
+
+    changed(room) {if(this.closed)return;room.lastActivityAt=Date.now();if(!this.stateFile||this.saveTimer)return;
+        this.saveTimer=setTimeout(()=>{this.saveTimer=null;
+            try{this.flush();this.storageError=false;}catch(_){this.storageError=true;console.error('[rooms] Could not save room state. Check the state path and available disk space.');}
+        },500);this.saveTimer.unref();}
+
+    snapshot(room) {
+        const pick=(object,keys)=>Object.fromEntries(keys.filter(k=>object?.[k]!==undefined).map(k=>[k,object[k]]));
+        const track=t=>typeof t==='string'?t.slice(0,64):pick(t,['id','title','artist','album','durationMs','durationSeconds']);
+        return {code:room.code,name:room.name,createdAt:room.createdAt,lastActivityAt:room.lastActivityAt,
+            salt:room.salt,passwordHash:room.passwordHash,hostTokenHash:room.hostTokenHash||crypto.createHash('sha256').update(room.hostToken).digest('hex'),
+            defaultRole:room.defaultRole,
+            state:{...pick(room.state,Object.keys(protocol.makeState())),playing:false,atServerTime:Date.now()},
+            settings:pick(room.settings,[...Object.keys(protocol.makeSettings()),'colorTheme']),
+            library:{tracks:room.library.tracks.slice(0,20000).map(track),queue:room.library.queue.slice(0,20000).map(track),updatedAt:room.library.updatedAt}};
+    }
+    flush() {
+        if(!this.stateFile)return;
+        clearTimeout(this.saveTimer);this.saveTimer=null;
+        const data=JSON.stringify({format:'rhythm-dock-rooms',version:1,rooms:[...this.rooms.values()].map(r=>this.snapshot(r))});
+        if(Buffer.byteLength(data)>20*1024*1024)throw new Error('Room state exceeds the 20 MB storage limit.');
+        fs.mkdirSync(path.dirname(this.stateFile),{recursive:true});const temp=this.stateFile+'.tmp';
+        fs.writeFileSync(temp,data,{mode:0o600});fs.renameSync(temp,this.stateFile);
+    }
+    restore() {
+        if(!fs.existsSync(this.stateFile))return;
+        if(fs.statSync(this.stateFile).size>20*1024*1024)throw new Error('Room state exceeds the storage limit.');
+        const data=JSON.parse(fs.readFileSync(this.stateFile,'utf8'));
+        if(data.format!=='rhythm-dock-rooms'||data.version!==1||!Array.isArray(data.rooms)||data.rooms.length>1000)
+            throw new Error('Invalid room state file; it has been preserved.');
+        for(const r of data.rooms){
+            if(!/^[A-Z2-9]{6}$/.test(r.code)||!Number.isFinite(r.lastActivityAt)||!/^[a-f0-9]{64}$/.test(r.hostTokenHash)||
+                !/^[a-f0-9]{32}$/.test(r.salt)||(r.passwordHash&&!/^[a-f0-9]{64}$/.test(r.passwordHash))||this.rooms.has(r.code))
+                throw new Error('Invalid room record; the state file has been preserved.');
+            if(Date.now()-r.lastActivityAt>this.retentionMs)continue;
+            const room=new Room(r.code,{name:String(r.name||'Rhythm Dock').slice(0,80),defaultRole:r.defaultRole});
+            Object.assign(room,{createdAt:r.createdAt,lastActivityAt:r.lastActivityAt,salt:r.salt,passwordHash:r.passwordHash,
+                hostToken:null,hostTokenHash:r.hostTokenHash,retentionMs:this.retentionMs,hostLostAt:Date.now()});
+            room.state={...protocol.makeState(),...r.state,playing:false,atServerTime:Date.now()};
+            room.settings={...protocol.makeSettings(),...r.settings};
+            if(r.library&&Array.isArray(r.library.tracks)&&Array.isArray(r.library.queue))room.library=r.library;
+            this.rooms.set(room.code,room);
+        }
+    }
+    close(){if(this.closed)return;this.closed=true;clearInterval(this.sweeper);clearTimeout(this.saveTimer);this.flush();}
 
     sweep() {
         const now = Date.now();
@@ -251,6 +309,8 @@ class RoomRegistry {
         return {
             rooms: this.rooms.size,
             members: [...this.rooms.values()].reduce((n, r) => n + r.members.size, 0),
+            persistenceEnabled:Boolean(this.stateFile),
+            storageHealthy:!this.storageError,
         };
     }
 }

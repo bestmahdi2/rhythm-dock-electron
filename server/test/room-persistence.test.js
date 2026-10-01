@@ -1,0 +1,35 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {RoomRegistry}=require('../src/rooms');
+const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'rd-persist-'));
+let first,second;
+try{
+    const stateFile=path.join(scratch,'rooms.json');first=new RoomRegistry({stateFile});
+    const room=first.create({name:'Persistent friends',password:'private',defaultRole:'listener'});
+    const token=room.hostToken;
+    room.state={...room.state,playing:true,title:'Song',trackId:'track-one'};
+    room.library={tracks:[{id:'track-one',title:'Song',artist:'Artist',filePath:'C:\\private\\song.mp3'}],queue:[{id:'track-one',title:'Song'}]};
+    first.changed(room);first.close();
+    const bytes=fs.readFileSync(stateFile,'utf8');assert.ok(!bytes.includes(token),'host secrets must be stored as hashes');
+    assert.ok(!bytes.includes('private'));assert.ok(!bytes.includes('filePath'));
+    second=new RoomRegistry({stateFile});const restored=second.get(room.code);
+    assert.equal(restored.name,'Persistent friends');assert.equal(restored.state.playing,false,'restored audio must never auto-play');
+    assert.equal(restored.checkPassword('private'),true);assert.equal(restored.checkPassword('wrong'),false);
+    assert.equal(restored.library.queue[0].id,'track-one');
+    assert.ok(restored.addMember({socket:{readyState:1},name:'Bad',role:'host',hostToken:'wrong'}).error);
+    const host=restored.addMember({socket:{readyState:1,close(){}},name:'Host',role:'host',hostToken:token});assert.equal(host.member.role,'host');
+    const guest=restored.addMember({socket:{readyState:1,close(){}},name:'Guest',role:'controller'});assert.equal(guest.member.role,'listener');
+    restored.removeMember(host.member.id);restored.removeMember(guest.member.id);
+    assert.equal(restored.isExpired(Date.now()+3*60000),false,'persistent rooms survive the temporary reconnect grace');
+    assert.equal(restored.isExpired(restored.lastActivityAt+8*86400000),true);
+    second.destroy(room.code);second.close();assert.equal(JSON.parse(fs.readFileSync(stateFile)).rooms.length,0);
+    fs.writeFileSync(stateFile,'broken');assert.throws(()=>new RoomRegistry({stateFile}));assert.equal(fs.readFileSync(stateFile,'utf8'),'broken');
+    const {CrashReports,sanitize}=require('../src/crash-reports');
+    const dirty={event:'renderer:exit',at:new Date().toISOString(),code:1,filePath:'C:\\private\\song',token:'secret',reason:'crashed'};
+    assert.equal(sanitize([dirty])[0].filePath,undefined);assert.equal(sanitize([dirty])[0].token,undefined);
+    const reporter=new CrashReports(path.join(scratch,'reports'));
+    const report=reporter.accept([dirty],'fixture');assert.ok(report.id);
+    const submitted=fs.readFileSync(path.join(scratch,'reports',report.id+'.json'),'utf8');assert.ok(!submitted.includes('private'));assert.ok(!submitted.includes('secret'));
+    reporter.accept([dirty],'fixture');reporter.accept([dirty],'fixture');assert.throws(()=>reporter.accept([dirty],'fixture'));
+    console.log('PASS: durable room identity/queue, private host hashes, paused restore, roles, expiry and corrupt-file preservation');
+}finally{first?.close();if(second)second.stateFile='';second?.close();fs.rmSync(scratch,{recursive:true,force:true});}
