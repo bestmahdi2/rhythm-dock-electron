@@ -593,7 +593,8 @@ function exportAll() {
     try {
         return {
             format: 'rhythm-dock-library',
-            version: 5,
+            version: 6,
+            tools: require('./library-tools').extraBackup(),
             exportedAt: nowIso(),
             roots: handle.prepare('SELECT path, addedAt, lastScanAt FROM roots').all(),
             tracks: handle.prepare(`
@@ -735,7 +736,10 @@ function importAll(payload) {
             }
         });
 
-        apply();
+        handle.transaction(() => {
+            apply();
+            require('./library-tools').importExtra(payload.tools);
+        })();
         return {ok: true, imported};
     } catch (error) {
         console.error('[library] Import failed:', error);

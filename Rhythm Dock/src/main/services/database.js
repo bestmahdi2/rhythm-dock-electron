@@ -219,6 +219,20 @@ const MIGRATIONS = [
         db.exec('ALTER TABLE audio_analysis ADD COLUMN albumGainDb REAL');
         db.exec('ALTER TABLE audio_analysis ADD COLUMN albumFiles TEXT');
     },
+    // 12 -> 13: later-roadmap data is additive and independent of scanned roots.
+    (db) => {
+        db.exec(`CREATE TABLE smart_playlists (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            rules TEXT NOT NULL, createdAt TEXT NOT NULL);
+        CREATE TABLE play_history (id INTEGER PRIMARY KEY, filePath TEXT NOT NULL, listenedMs INTEGER NOT NULL,
+            outcome TEXT NOT NULL, playedAt TEXT NOT NULL);
+        CREATE INDEX idx_history_date ON play_history(playedAt);
+        CREATE TABLE bookmarks (id INTEGER PRIMARY KEY, filePath TEXT NOT NULL, seconds REAL NOT NULL,
+            label TEXT NOT NULL, UNIQUE(filePath, seconds));
+        CREATE TABLE waveform_cache (filePath TEXT PRIMARY KEY, fileSize INTEGER NOT NULL,
+            fileMtimeMs REAL NOT NULL, peaks TEXT NOT NULL, duration REAL NOT NULL);
+        CREATE TABLE delivery_jobs (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, payload TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, nextAttempt INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL);`);
+    },
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;

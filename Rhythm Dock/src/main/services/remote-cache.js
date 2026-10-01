@@ -13,6 +13,8 @@ const TYPES = {'.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.flac': 'audio/flac',
     '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/opus', '.aac': 'audio/aac'};
 const TYPE_EXT = Object.fromEntries(Object.entries(TYPES).map(([ext, mime]) => [mime, ext]));
 const activeTransfers = new Set();
+let playingFiles = [];
+function protect(files) {playingFiles=(files||[]).filter(file=>typeof file==='string'&&path.isAbsolute(file)).slice(0,2);}
 
 function validateUrl(value) {
     const url = new URL(value);
@@ -44,7 +46,7 @@ function listCacheFiles(root) {
 }
 
 function prune(root, protectedFiles = []) {
-    const protectedSet = new Set([...protectedFiles, ...activeTransfers]);
+    const protectedSet = new Set([...protectedFiles, ...activeTransfers, ...playingFiles]);
     const files = listCacheFiles(root).map((filePath) =>
         ({filePath, stat: fs.statSync(filePath)})).sort((a, b) => a.stat.mtimeMs - b.stat.mtimeMs);
     let total = files.reduce((sum, item) => sum + item.stat.size, 0);
@@ -121,4 +123,4 @@ function save(filePath, root, incomingRoot) {
     return target;
 }
 
-module.exports = {download, save, prune, validateUrl, cleanName};
+module.exports = {download, save, prune, validateUrl, cleanName,protect};
