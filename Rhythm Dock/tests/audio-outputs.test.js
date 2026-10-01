@@ -13,6 +13,7 @@ const devices = [
     {kind: 'audiooutput', deviceId: 'default', groupId: 'speaker'},
     {kind: 'audiooutput', deviceId: 'speakers', groupId: 'speaker'},
     {kind: 'audiooutput', deviceId: 'buds-a', groupId: 'a'},
+    {kind: 'audiooutput', deviceId: 'buds-a-alias', groupId: 'a'},
     {kind: 'audiooutput', deviceId: 'buds-b', groupId: 'b'},
 ];
 class FakeAudio {
@@ -37,6 +38,8 @@ audio._ensureGraph = () => {
     assert.equal((await audio.addOutput('speakers')).ok, false,
         'system default must not be mirrored to the same physical speakers');
     assert.equal((await audio.addOutput('buds-a', {delayMs: 120})).ok, true);
+    assert.equal((await audio.addOutput('buds-a-alias')).ok, false,
+        'two aliases of one physical extra device must not play twice');
     assert.equal((await audio.addOutput('buds-b', {delayMs: 250})).ok, true);
     assert.equal(audio.listOutputs().length, 2);
     assert.equal(connections.filter(([source, target]) => source === 'master' && target === 'delay').length, 2,

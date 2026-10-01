@@ -17,7 +17,7 @@ const STORE_KEY = 'windowState';
 const PRESETS = {
     horizontal: {width: 380, height: 180},
     horizontalCompact: {width: 380, height: 122},
-    vertical: {width: 105, height: 420},
+    vertical: {width: 220, height: 560},
 };
 
 const LIMITS = {

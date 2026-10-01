@@ -139,6 +139,8 @@ class AudioEngine {
         this.replayGainEnabled = true;
         this.skipSilence = false;
         this.outputDeviceId = '';
+        this.primaryDelayMs = 0;
+        this.primaryDelay = null;
 
         // A-B repeat. Null when unset; both in seconds.
         this.loopStart = null;
@@ -148,6 +150,9 @@ class AudioEngine {
         this.nextFilePath = null;
         this._preloadedPath = null;
         this._crossfadeStarted = false;
+        this._handoffPath = null;
+        this._pauseTimer = null;
+        this._fadeUntil = 0;
         this._silenceSince = 0;
 
         // Incremented on every load. Async callbacks compare against it and bail if a
@@ -260,6 +265,8 @@ class AudioEngine {
         // Analyser for silence detection. Tapped off the master so it hears exactly
         // what the user hears, including the EQ.
         this.analyser = this.ctx.createAnalyser();
+        this.primaryDelay = this.ctx.createDelay(2);
+        this.primaryDelay.delayTime.value = this.primaryDelayMs / 1000;
         this.analyser.fftSize = 1024;
         this._analyserBuffer = new Float32Array(this.analyser.fftSize);
 
@@ -301,6 +308,7 @@ class AudioEngine {
         safeDisconnect(this.limiterNode);
         safeDisconnect(this.limiterBypass);
         safeDisconnect(this.gain);
+        safeDisconnect(this.primaryDelay);
 
         // Both decks feed the head of the shared chain, so the equalizer applies to
         // whichever is audible and survives a deck swap untouched.
@@ -327,7 +335,8 @@ class AudioEngine {
             this.limiterBypass.connect(this.gain);
         }
 
-        this.gain.connect(this.ctx.destination);
+        this.gain.connect(this.primaryDelay);
+        this.primaryDelay.connect(this.ctx.destination);
         this.gain.connect(this.analyser);
 
         // Extra speakers/headphones hang off the same master, so they carry the
@@ -381,6 +390,10 @@ class AudioEngine {
             const candidate = outputs.find((device) => device.deviceId === deviceId);
             if (primary?.groupId && candidate?.groupId && primary.groupId === candidate.groupId) {
                 return {ok: false, error: 'This device is already the main output.'};
+            }
+            if (candidate?.groupId && [...this.auxOutputs.keys()].some((id) => id !== deviceId &&
+                outputs.find((device) => device.deviceId === id)?.groupId === candidate.groupId)) {
+                return {ok: false, error: 'This physical device is already an extra output.'};
             }
         } catch (_) { /* Routing still works when device enumeration is unavailable. */ }
 
@@ -475,6 +488,28 @@ class AudioEngine {
     listOutputs() {
         return [...this.auxOutputs.entries()]
             .map(([deviceId, output]) => ({deviceId, delayMs: output.delayMs}));
+    }
+
+    setPrimaryDelay(delayMs) {
+        this.primaryDelayMs = Math.max(0, Math.min(2000, Number(delayMs) || 0));
+        if (this.primaryDelay && this.ctx) {
+            const param = this.primaryDelay.delayTime, now = this.ctx.currentTime;
+            param.cancelScheduledValues(now); param.setValueAtTime(param.value, now);
+            param.linearRampToValueAtTime(this.primaryDelayMs / 1000, now + 0.08);
+        }
+        return this.primaryDelayMs;
+    }
+
+    async removePrimaryAliases() {
+        this.removeOutput(this.outputDeviceId || 'default');
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const primary = devices.find((device) => device.deviceId === (this.outputDeviceId || 'default'));
+            if (!primary?.groupId) return;
+            for (const id of [...this.auxOutputs.keys()]) {
+                if (devices.find((device) => device.deviceId === id)?.groupId === primary.groupId) this.removeOutput(id);
+            }
+        } catch (_) { /* Labels and grouping may be unavailable. */ }
     }
 
     removeAllOutputs() {
@@ -722,12 +757,22 @@ class AudioEngine {
      */
     load(filePath, {autoplay = false, seek = 0} = {}) {
         this._ensureGraph();
+        clearTimeout(this._pauseTimer);
 
         const ticket = ++this.ticket;
 
         this._crossfadeStarted = false;
         this._silenceSince = 0;
         this.clearLoop();
+        // Crossfade already started this deck. Queue advancement only updates
+        // metadata; reloading here would cut off the overlap and restart the song.
+        if (this._handoffPath === filePath && this._deck.filePath === filePath && seek === 0) {
+            this._handoffPath = null;
+            if (!autoplay) this.pause();
+            return ticket;
+        }
+        this._handoffPath = null;
+        this._fadeUntil = 0;
 
         // If the idle deck has already buffered exactly this file -- which is what
         // gapless preloading is for -- swap to it instead of reloading. That is the
@@ -738,7 +783,7 @@ class AudioEngine {
             this._preloadedPath = null;
             this._deck.element.playbackRate = this.rate;
             this._applyPreservePitch(this._deck.element);
-            this._setState(STATE.LOADING);
+            this._setState(STATE.PAUSED);
             if (autoplay) this.play();
             return ticket;
         }
@@ -790,12 +835,13 @@ class AudioEngine {
      */
     setNextTrack(filePath) {
         this.nextFilePath = filePath || null;
-        if (!filePath) this._releaseIdleDeck();
+        if (!filePath && (!this.ctx || this.ctx.currentTime >= this._fadeUntil)) this._releaseIdleDeck();
     }
 
     /** Starts buffering `filePath` on the idle deck, silently. */
     preloadNext(filePath) {
         this._ensureGraph();
+        if (this.ctx.currentTime < this._fadeUntil) return;
         const idle = this._idleDeck;
         if (!idle || !filePath || this._preloadedPath === filePath) return;
 
@@ -842,6 +888,7 @@ class AudioEngine {
 
         const now = this.ctx.currentTime;
         const seconds = Math.max(0, fadeMs) / 1000;
+        this._fadeUntil = now + seconds;
 
         for (const [node, target] of [[outgoing.gain, 0], [incoming.gain, 1]]) {
             node.gain.cancelScheduledValues(now);
@@ -860,9 +907,9 @@ class AudioEngine {
         this.source = this._deck.source;
 
         // Retire the outgoing deck once the fade has finished.
-        const ticket = this.ticket;
+        const retiredPath = outgoing.filePath;
         setTimeout(() => {
-            if (ticket !== this.ticket) return;
+            if (this._deck === outgoing || outgoing.filePath !== retiredPath) return;
             try {
                 outgoing.element.pause();
                 outgoing.element.removeAttribute('src');
@@ -875,15 +922,17 @@ class AudioEngine {
     /** Begins the overlap into the preloaded next track. */
     _beginCrossfade() {
         const idle = this._idleDeck;
-        if (!idle || !idle.element.src) {
+        if (!idle || !idle.element.src || idle.element.readyState < 3) {
             // Nothing buffered to fade into; let the track end normally.
             return;
         }
 
         this._crossfadeStarted = true;
         this.ticket++;
+        this._handoffPath = idle.filePath;
+        this.nextFilePath = null;
 
-        idle.element.currentTime = 0;
+        if (idle.element.currentTime > 0.01) idle.element.currentTime = 0;
         idle.element.play().catch(() => { /* superseded */ });
 
         this._swapDecks({fadeMs: this.crossfadeMs});
@@ -921,6 +970,7 @@ class AudioEngine {
 
     async play() {
         this._ensureGraph();
+        clearTimeout(this._pauseTimer);
 
         // Autoplay policy: the context starts suspended until a user gesture.
         if (this.ctx.state === 'suspended') {
@@ -976,7 +1026,8 @@ class AudioEngine {
         this._applyGain(0, FADE_OUT_MS);
         // Let the fade finish before actually pausing, so it is a fade rather than a cut.
         const ticket = this.ticket;
-        setTimeout(() => {
+        clearTimeout(this._pauseTimer);
+        this._pauseTimer = setTimeout(() => {
             if (ticket !== this.ticket) return;
             if (this.state === STATE.PLAYING || this.state === STATE.LOADING) {
                 this.element.pause();
@@ -994,6 +1045,7 @@ class AudioEngine {
 
     stop() {
         if (!this.element) return;
+        clearTimeout(this._pauseTimer);
         this._applyGain(0, 0);
         this.element.pause();
         try {
@@ -1005,6 +1057,9 @@ class AudioEngine {
     /** Releases both decks without tearing down the graph. */
     unload() {
         if (!this.element) return;
+        clearTimeout(this._pauseTimer);
+        this._handoffPath = null;
+        this._fadeUntil = 0;
         this.ticket++;
         this._applyGain(0, 0);
         this._crossfadeStarted = false;
@@ -1238,6 +1293,7 @@ class AudioEngine {
                 }
             }
             this.outputDeviceId = '';
+            await this.removePrimaryAliases();
             return true;
         }
 
@@ -1250,7 +1306,7 @@ class AudioEngine {
             await this.ctx.setSinkId(requested);
             this.outputDeviceId = requested;
             // The same device cannot be both primary and an auxiliary stream.
-            this.removeOutput(requested);
+            await this.removePrimaryAliases();
             return true;
         } catch (error) {
             console.warn('[audio] Could not set output device:', error);

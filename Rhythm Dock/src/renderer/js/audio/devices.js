@@ -9,13 +9,12 @@
  * reconnecting. Pausing on every one of those would be maddening.
  *
  * So this module keeps a snapshot of the audio *output* devices and only reacts when a
- * device that looks like headphones actually disappears. The rules, in order:
+ * active output disappears or the system default switches away from it. The rules:
  *
  *   1. Compare output device IDs before and after. Only removals count; additions never
  *      pause. (This alone rules out the webcam case.)
  *   2. If the removed device was the one we were playing through, pause.
- *   3. If the number of outputs dropped and a removed device looks like headphones by
- *      name, pause.
+ *   3. When default identity is unavailable, a headphone disappearance is a fallback.
  *
  * Device labels are only populated once the page has microphone permission, which a
  * music player does not have. Rule 1 works on IDs and needs no labels, so it remains
@@ -47,9 +46,11 @@ class OutputDeviceWatcher {
     constructor(options) {
         this.onDisconnect = options.onDisconnect;
         this.isPlaying = options.isPlaying || (() => false);
+        this.activeOutputs = options.activeOutputs || (() => ['default']);
+        this.getContext = options.getContext || (() => null);
 
         this.enabled = false;
-        /** @type {Map<string, string>} deviceId -> label */
+        /** deviceId -> {label, groupId} */
         this.outputs = new Map();
         this.timer = null;
         this._handler = () => this._scheduleCheck();
@@ -63,14 +64,26 @@ class OutputDeviceWatcher {
 
         this.enabled = true;
         await this._snapshot();
+        if (!this.enabled) return false;
         navigator.mediaDevices.addEventListener('devicechange', this._handler);
+        this.bindContext();
         return true;
+    }
+
+    bindContext() {
+        if (!this.enabled) return;
+        const context = this.getContext();
+        if (context === this.context) return;
+        this.context?.removeEventListener('sinkchange', this._handler);
+        this.context = context;
+        this.context?.addEventListener('sinkchange', this._handler);
     }
 
     stop() {
         if (!this.enabled) return;
         this.enabled = false;
         clearTimeout(this.timer);
+        this.context?.removeEventListener('sinkchange', this._handler);
         if (this.supported) {
             navigator.mediaDevices.removeEventListener('devicechange', this._handler);
         }
@@ -82,10 +95,9 @@ class OutputDeviceWatcher {
             this.outputs = new Map(
                 devices
                     .filter((device) => device.kind === 'audiooutput')
-                    // The "default" pseudo-device is an alias whose target changes; tracking
-                    // it produces phantom removals every time the real default switches.
-                    .filter((device) => device.deviceId && device.deviceId !== 'default')
-                    .map((device) => [device.deviceId, device.label || ''])
+                    // Keep the default alias group so a default-output switch is observable.
+                    .filter((device) => device.deviceId && device.deviceId !== 'communications')
+                    .map((device) => [device.deviceId, {label: device.label || '', groupId: device.groupId || ''}])
             );
         } catch (error) {
             console.warn('[devices] Could not enumerate audio outputs:', error);
@@ -106,21 +118,26 @@ class OutputDeviceWatcher {
 
         const previous = this.outputs;
         await this._snapshot();
+        if (!this.enabled) return;
         const current = this.outputs;
 
         // Rule 1: only removals matter.
-        const removed = [...previous.entries()].filter(([id]) => !current.has(id));
+        const removed = [...previous.entries()].filter(([id, item]) => !current.has(id) ||
+            (item.groupId && current.get(id).groupId && item.groupId !== current.get(id).groupId));
         if (removed.length === 0) return;
 
         // Nothing playing means nothing to pause.
         if (!this.isPlaying()) return;
 
-        // Rule 3: prefer a positive headphone identification when labels are available.
-        const anyLabels = [...previous.values()].some((label) => label.length > 0);
-        if (anyLabels) {
-            const headphonesRemoved = removed.some(([, label]) => looksLikeHeadphones(label));
-            if (!headphonesRemoved) return;
-        }
+        // Compare the selected outputs and their physical aliases before using labels.
+        const active = this.activeOutputs();
+        const activeGroups = active.map((id) => previous.get(id)?.groupId).filter(Boolean);
+        const selectedRemoved = removed.some(([id, item]) => active.includes(id) ||
+            (item.groupId && activeGroups.includes(item.groupId)));
+        const unidentifiedDefault = active.includes('default') && !activeGroups.length;
+        const headphoneRemoved = removed.some(([, item]) => looksLikeHeadphones(item.label));
+        const noLabels = [...previous.values()].every((item) => !item.label);
+        if (!selectedRemoved && !(unidentifiedDefault && (headphoneRemoved || noLabels))) return;
 
         try {
             this.onDisconnect();

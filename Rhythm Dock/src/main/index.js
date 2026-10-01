@@ -25,7 +25,24 @@ const translate = require('./services/translate');
 const lyrics = require('./services/lyrics');
 const {RoomClient} = require('./services/room-client');
 const remoteCache = require('./services/remote-cache');
+const remotePlaylist = require('./services/remote-playlist');
 const playlistFormats = require('./services/playlist-formats');
+const mediaTools = require('./services/media-tools');
+const audioAnalysis = require('./services/audio-analysis');
+const {Diagnostics} = require('./services/diagnostics');
+let diagnostics = null;
+let rendererRecoveryCount = 0;
+let mediaOperation = null;
+
+async function withMediaOperation(work) {
+    if (mediaOperation) return {ok: false, error: 'An audio operation is already running. Wait or cancel it first.'};
+    mediaOperation = new AbortController();
+    const options = {executable: store.get('ffmpegPath', '') || 'ffmpeg', signal: mediaOperation.signal,
+        onProgress: (seconds) => sendToRenderer('media-tools-progress', {seconds})};
+    try { return {ok: true, ...await work(options)}; }
+    catch (error) { return {ok: false, error: error.message}; }
+    finally { mediaOperation = null; }
+}
 
 // Lazily constructed: most sessions never open a room, and constructing it eagerly
 // would pull in the ws dependency for no reason.
@@ -34,9 +51,21 @@ let roomClient = null;
 function getRoomClient() {
     if (!roomClient) {
         roomClient = new RoomClient({emit: (event, payload) => {
+            if (event === 'room:welcome') payload = {...payload, serverUrl: roomClient.serverUrl};
+            if (['room:connected', 'room:disconnected', 'room:error'].includes(event))
+                diagnostics?.record(event, {code: payload?.code, role: payload?.role});
             if (event === 'room:upload-ready') {
                 importRoomUpload(payload).catch((error) =>
                     sendToRenderer('room:error', {error: `Could not import song: ${error.message}`}));
+            } else if (event === 'room:link-ready') {
+                const sourceCode = roomClient.roomCode;
+                importRemoteAudio(payload.url).then((result) => {
+                    if (!result.ok) throw new Error(result.error);
+                    if (!roomClient.connected || !roomClient.isHost || roomClient.roomCode !== sourceCode) return;
+                    const files = payload.position === 'first' || payload.position === 'next' ? [...result.files].reverse() : result.files;
+                    for (const filePath of files) sendToRenderer('room:incoming-track',
+                        {filePath, position: payload.position || 'end'});
+                }).catch(() => sendToRenderer('room:error', {error: 'Could not import the Telegram audio link.'}));
             } else sendToRenderer(event, payload);
         }});
     }
@@ -62,6 +91,7 @@ let store;
 let mainWindow;
 let persistWindowState = () => {};
 let currentLayout = 'horizontal';
+let currentTab = 'player';
 let edgeDock = {active: false, expanded: false, side: 'right'};
 let normalBounds = null;
 let normalPinned = false;
@@ -70,7 +100,7 @@ let edgeSnapTimer = null;
 
 function edgeBounds(side, y, display = screen.getPrimaryDisplay(), width = edgeGeometry.COLLAPSED_WIDTH) {
     return edgeGeometry.boundsFor(side, y, display.workArea,
-        width === edgeGeometry.EXPANDED_WIDTH);
+        width === edgeGeometry.EXPANDED_WIDTH, currentTab === 'player' ? edgeGeometry.EXPANDED_WIDTH : 340);
 }
 
 function setEdgeDock(active) {
@@ -109,7 +139,8 @@ function setEdgeDock(active) {
 
 function expandEdgeDock(expanded) {
     if (!edgeDock.active || !mainWindow || mainWindow.isDestroyed()) return;
-    if (edgeDock.expanded === Boolean(expanded)) return;
+    const wantedWidth = expanded ? (currentTab === 'player' ? edgeGeometry.EXPANDED_WIDTH : 340) : edgeGeometry.COLLAPSED_WIDTH;
+    if (edgeDock.expanded === Boolean(expanded) && mainWindow.getBounds().width === wantedWidth) return;
     edgeDock.expanded = Boolean(expanded);
     const old = mainWindow.getBounds();
     const display = screen.getDisplayNearestPoint({x: old.x + old.width / 2, y: old.y});
@@ -157,6 +188,7 @@ const currentIconVariant = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'li
 // places and only covered five formats.
 const SUPPORTED_EXTENSIONS = [
     '.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4',
+    ...mediaTools.EXTRA_FORMATS,
 ];
 
 const isSupportedAudioFile = (filePath) =>
@@ -256,6 +288,13 @@ const createWindow = () => {
     mainWindow.webContents.on('devtools-opened', () => {
         originalSize = mainWindow.getSize();
         mainWindow.setSize(1000, 600, true);
+    });
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        diagnostics?.record('renderer:exit', {reason: details.reason, code: details.exitCode});
+        if (['crashed', 'oom', 'abnormal-exit'].includes(details.reason) && rendererRecoveryCount++ === 0) {
+            // The persisted queue is restored paused; a crash must not blast audio.
+            setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }, 500);
+        }
     });
 
     mainWindow.webContents.on('devtools-closed', () => {
@@ -360,8 +399,12 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
     // Order matters: paths must exist before the store is pointed at them, and the
     // store must exist before createWindow() reads the saved geometry from it.
-    store = new Store({cwd: paths.getConfigDir()});
     database.initialize();
+    // Import legacy settings before electron-store creates the new config file.
+    store = new Store({cwd: paths.getConfigDir()});
+    currentLayout = store.get('windowState.layout') === 'vertical' ? 'vertical' : 'horizontal';
+    diagnostics = new Diagnostics(path.join(paths.getDataRoot(), 'logs'));
+    diagnostics.record('app:start', {version: pkg.version});
     try { remoteCache.prune(path.join(paths.getDataRoot(), 'remote-cache')); }
     catch (error) { console.warn('[cache] Could not prune old audio:', error.message); }
     try { coverCache.prune(path.join(paths.getDataRoot(), 'cover-thumbs')); }
@@ -427,6 +470,7 @@ app.whenReady().then(() => {
 
 // This new listener handles the startup logic once the renderer signals it's ready.
 ipcMain.on('renderer-ready', () => {
+    sendToRenderer('set-orientation-class', currentLayout === 'vertical');
     const filePath = getFilePathFromArgs(process.argv);
     if (filePath) {
         // Launched with a file: tell the renderer to play it.
@@ -676,6 +720,14 @@ ipcMain.handle('lyrics:set-offset', (_event, {songKey, offsetMs} = {}) => {
 });
 
 ipcMain.handle('get-store-value', (_event, key) => store.get(key));
+ipcMain.on('diagnostic-event', (_event, event, details) => diagnostics?.record(event, details));
+ipcMain.handle('diagnostics-export', async () => {
+    const selected = await dialog.showSaveDialog(mainWindow, {title: 'Export diagnostics',
+        defaultPath: 'rhythm-dock-diagnostics.jsonl', filters: [{name: 'Diagnostics', extensions: ['jsonl']}]});
+    if (selected.canceled) return {cancelled: true};
+    try { fs.writeFileSync(selected.filePath, diagnostics?.text() || ''); return {ok: true}; }
+    catch (error) { return {ok: false, error: error.message}; }
+});
 ipcMain.on('set-store-value', (_event, key, value) => store.set(key, value));
 /**
  * Extracts ReplayGain from parsed tags (Phase 8).
@@ -744,6 +796,10 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
         const metadata = await mm.parseFile(filePath, {includeChapters: /\.m4b$/i.test(filePath)});
         const {title, artist, album, picture, lyrics, genre} = metadata.common;
         const chapterList = chapters.mp4Chapters(metadata.format);
+        if (!chapterList.length && /\.(m4b|m4a|mp4)$/i.test(filePath)) {
+            try { chapterList.push(...await chapters.readMp4Chapters(filePath)); }
+            catch (_) { /* Metadata remains useful if chapter atoms are damaged. */ }
+        }
         if (!chapterList.length) chapterList.push(...await cueChaptersFor(filePath));
         let cover = null;
         if (picture?.[0]) {
@@ -762,7 +818,9 @@ ipcMain.handle('get-metadata', async (_event, filePath) => {
             chapters: chapterList,
             cover,
             lyrics: lyrics ? lyrics[0] : null,
-            replayGain: readReplayGain(metadata)
+            durationSeconds: metadata.format.duration || 0,
+            replayGain: readReplayGain(metadata),
+            analysis: audioAnalysis.get(filePath)
         };
     } catch (error) {
         console.error("Failed to parse metadata:", error);
@@ -875,6 +933,7 @@ ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
     // Snap to the layout preset without re-locking min == max, so the user can still
     // drag the window afterwards.
     windowState.applyPreset(mainWindow, currentLayout);
+    if (isVertical && currentTab !== 'player') mainWindow.setSize(340, windowState.PRESETS.vertical.height);
     persistWindowState();
 
     sendToRenderer('set-orientation-class', isVertical);
@@ -1200,7 +1259,10 @@ ipcMain.handle('library-cancel-scan', () => {
 
 async function importRoomUpload(upload) {
     const client = roomClient;
+    diagnostics?.record('room:upload-ready', {role: client?.role, state: Boolean(client?.hostToken),
+        code: String(upload.id || '').length, count: upload.size});
     if (!client?.isHost || !client.hostToken || !/^[a-f0-9]{36}$/.test(upload.id)) return;
+    const sourceCode = client.roomCode;
     const extension = path.extname(upload.fileName || '').toLowerCase();
     if (!SUPPORTED_EXTENSIONS.includes(extension) || upload.size > 30 * 1024 * 1024) return;
     const address = `${client.serverUrl}/api/rooms/${encodeURIComponent(client.roomCode)}/uploads/${upload.id}`;
@@ -1209,38 +1271,148 @@ async function importRoomUpload(upload) {
     if (!response.ok) throw new Error(`server returned ${response.status}`);
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length !== upload.size || bytes.length > 30 * 1024 * 1024) throw new Error('incomplete file');
+    if (roomClient !== client || client.roomCode !== sourceCode || !client.isHost || !client.connected)
+        throw new Error('The room changed during download.');
     const incomingDir = path.join(paths.getDataRoot(), 'incoming');
     fs.mkdirSync(incomingDir, {recursive: true});
     const filePath = path.join(incomingDir, `${upload.id}${extension}`);
-    await fs.promises.writeFile(filePath, bytes, {flag: 'wx'});
+    try { await fs.promises.writeFile(filePath, bytes, {flag: 'wx'}); }
+    catch (error) {
+        if (error.code !== 'EEXIST' || !fs.readFileSync(filePath).equals(bytes)) throw error;
+    }
     try {
         const root = libraryStore.addRoot(incomingDir);
         await scanRoot(root);
+        if (roomClient !== client || client.roomCode !== sourceCode || !client.isHost || !client.connected)
+            throw new Error('The room changed during import.');
         sendToRenderer('room:incoming-track', {filePath, position: upload.position || 'end'});
         await fetch(address, {method: 'DELETE', headers});
     } catch (error) {
-        fs.rmSync(filePath, {force: true});
         throw error;
     }
 }
 
 ipcMain.handle('library-roots', () => libraryStore.listRoots());
+ipcMain.handle('media-tools-pick', async () => {
+    const picked = await dialog.showOpenDialog(mainWindow, {title: 'Choose FFmpeg executable',
+        properties: ['openFile'], filters: process.platform === 'win32' ? [{name: 'Executable', extensions: ['exe']}] : []});
+    if (picked.canceled) return {cancelled: true};
+    const executable = picked.filePaths[0];
+    try {
+        await mediaTools.run(executable, ['-version'], {timeoutMs: 5000});
+        store.set('ffmpegPath', executable);
+        return {ok: true};
+    } catch (error) { return {ok: false, error: error.message}; }
+});
+ipcMain.handle('media-tools-check', async () => {
+    try {
+        const result = await mediaTools.run(store.get('ffmpegPath', '') || 'ffmpeg', ['-version'], {timeoutMs: 5000});
+        return {ok: true, version: result.stdout.split(/\r?\n/)[0]};
+    } catch (error) { return {ok: false, error: error.message}; }
+});
+ipcMain.handle('media-tools-cancel', () => { mediaOperation?.abort(); return true; });
+ipcMain.handle('media-prepare', (_event, filePath) => withMediaOperation(async (options) => {
+    const result = await mediaTools.prepare(filePath, path.join(paths.getDataRoot(), 'decoded-cache'), options);
+    // Update the relay before playback publishes new state, so guests receive
+    // decoded bytes before the next catalog snapshot arrives.
+    if (roomClient?.isHost) for (const [id, source] of roomClient.trackSources) {
+        if (source === filePath) roomClient.trackPaths.set(id, result.filePath);
+    }
+    return result;
+}));
+ipcMain.handle('media-analyse', (_event, files) => withMediaOperation(async (options) => {
+    const unique = [...new Set(Array.isArray(files) ? files : [])].slice(0, 500);
+    if (!unique.length) throw new Error('Choose a song or queue to analyse.');
+    const results = [];
+    for (let index = 0; index < unique.length; index++) {
+        const filePath = unique[index];
+        sendToRenderer('media-tools-progress', {index: index + 1, total: unique.length});
+        const before = fs.statSync(filePath);
+        const measurement = await mediaTools.analyse(filePath, options);
+        const after = fs.statSync(filePath);
+        if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
+            throw new Error('The file changed during analysis. Please analyse it again.');
+        audioAnalysis.save(filePath, measurement);
+        results.push({filePath, ...measurement});
+    }
+    return {results};
+}));
+ipcMain.handle('media-analyse-album', (_event, filePath) => withMediaOperation(async (options) => {
+    const tags = (await mm.parseFile(filePath, {skipCovers: true})).common;
+    if (!tags.album) throw new Error('This song has no album tag. Add album tags and a library folder first.');
+    const files = libraryStore.roomCatalog().filter((track) => track.album === tags.album && track.artist === tags.artist)
+        .map((track) => track.filePath);
+    if (files.length < 2) throw new Error('Add the album folder to the library before analysing its tracks together.');
+    const before = files.map((file) => fs.statSync(file));
+    for (const file of files) if (!audioAnalysis.get(file)) audioAnalysis.save(file, await mediaTools.analyse(file, options));
+    const measurement = await mediaTools.analyseAlbum(files, options);
+    if (files.some((file, index) => { const stat = fs.statSync(file);
+        return stat.size !== before[index].size || stat.mtimeMs !== before[index].mtimeMs; }))
+        throw new Error('An album file changed during analysis. Please analyse it again.');
+    audioAnalysis.saveAlbum(files, measurement);
+    return {measurement, analysis: audioAnalysis.get(filePath)};
+}));
+ipcMain.handle('media-export', async (_event, {filePath, start = 0, end = null, extension = '.flac'} = {}) => {
+    if (!['.wav', '.flac', '.mp3', '.m4a', '.ogg'].includes(extension)) return {ok: false, error: 'Unsupported output format.'};
+    const selected = await dialog.showSaveDialog(mainWindow, {title: 'Export audio to a new file',
+        defaultPath: `${path.basename(filePath, path.extname(filePath))}-export${extension}`,
+        filters: [{name: 'Audio', extensions: [extension.slice(1)]}]});
+    if (selected.canceled) return {cancelled: true};
+    return withMediaOperation((options) => mediaTools.convert(filePath, selected.filePath, {start, end, ...options}));
+});
+ipcMain.handle('media-chapter-tracks', (_event, filePath) => withMediaOperation(async (options) => {
+    const parsed = await mm.parseFile(filePath, {includeChapters: true});
+    const list = chapters.mp4Chapters(parsed.format);
+    if (!list.length && /\.(m4b|m4a|mp4)$/i.test(filePath)) list.push(...await chapters.readMp4Chapters(filePath));
+    if (!list.length) list.push(...await cueChaptersFor(filePath));
+    if (list.length < 2) throw new Error('No chapter list or matching CUE sheet was found.');
+    const stat = fs.statSync(filePath);
+    const crypto = require('node:crypto');
+    const root = path.join(paths.getDataRoot(), 'chapter-cache');
+    fs.mkdirSync(root, {recursive: true});
+    const files = [];
+    for (let index = 0; index < Math.min(list.length, 200); index++) {
+        const chapter = list[index];
+        const end = list[index + 1]?.start ?? parsed.format.duration;
+        if (!Number.isFinite(end) || end <= chapter.start) continue;
+        const key = crypto.createHash('sha256').update(JSON.stringify([filePath, stat.size, stat.mtimeMs, chapter, end])).digest('hex');
+        const target = path.join(root, `${String(index + 1).padStart(3, '0')}-${key}.flac`);
+        sendToRenderer('media-tools-progress', {index: index + 1, total: list.length});
+        if (!fs.existsSync(target)) await mediaTools.convert(filePath, target, {...options,
+            start: chapter.start, end, tags: {title: chapter.title,
+                artist: parsed.common.artist, album: parsed.common.album}});
+        files.push(target);
+    }
+    mediaTools.pruneCache(root, files);
+    return {files};
+}));
 ipcMain.handle('library-stats', () => libraryStore.stats());
 ipcMain.handle('library-view', (_event, view, limit) => libraryStore.view(view, limit));
 ipcMain.handle('library-recommendations', (_event, options) => libraryStore.recommendations(options || {}));
+ipcMain.handle('library-preferences', () => libraryStore.preferences());
+ipcMain.handle('library-preference-set', (_event, filePath, preference) => libraryStore.setPreference(filePath, preference));
+ipcMain.handle('library-preferences-reset', () => {
+    database.handle().prepare('DELETE FROM track_preferences').run();
+    store.set('hiddenRecommendations', []); return true;
+});
 ipcMain.handle('library-album-recommendations', (_event, options) => libraryStore.albumRecommendations(options || {}));
 ipcMain.handle('library-set-rating', (_event, filePath, rating) => libraryStore.setRating(filePath, rating));
 ipcMain.handle('book-position-get', (_event, filePath) => libraryStore.getBookPosition(filePath));
 ipcMain.handle('book-position-set', (_event, filePath, seconds) => libraryStore.setBookPosition(filePath, seconds));
-ipcMain.handle('remote-audio-add', async (_event, url) => {
+let remoteImports = 0;
+async function importRemoteAudio(url) {
+    if (remoteImports >= 3) return {ok: false, error: 'Three link imports are already running. Try again shortly.'};
+    remoteImports++;
     try {
         const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
-        const result = await remoteCache.download(url, cacheRoot, fetch, (received, total) =>
-            sendToRenderer('remote-audio-progress', {received, total}));
-        library.ingest([result.filePath]);
-        return {ok: true, ...result};
+        const result = await remotePlaylist.download(url, cacheRoot, fetch, (progress) =>
+            sendToRenderer('remote-audio-progress', progress));
+        library.ingest(result.files);
+        return {ok: true, ...result, filePath: result.files[0]};
     } catch (error) { return {ok: false, error: error.message}; }
-});
+    finally { remoteImports--; }
+}
+ipcMain.handle('remote-audio-add', (_event, url) => importRemoteAudio(url));
 ipcMain.handle('remote-audio-save', async (_event, filePath) => {
     try {
         const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
@@ -1595,7 +1767,7 @@ ipcMain.on('room-publish-library', (_e, {queue, info, catalog}) => {
     // The renderer needs the same path -> id mapping so its state messages reference
     // ids members can actually resolve. Sending it back keeps one authority (main).
     const map = {};
-    for (const [id, filePath] of roomClient.trackPaths) map[filePath] = id;
+    for (const [id, filePath] of roomClient.trackSources) map[filePath] = id;
     sendToRenderer('room:track-ids', map);
 });
 ipcMain.on('room-publish-lyrics', (_e, payload) => roomClient?.publishLyrics(payload || {}));
@@ -1606,8 +1778,18 @@ ipcMain.on('room-kick', (_e, {memberId}) => roomClient?.kickMember(memberId));
 
 ipcMain.handle('set-active-tab', (_event, tab) => {
     if (!mainWindow || mainWindow.isDestroyed()) return false;
-    if (edgeDock.active) return false;
-    if (currentLayout === 'vertical') return false;
+    if (!['player', 'playlist', 'settings', 'tags'].includes(tab)) return false;
+    currentTab = tab;
+    if (edgeDock.active) {
+        expandEdgeDock(true);
+        return true;
+    }
+    if (currentLayout === 'vertical') {
+        const bounds = mainWindow.getBounds();
+        mainWindow.setBounds({...bounds, width: tab === 'player' ? windowState.PRESETS.vertical.width : 340,
+            height: Math.max(bounds.height, windowState.PRESETS.vertical.height)}, true);
+        return true;
+    }
 
     const bounds = mainWindow.getBounds();
     const targetHeight = tab === 'player' ? (store.get('playerTabHeight', 180)) : 420;

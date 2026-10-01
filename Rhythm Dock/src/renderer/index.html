@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8"/>
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data: file:; connect-src 'self';">
+          content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data: file: blob: http: https:; connect-src 'self';">
     <link rel="stylesheet" href="styles/app.css"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Rhythm Dock</title>
@@ -121,6 +121,7 @@
                     <button id="chapter-prev" type="button" title="Previous chapter" aria-label="Previous chapter">‹</button>
                     <select id="chapter-select" aria-label="Choose chapter"></select>
                     <button id="chapter-next" type="button" title="Next chapter" aria-label="Next chapter">›</button>
+                    <button id="chapter-queue" type="button" title="Queue each chapter as a track" aria-label="Queue each chapter as a track">＋</button>
                 </div>
             </div>
         </div>
@@ -314,7 +315,12 @@
                     <select id="output-device" class="settings-select"></select>
                 </div>
 
-                <span class="settings-hint">Also play on — mirror the same audio to more devices at once. Use the delay to line up a slower Bluetooth device.</span>
+                <div class="settings-row">
+                    <label for="primary-delay">Main output delay</label>
+                    <input id="primary-delay" class="settings-input" type="number" min="0" max="2000" step="10" value="0" aria-label="Main output delay in milliseconds"/>
+                    <span>ms</span>
+                </div>
+                <span class="settings-hint">Also play on — mirror audio to more devices. Delay the faster outputs until they match the slowest one. Bluetooth latency can change after reconnection.</span>
                 <div id="extra-outputs" class="extra-outputs"></div>
 
                 <div class="settings-row">
@@ -365,7 +371,34 @@
                     <input type="checkbox" id="replaygain-toggle" checked/>
                     <span>Apply ReplayGain tags when a file has them</span>
                 </label>
-                <span class="settings-hint">Rhythm Dock reads existing ReplayGain tags but does not calculate them — files without the tags play unchanged.</span>
+                <span class="settings-hint">Uses existing ReplayGain tags, or your saved loudness analysis for files without tags.</span>
+                <div class="settings-row">
+                    <button id="analyse-current" class="settings-button">Analyse Song</button>
+                    <button id="analyse-album" class="settings-button">Analyse Album</button>
+                    <button id="analyse-queue" class="settings-button">Analyse Queue</button>
+                </div>
+            </section>
+
+            <section class="settings-block">
+                <span class="settings-title">Audio tools</span>
+                <span class="settings-hint">FFmpeg enables loudness analysis, extra formats, chapter tracks, and export. Choose an installed executable or use FFmpeg from PATH. Files are kept unchanged.</span>
+                <div class="settings-row">
+                    <button id="ffmpeg-pick" class="settings-button">Choose FFmpeg</button>
+                    <button id="ffmpeg-check" class="settings-button">Check</button>
+                    <button id="media-cancel" class="settings-button">Cancel Operation</button>
+                </div>
+                <span id="media-tools-status" class="settings-hint" role="status">Ready</span>
+                <div class="settings-row">
+                    <label for="export-format">Export format</label>
+                    <select id="export-format" class="settings-select">
+                        <option value=".flac">FLAC</option><option value=".wav">WAV</option>
+                        <option value=".mp3">MP3</option><option value=".m4a">M4A</option><option value=".ogg">OGG</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <button id="export-current" class="settings-button">Convert Song</button>
+                    <button id="export-ab" class="settings-button">Export A–B</button>
+                </div>
             </section>
 
             <!-- Equalizer ------------------------------------------------- -->
@@ -432,6 +465,26 @@
                     <input type="checkbox" id="auto-recommend-next"/>
                     <span>Suggest and play a song when the queue ends</span>
                 </label>
+                <div class="settings-row">
+                    <label for="song-mood">Current song mood</label>
+                    <select id="song-mood" class="settings-select">
+                        <option value="">Not labelled</option><option value="calm">Calm</option>
+                        <option value="energetic">Energetic</option><option value="focus">Focus</option>
+                        <option value="happy">Happy</option><option value="melancholy">Melancholy</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <label for="discovery-mood">Suggestions mood</label>
+                    <select id="discovery-mood" class="settings-select">
+                        <option value="">All moods</option><option value="calm">Calm</option>
+                        <option value="energetic">Energetic</option><option value="focus">Focus</option>
+                        <option value="happy">Happy</option><option value="melancholy">Melancholy</option>
+                    </select>
+                </div>
+                <span class="settings-hint">Label songs by mood. Use More like this or Less like this in For You to teach your suggestions.</span>
+                <button id="discovery-reset" class="settings-button">Reset Discovery Feedback</button>
+                <button id="diagnostics-export" class="settings-button">Export Diagnostics</button>
+                <button id="lyrics-controls-setting" class="settings-button">Show Lyrics Controls</button>
 
                 <button class="settings-action" id="volume-boost-btn">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm7 1.66L8.24 9H5v6h3.24L10 16.34V10.66zM14 12c0-1.28-.68-2.4-1.7-3.03v6.06c1.02-.63 1.7-1.75 1.7-3.03zM16.5 12c0 2.08-1.27 3.86-3.08 4.63v-9.26C15.23 8.14 16.5 9.92 16.5 12z"></path></svg>
@@ -611,7 +664,7 @@
             <button id="named-playlist-delete" class="settings-button danger">Delete List</button>
         </div>
         <div class="settings-row remote-audio-controls">
-            <input id="remote-audio-url" class="settings-input" type="url" placeholder="Direct HTTPS audio link" aria-label="Direct audio link"/>
+            <input id="remote-audio-url" class="settings-input" type="url" placeholder="HTTPS audio or playlist link" aria-label="Audio or playlist link"/>
             <select id="remote-audio-position" class="settings-select" aria-label="Add link to queue position">
                 <option value="end">Queue End</option><option value="next">Play Next</option><option value="first">Queue Top</option>
             </select>

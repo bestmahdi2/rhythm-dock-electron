@@ -4,6 +4,8 @@
 // engine deliberately exposes a Howler-compatible surface for those four methods.
 const audio = window.RhythmAudio.engine;
 const AUDIO_STATE = window.RhythmAudio.STATE;
+window.addEventListener('error', () => window.api.diagnosticEvent('renderer:error', {reason: 'script-error'}));
+window.addEventListener('unhandledrejection', () => window.api.diagnosticEvent('renderer:error', {reason: 'unhandled-promise'}));
 
 let currentSound = null;
 let currentSongData = null;
@@ -69,6 +71,8 @@ const sleepTimer = new window.RhythmTimer.SleepTimer({
 });
 const outputWatcher = new window.RhythmDevices.OutputDeviceWatcher({
     isPlaying: () => audio.isPlaying(),
+    activeOutputs: () => [audio.outputDeviceId || 'default', ...audio.listOutputs().map((item) => item.deviceId)],
+    getContext: () => audio.ctx,
     onDisconnect: () => {
         audio.pause();
         setPlaylistStatus('Paused - headphones disconnected');
@@ -1320,7 +1324,7 @@ function updateUI() {
 
 // --- State Persistence ---
 function savePlaybackState() {
-    if (!currentSound || currentIndex < 0) return;
+    if (room.connected && !room.isHost) return;
     // A finished track restarts from the top next launch rather than resuming at the
     // very end, which would immediately re-trigger the 'ended' path.
     const duration = audio.duration();
@@ -1328,7 +1332,8 @@ function savePlaybackState() {
         ? 0 : (audio.seek() || 0);
     const state = {
         playlist: originalPlaylist,
-        lastPlayedPath: playlist[currentIndex],
+        queue: [...playlist],
+        lastPlayedPath: playlist[currentIndex] || null,
         seek,
         isShuffled: isShuffled,
         loopMode: loopMode,
@@ -1573,7 +1578,8 @@ async function publishRoomLibrary() {
     const info = {};
     for (const filePath of playlist) {
         const track = byPath.get(filePath) || await window.api.libraryGetTrack(filePath);
-        if (track) info[filePath] = {title: track.title, artist: track.artist, album: track.album};
+        info[filePath] = {title: track?.title, artist: track?.artist, album: track?.album,
+            playbackPath: preparedAudio.get(filePath) || filePath};
     }
 
     if (revision !== roomLibraryRevision || !room.connected || !room.isHost) return;
@@ -1788,6 +1794,7 @@ const AUDIO_SETTINGS = [
     {key: 'swapChannels',      fallback: false, apply: (v) => audio.setSwapChannels(v)},
     {key: 'audioBalance',      fallback: 0,     apply: (v) => audio.setBalance(v)},
     {key: 'outputDeviceId',    fallback: '',    apply: (v) => audio.setOutputDevice(v)},
+    {key: 'primaryDelayMs', fallback: 0, apply: (v) => audio.setPrimaryDelay(v)},
 ];
 
 /** Which ReplayGain value to prefer. Album is the better default -- see below. */
@@ -1821,13 +1828,88 @@ function saveAudioSetting(key, value) {
 function applyReplayGainFor(songData) {
     const gain = songData?.replayGain;
     if (!gain) {
-        audio.setReplayGain(0);
+        audio.setReplayGain((replayGainMode === 'album' ? songData?.analysis?.albumGainDb : null) ?? songData?.analysis?.gainDb ?? 0);
         return;
     }
     const preferred = replayGainMode === 'track'
         ? (gain.track ?? gain.album)
         : (gain.album ?? gain.track);
-    audio.setReplayGain(Number.isFinite(preferred) ? preferred : 0);
+    audio.setReplayGain(Number.isFinite(preferred) ? preferred :
+        ((replayGainMode === 'album' ? songData?.analysis?.albumGainDb : null) ?? songData?.analysis?.gainDb ?? 0));
+}
+
+const NEEDS_DECODER = /\.(ape|wv|dsf|dff|mod|xm|it|s3m)$/i;
+const preparedAudio = new Map();
+
+function initMediaTools() {
+    const status = document.getElementById('media-tools-status');
+    const report = (text) => { if (status) status.textContent = text; showToast(text); };
+    const bind = (id, handler) => document.getElementById(id)?.addEventListener('click', async () => {
+        try { await handler(); } catch (error) { report(error.message); }
+    });
+    bind('ffmpeg-pick', async () => {
+        const result = await window.api.mediaToolsPick();
+        if (!result.cancelled) report(result.ok ? 'FFmpeg is ready.' : result.error);
+    });
+    bind('ffmpeg-check', async () => {
+        const result = await window.api.mediaToolsCheck(); report(result.ok ? result.version : result.error);
+    });
+    bind('media-cancel', () => window.api.mediaToolsCancel());
+    bind('diagnostics-export', async () => {
+        const result = await window.api.diagnosticsExport();
+        if (!result.cancelled) report(result.ok ? 'Diagnostics exported without URLs or credentials.' : result.error);
+    });
+    bind('lyrics-controls-setting', () => {
+        areLyricsControlsVisible = true;
+        containerEl.classList.remove('lyrics-controls-hidden');
+        updateLyricsDropdownMenu();
+        showToast('Lyrics controls shown.');
+    });
+    const analyse = async (files) => {
+        report('Analysing loudness…');
+        const result = await window.api.mediaAnalyse(files);
+        if (!result.ok) return report(result.error);
+        const current = result.results.find((row) => row.filePath === playlist[currentIndex]);
+        if (current && currentSongData?.filePath === current.filePath) {
+            currentSongData.analysis = current; applyReplayGainFor(currentSongData);
+        }
+        report(`Loudness saved for ${result.results.length} song(s).`);
+    };
+    bind('analyse-current', () => analyse(playlist[currentIndex] ? [playlist[currentIndex]] : []));
+    bind('analyse-album', async () => {
+        const filePath = playlist[currentIndex];
+        if (!filePath) return report('Open an album song first.');
+        report('Analysing the album together…');
+        const result = await window.api.mediaAnalyseAlbum(filePath);
+        if (!result.ok) return report(result.error);
+        if (currentSongData?.filePath === filePath) {
+            currentSongData.analysis = result.analysis; applyReplayGainFor(currentSongData);
+        }
+        report('Album loudness saved.');
+    });
+    bind('analyse-queue', () => analyse(playlist));
+    const exportAudio = async (selection) => {
+        const filePath = playlist[currentIndex];
+        if (!filePath) return report('Open a song first.');
+        if (selection && (audio.loopStart === null || audio.loopEnd === null)) return report('Set both A and B first.');
+        const result = await window.api.mediaExport({filePath,
+            start: selection ? audio.loopStart : 0, end: selection ? audio.loopEnd : null,
+            extension: document.getElementById('export-format').value});
+        if (!result.cancelled) report(result.ok ? 'Audio exported to a new file.' : result.error);
+    };
+    bind('export-current', () => exportAudio(false));
+    bind('export-ab', () => exportAudio(true));
+    bind('chapter-queue', async () => {
+        if (!playlist[currentIndex]) return;
+        report('Preparing chapter tracks…');
+        const result = await window.api.mediaChapterTracks(playlist[currentIndex]);
+        if (!result.ok) return report(result.error);
+        await loadPlaylistAndPlay(result.files);
+        report(`${result.files.length} chapter tracks queued.`);
+    });
+    window.api.onMediaToolsProgress(({seconds, index, total}) => {
+        if (status) status.textContent = index ? `Processing ${index} of ${total}…` : `Processed ${Math.floor(seconds || 0)} seconds…`;
+    });
 }
 
 /**
@@ -1847,10 +1929,11 @@ function updateNextTrackHint() {
     }
 
     const nextIndex = currentIndex + 1;
+    const hint = (filePath) => NEEDS_DECODER.test(filePath) ? preparedAudio.get(filePath) || null : filePath;
     if (nextIndex < playlist.length) {
-        audio.setNextTrack(playlist[nextIndex]);
+        audio.setNextTrack(hint(playlist[nextIndex]));
     } else if (loopMode === 'all' && playlist.length > 1) {
-        audio.setNextTrack(playlist[0]);
+        audio.setNextTrack(hint(playlist[0]));
     } else {
         audio.setNextTrack(null);
     }
@@ -1961,10 +2044,16 @@ async function renderExtraOutputs() {
     if (!host || !navigator.mediaDevices?.enumerateDevices) return;
 
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const outputs = devices.filter((device) => device.kind === 'audiooutput'
-        && device.deviceId && device.deviceId !== 'default');
+    const allOutputs = devices.filter((device) => device.kind === 'audiooutput');
+    const groups = new Set();
+    const outputs = allOutputs.filter((device) => {
+        if (!device.deviceId || ['default', 'communications'].includes(device.deviceId)) return false;
+        if (device.groupId && groups.has(device.groupId)) return false;
+        if (device.groupId) groups.add(device.groupId);
+        return true;
+    });
     const primary = document.getElementById('output-device')?.value || '';
-    const primaryGroup = outputs.find((device) => device.deviceId === (primary || 'default'))?.groupId;
+    const primaryGroup = allOutputs.find((device) => device.deviceId === (primary || 'default'))?.groupId;
     const active = new Map(audio.listOutputs().map((o) => [o.deviceId, o.delayMs]));
 
     host.innerHTML = '';
@@ -2090,10 +2179,28 @@ function setLocked(locked) {
     showToast(isLocked ? 'Controls locked' : 'Controls unlocked');
 }
 
+// CSS blocks pointers; capture handlers also block keyboard activation and
+// synthetic clicks while keeping both unlock buttons usable.
+document.addEventListener('click', (event) => {
+    if (isLocked && !event.target.closest('#lock-btn, #edge-lock')) {
+        event.preventDefault(); event.stopImmediatePropagation();
+    }
+}, true);
+document.addEventListener('keydown', (event) => {
+    if (!isLocked || (event.ctrlKey && event.key.toLowerCase() === 'l') ||
+        event.target.closest('#lock-btn, #edge-lock')) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    document.getElementById(containerEl.classList.contains('edge-docked') ? 'edge-lock' : 'lock-btn')?.focus();
+}, true);
+
 /** Wires the audio card. Called once from the DOM-ready block. */
 function initAudioPanel() {
     const bind = (id, event, handler) =>
         document.getElementById(id)?.addEventListener(event, handler);
+    bind('primary-delay', 'change', (event) => {
+        event.target.value = audio.setPrimaryDelay(Number(event.target.value));
+        window.api.setStoreValue('primaryDelayMs', audio.primaryDelayMs);
+    });
 
     const crossfade = document.getElementById('crossfade-slider');
     const crossfadeValue = document.getElementById('crossfade-value');
@@ -2172,6 +2279,7 @@ function initAudioPanel() {
     document.getElementById('lock-btn')?.addEventListener('click', () => setLocked(!isLocked));
 
     const refreshDevices = () => {
+        audio.removePrimaryAliases().then(persistExtraOutputs);
         populateOutputDevices();
         renderExtraOutputs();
     };
@@ -2181,6 +2289,7 @@ function initAudioPanel() {
 
 /** Reflects the loaded settings into the controls. */
 async function syncAudioPanelControls() {
+    document.getElementById('primary-delay').value = audio.primaryDelayMs;
     const set = (id, prop, value) => {
         const el = document.getElementById(id);
         if (el) el[prop] = value;
@@ -3069,7 +3178,7 @@ function enqueue(filePath, position = QUEUE_POSITIONS.END) {
     // A track already queued is moved rather than duplicated: two copies of the
     // same file in a queue is almost never what anyone meant.
     const existing = playlist.indexOf(filePath);
-    if (existing === currentIndex) return;
+    if (existing !== -1 && existing === currentIndex) return;
     if (existing !== -1 && existing !== currentIndex) {
         playlist.splice(existing, 1);
         if (existing < currentIndex) currentIndex--;
@@ -3087,11 +3196,12 @@ function enqueue(filePath, position = QUEUE_POSITIONS.END) {
     playlist.splice(index, 0, filePath);
     if (index <= currentIndex && playlist.length > 1) currentIndex++;
 
-    if (!originalPlaylist.includes(filePath)) originalPlaylist.push(filePath);
+    originalPlaylist = [...playlist];
 
     // What plays after this track may have changed, so what should be buffered has
     // changed with it.
     updateNextTrackHint();
+    savePlaybackState();
     publishRoomLibrary();
     if (isPlaylistVisible) renderActiveLibraryView();
 
@@ -3214,6 +3324,7 @@ function removeFromQueue(index) {
 
 /** Reorder while preserving the identity of the currently playing track. */
 function moveQueueItem(from, to) {
+    if (![from, to].every((index) => Number.isInteger(index) && index >= 0 && index < playlist.length)) return;
     if (from === to) return;
     const playingPath = playlist[currentIndex];
     const [item] = playlist.splice(from, 1);
@@ -3437,6 +3548,7 @@ async function renderRecommendations() {
         artist: currentSongData?.artist,
         album: currentSongData?.album,
         genre: currentSongData?.genre,
+        mood: document.getElementById('discovery-mood')?.value || '',
         liked: favoritesPlaylist,
         hidden,
         limit: 25,
@@ -3447,7 +3559,7 @@ async function renderRecommendations() {
     ]);
     playlistResults.replaceChildren();
     if (!rows.length && !albums.length) return setPlaylistStatus('No suggestions yet. Add a folder and play a few songs.');
-    setPlaylistStatus('Suggestions adapt to your plays, skips, ratings, likes and hidden songs.');
+    setPlaylistStatus('Suggestions learn from your feedback, moods, plays, skips, ratings and likes.');
     if (albums.length) {
         const heading = document.createElement('div');
         heading.className = 'playlist-section-heading';
@@ -3476,6 +3588,16 @@ async function renderRecommendations() {
             label: `★ ${row.rating || 0}`, title: 'Increase rating (5 stars, then clear)',
             onClick: async () => {
                 await window.api.librarySetRating(row.filePath, ((row.rating || 0) + 1) % 6);
+                renderRecommendations();
+            },
+        }, {
+            label: '＋♥', title: 'More like this', onClick: async () => {
+                await window.api.libraryPreferenceSet(row.filePath, {feedback: 1});
+                renderRecommendations();
+            },
+        }, {
+            label: '−♥', title: 'Less like this', onClick: async () => {
+                await window.api.libraryPreferenceSet(row.filePath, {feedback: -1});
                 renderRecommendations();
             },
         }, {
@@ -3604,9 +3726,12 @@ function initRemoteAudio() {
         try {
             const result = await window.api.remoteAudioAdd(url);
             if (!result.ok) return setPlaylistStatus(`Could not add link: ${result.error}`);
-            enqueue(result.filePath, document.getElementById('remote-audio-position').value);
+            const position = document.getElementById('remote-audio-position').value;
+            const files = position === 'end' ? result.files : [...result.files].reverse();
+            for (const filePath of files) enqueue(filePath, position);
             input.value = '';
-            setPlaylistStatus(result.cached ? 'Cached song added to the queue.' : 'Downloaded song added to the queue.');
+            setPlaylistStatus(`${result.files.length} song(s) added to the queue.` +
+                (result.errors.length ? ` ${result.errors.length} link(s) could not be added.` : ''));
         } finally { add.disabled = false; }
     });
     save?.addEventListener('click', async () => {
@@ -3809,6 +3934,7 @@ async function advanceAfterEnd() {
             artist: currentSongData?.artist,
             album: currentSongData?.album,
             genre: currentSongData?.genre,
+            mood: document.getElementById('discovery-mood')?.value || '',
             liked: favoritesPlaylist,
             hidden: [...hidden, ...playlist],
             limit: 1,
@@ -3853,6 +3979,16 @@ async function playTrack(index, options = {}) {
         if (index + 1 < playlist.length) playTrack(index + 1);
         return;
     }
+    let playbackPath = filePath;
+    if (NEEDS_DECODER.test(filePath)) {
+        audio.pause();
+        showToast('Preparing audio…');
+        const prepared = await window.api.mediaPrepare(filePath);
+        if (request !== playRequest) return;
+        if (!prepared.ok) { showToast(prepared.error); return; }
+        playbackPath = prepared.filePath;
+        preparedAudio.set(filePath, playbackPath);
+    }
 
     if (currentIndex >= 0 && /\.m4b$/i.test(playlist[currentIndex] || '') &&
         currentSongData?.filePath === playlist[currentIndex] && !audio.isBusy()) {
@@ -3869,7 +4005,7 @@ async function playTrack(index, options = {}) {
     currentIndex = index;
 
     // Kick off streaming immediately. Everything below races against this ticket.
-    const ticket = audio.load(filePath, {autoplay: !startPaused, seek: initialSeek});
+    const ticket = audio.load(playbackPath, {autoplay: !startPaused, seek: initialSeek});
 
     // Paint what we can know without parsing anything, so the UI never looks stalled.
     const fallbackName = filePath.split(/[\\/]/).pop();
@@ -3891,8 +4027,14 @@ async function playTrack(index, options = {}) {
     if (ticket !== audio.ticket) return;
 
     currentSongData = songData;
+    window.api.libraryPreferences().then((rows) => {
+        if (ticket === audio.ticket) document.getElementById('song-mood').value =
+            rows.find((row) => row.filePath === filePath)?.mood || '';
+    });
     renderChapterNavigation();
     currentSound = audio;
+    savePlaybackState();
+    publishRoomLibrary();
 
     // ReplayGain is per track, so it is applied as each one loads rather than once
     // at startup.
@@ -3977,7 +4119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Registered exactly once, rather than being rebuilt as callbacks on every Howl
     // instance. That was the structural reason transport state kept drifting.
 
-    audio.on('statechange', () => renderTransport());
+    audio.on('statechange', () => { outputWatcher.bindContext(); renderTransport(); });
 
     audio.on('metadata', ({duration}) => {
         // Duration is known well before the file has finished buffering, so the
@@ -4023,8 +4165,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (/\.m4b$/i.test(playlist[currentIndex] || '')) {
             window.api.bookPositionSet(playlist[currentIndex], 0);
         }
-        // Park the lyrics on the last line instead of leaving them mid-scroll.
+        // Reset the lyric view so replay starts visibly from the beginning.
         lastActiveLyricIndex = -1;
+        lastActiveWordIndex = -1;
+        lyricsContainer.scrollTop = 0;
+        lyricsContainer.querySelectorAll('.active, .word-active').forEach((element) => element.classList.remove('active', 'word-active'));
+        if (!lyrics.isSynced && lyricsContainer.firstChild) lyricsContainer.firstChild.style.transform = '';
         finishListen({reason: 'end'});
         advanceAfterEnd();
     });
@@ -4159,6 +4305,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Headphone watcher (#3).
         const pauseOnUnplug = await window.api.getStoreValue('pauseOnUnplug');
+        document.getElementById('discovery-mood').value = await window.api.getStoreValue('discoveryMood') || '';
         if (pauseOnUnplugEl) pauseOnUnplugEl.checked = Boolean(pauseOnUnplug);
         if (pauseOnUnplug) await outputWatcher.start();
 
@@ -4178,11 +4325,12 @@ document.addEventListener('DOMContentLoaded', () => {
     async function restoreLastPlaybackState() {
         // Restore last playlist
         const lastState = await window.api.getStoreValue('lastPlaybackState');
-        if (lastState && lastState.playlist && lastState.lastPlayedPath) {
+        if (lastState && Array.isArray(lastState.playlist) && lastState.playlist.length) {
             originalPlaylist = lastState.playlist;
-            playlist = [...originalPlaylist];
+            playlist = Array.isArray(lastState.queue) ? lastState.queue.filter((entry) => typeof entry === 'string' && entry) : [...originalPlaylist];
             isShuffled = lastState.isShuffled || false;
-            if (isShuffled) {
+            shuffleBtn.classList.toggle('active', isShuffled);
+            if (isShuffled && !Array.isArray(lastState.queue)) {
                 playlist = shuffleArray(playlist);
                 shuffleBtn.classList.add('active');
             }
@@ -4190,7 +4338,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loopMode = lastState.loopMode || 'none';
             updateLoopButtonUI();
 
-            const lastTrackIndex = playlist.findIndex(path => path === lastState.lastPlayedPath);
+            const lastTrackIndex = Math.max(0, playlist.findIndex(path => path === lastState.lastPlayedPath));
             if (lastTrackIndex !== -1) {
                 await playTrack(lastTrackIndex, {startPaused: true, seekTime: lastState.seek});
             }
@@ -4654,6 +4802,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ['named playlists', initNamedPlaylists],
         ['remote audio', initRemoteAudio],
         ['audio', initAudioPanel],
+        ['audio tools', initMediaTools],
         ['shortcuts', initShortcutsPanel],
     ]) {
         try {
@@ -4785,6 +4934,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     const autoRecommend = document.getElementById('auto-recommend-next');
+    document.getElementById('song-mood')?.addEventListener('change', (event) => {
+        if (playlist[currentIndex]) window.api.libraryPreferenceSet(playlist[currentIndex], {mood: event.target.value});
+    });
+    document.getElementById('discovery-mood')?.addEventListener('change', (event) => {
+        window.api.setStoreValue('discoveryMood', event.target.value);
+        if (isPlaylistVisible) renderActiveLibraryView();
+    });
+    document.getElementById('discovery-reset')?.addEventListener('click', async () => {
+        await window.api.libraryPreferencesReset();
+        document.getElementById('song-mood').value = '';
+        if (isPlaylistVisible) renderActiveLibraryView();
+        showToast('Discovery feedback reset.');
+    });
     if (autoRecommend) {
         window.api.getStoreValue('autoRecommendNext').then((value) => {
             autoRecommend.checked = Boolean(value);
@@ -4912,6 +5074,9 @@ document.addEventListener('DOMContentLoaded', () => {
         setPlaylistStatus('The host added your song to the queue'));
 
     window.api.onRoomEvent('room:welcome', (message) => {
+        room.connected = true;
+        room.code = message.room?.code || room.code;
+        room.serverUrl = message.serverUrl || room.serverUrl;
         room.members = message.members || room.members;
         if (message.role) room.isHost = message.role === 'host';
         room.role = message.role || room.role;
@@ -4919,6 +5084,9 @@ document.addEventListener('DOMContentLoaded', () => {
         renderRoomUI();
         renderLibraryViewChips();
         renderActiveLibraryView();
+        if (room.isHost) {
+            publishRoomLibrary(); publishRoomState(); publishRoomSettings(); publishRoomLyrics();
+        } else if (message.state) applyRemoteState(message.state);
     });
 
     window.api.onRoomEvent('room:disconnected', () => {
@@ -5150,6 +5318,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadAppSettings();
         await restoreLastPlaybackState();
         startUiLoopOnce();
+        document.documentElement.dataset.appReady = 'true';
     });
 
     // Fired when the app is launched by opening a file.
@@ -5157,6 +5326,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadAppSettings(); // Still need to load theme, volume, etc.
         loadPlaylistAndPlay([filePath]); // But play the new file.
         startUiLoopOnce();
+        document.documentElement.dataset.appReady = 'true';
     });
 
     // --- Global Volume Scroll ---
@@ -5251,6 +5421,7 @@ document.addEventListener('dragleave', (event) => {
 });
 
 document.addEventListener('drop', async (event) => {
+    if (isLocked) { event.preventDefault(); return; }
     event.preventDefault();
     dragDepth = 0;
     containerEl.classList.remove('drag-over');
