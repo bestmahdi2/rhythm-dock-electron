@@ -21,9 +21,13 @@ The VPS relays playback from the host without storing those tracks. A friend's
 contributed file is held temporarily under the server's `/tmp` until the host imports
 it, then deleted; pending files expire after two days and are lost on a server restart.
 The host stores imported songs under its stable `RhythmDock/incoming` directory.
-Rooms, memberships and pending uploads are temporary: a server restart requires a
-new room and Telegram pairing. The desktop saved queue survives; the optional bot
-polling offset is persisted separately.
+Room snapshots are optional: `ROOM_STATE_FILE` preserves the room code, host identity,
+queue and settings across server restarts, with playback restored paused. Existing
+clients reconnect, and the desktop can explicitly resume its saved hosted room using
+OS-encrypted credentials. Without snapshots, rooms remain temporary. Memberships,
+pending uploads and Telegram pairings are always temporary; pair the chat again after
+a server restart. The desktop saved queue and optional bot polling offset survive
+separately.
 
 Controllers can upload supported audio files up to 30 MB from the browser or desktop
 app. Listen-only members cannot upload. The room host can click **Pair Telegram chat**
@@ -70,6 +74,33 @@ need the 6-character room code. Without it, anyone who finds your server can use
 a free relay.
 
 ### 4. Start it
+
+For durable rooms, add these optional values to `.env` before starting Compose:
+
+```dotenv
+ROOM_STATE_FILE=/var/lib/rhythm-dock/rooms.json
+ROOM_RETENTION_DAYS=7
+```
+
+The supplied volume already covers that directory. Retention accepts 1–30 days;
+snapshots are bounded to 20 MB, with a maximum of 1,000 restored rooms. Updates are
+debounced for 500 ms; a forced crash can lose the most recent update. Snapshots retain
+song tags/opaque IDs and salted password/host-token hashes, without local file paths,
+member names, lyrics or upload grants. Host audio still comes from the laptop. The
+desktop **Settings → Open tools → Getting started → Resume hosted room** action
+requires the same machine's secure credential store; choosing **Leave** forgets it.
+`/healthz` reports `persistenceEnabled` and `storageHealthy`; the app's setup checker
+reports a storage problem before onboarding succeeds. Corrupt snapshots cause startup
+to fail without deleting them; restore a known backup before restarting.
+
+Crash collection is a separate opt-in facility. Leave `CRASH_REPORTS_DIR` empty to
+disable it. To enable the receiver, set it to `/var/lib/rhythm-dock/crash-reports`;
+then users can explicitly configure `https://YOUR-DOMAIN/api/crash-reports` in Tools.
+Reports strip paths/URLs/accounts/stacks, accept only predefined diagnostic fields,
+expire after 30 days and are capped at 64 KB/report and 1,000 stored reports. The
+receiver limits requests to three per socket IP/minute; behind a reverse proxy this
+is an aggregate proxy-IP limit. Adjust the deployment policy before broad rollout.
+No reporting is enabled automatically by configuring the server.
 
 ```bash
 sudo docker compose up -d

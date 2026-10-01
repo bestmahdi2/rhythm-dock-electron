@@ -2,11 +2,25 @@
 
 Continues from `PHASES.md`, which ends at Phase 6 (streaming & shared rooms).
 Updated 2026-10-02. Phases 7–8 and feasible pre-9 follow-ups now have local
-implementations and tests. Later phases remain proposals unless explicitly marked
-implemented. `TASKS.md` is the prioritized checklist and separates implementation
+implementations and tests. Phase 9 fixes and feasible Phase 10-16 features are
+implemented in this pass; the tables below now show their actual scope. `TASKS.md` is the prioritized checklist and separates implementation
 from deferred setup, hardware and installed-app acceptance.
 
 ---
+
+## Current delivery summary
+
+The status column describes implemented code within its stated limits. A checked
+provider adapter still has an unchecked live-account acceptance task in
+[the prioritized checklist](../TASKS.md). [LATER-PHASES.md](LATER-PHASES.md)
+explains onboarding, optional tools, tests and remaining implementations.
+
+Additional delivered items include the multi-cut/gain/fade editor, optional durable
+room snapshots and encrypted desktop host resume, protected playing downloads, and
+restricted settings transfer. Schema 13 preserves smart playlists, chronological
+history, bookmarks and submission retries. Actual Electron/media/server-restart tests
+pass; full native platform integration, service players, casting, MIDI, live pitch,
+BPM/key analysis, complete i18n/accessibility and auto-update remain unfinished.
 
 ## How to read this
 
@@ -80,7 +94,7 @@ earns credibility with people who care about audio.
 | Chapters (m4b) | M | Audiobook chapter navigation, with per-book position memory. |
 
 2026-10-02 verification: real generated M4B/CUE/WavPack fixtures pass, including
-Nero chapter parsing, section export and loudness analysis. Schema v12 stores
+Nero chapter parsing, section export and loudness analysis. Schema v13 stores
 measurements, album fingerprints and discovery feedback. See `AUDIO-TOOLS.md` for
 setup/limits. Hardware sound quality and installed-app acceptance remain open.
 
@@ -115,7 +129,10 @@ code and real-device acceptance are separate; `TASKS.md` tracks the latter.
 
 ## Phase 9 — Lyrics, properly ✅ *shipped in v1.6.0*
 
-Every row in the table below is implemented. Notes on how, where it is not
+Every row below has implementation; live provider and installed visual acceptance
+remain separate. This pass fixes tag-write temporary extensions and repeated
+enhanced-LRC word timing, with actual editor/FLAC/Persian-lyrics fixtures. Notes
+on how, where it is not
 obvious from the feature name:
 
 - **Provider chain** lives in `src/main/services/lyrics.js` and runs in the main
@@ -136,17 +153,17 @@ obvious from the feature name:
 Rhythm Dock's clearest differentiator. Deepening them is better positioning
 than adding a tenth library view.
 
-| Feature | Effort | Description |
-|---|---|---|
-| Lyrics editor with tap-to-sync | M | Play the track, tap a key on each line, get a timed LRC. The single most requested feature in every lyrics-capable player, and nobody does it well. |
-| Save LRC beside the file / embed in tags | S | Your work should survive a library reset or a move to another player. |
-| Multiple providers with fallback | S | lrclib → NetEase → Genius (unsynced) → embedded. Currently a single source is a single point of failure. |
-| Word-level karaoke (enhanced LRC) | M | Highlight within the line, not just the line. Parse and render `<mm:ss.xx>` word tags. |
-| Full-screen lyrics mode | S | Large type, blurred album art behind, no chrome. |
-| Desktop lyrics overlay | M | A borderless always-on-top strip that floats over other apps, showing only the current line. Extremely popular in Asian music players and largely absent in Western ones. |
-| Lyrics typography settings | S | Font, size, weight, alignment, line spacing. Matters a lot for CJK and RTL scripts. |
-| Manual offset saved per track | S | The offset control exists but is per-session; persist it per file. |
-| Translation caching | S | Cache translated lines in the DB so a re-listen does not re-hit the API. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Lyrics editor with tap-to-sync | M | Play the track, tap a key on each line, get a timed LRC. The single most requested feature in every lyrics-capable player, and nobody does it well. | [x] Tap editor; real parser/editor regression |
+| Save LRC beside the file / embed in tags | S | Your work should survive a library reset or a move to another player. | [x] Sidecar + embed; actual tag/lyrics fixture |
+| Multiple providers with fallback | S | lrclib → NetEase → Genius (unsynced) → embedded. Currently a single source is a single point of failure. | [x] Chain and offline fallback; live APIs pending |
+| Word-level karaoke (enhanced LRC) | M | Highlight within the line, not just the line. Parse and render `<mm:ss.xx>` word tags. | [x] Repeated chorus word-time fix |
+| Full-screen lyrics mode | S | Large type, blurred album art behind, no chrome. | [x] Existing overlay view |
+| Desktop lyrics overlay | M | A borderless always-on-top strip that floats over other apps, showing only the current line. Extremely popular in Asian music players and largely absent in Western ones. | [x] Existing window; visual acceptance pending |
+| Lyrics typography settings | S | Font, size, weight, alignment, line spacing. Matters a lot for CJK and RTL scripts. | [x] Existing font/RTL lyric controls |
+| Manual offset saved per track | S | Persist the lyric offset per song and retain it across refetches. | [x] Persisted offset |
+| Translation caching | S | Cache translated lines in the DB so a re-listen does not re-hit the API. | [x] Cache + mocked translation checks |
 
 ---
 
@@ -154,18 +171,18 @@ than adding a tenth library view.
 
 **Theme: make the compact player excellent rather than merely small.**
 
-| Feature | Effort | Description |
-|---|---|---|
-| Waveform seek bar | M | Render a peak file per track (cached in the DB) so the progress bar shows the song's shape. Makes seeking to a chorus or a drop a single click. |
-| Now Playing full-screen view | M | Large art, blurred backdrop, lyrics, transport. The "put it on the second monitor" mode. |
-| Visualizer | M | Spectrum analyser, oscilloscope, or a simple VU. WebAudio `AnalyserNode` makes this cheap; the work is making it look good rather than making it work. |
-| Accent colour from album art | S | Extract a dominant colour and drive `--accent` from it. Pairs naturally with the ten-theme token system already in place. |
-| Command palette | S | `Ctrl/Cmd+K` for every action. The fastest way to make a feature-dense app feel light, and it makes deep features discoverable without more chrome. |
-| Custom themes / user CSS | S | The theme system is already pure tokens. Let users drop a JSON palette in the config folder. Very low cost, high goodwill. |
-| Virtualised lists | M | The library list will not survive 20,000 rows without windowing. Do this before the grid views in Phase 11, not after. |
-| Drag to reorder the queue | S | Currently the queue is not directly manipulable. |
-| Onboarding | S | First run currently shows an empty dock with no instruction. One screen: pick a folder. |
-| Layout presets | S | Save and recall window size/position/mode combinations. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Waveform seek bar | M | Render a peak file per track (cached in the DB) so the progress bar shows the song's shape. Makes seeking to a chorus or a drop a single click. | [x] Optional FFmpeg; 512 cached peaks + keyboard seek |
+| Now Playing full-screen view | M | Large art, blurred backdrop, lyrics, transport. The "put it on the second monitor" mode. | [x] Art, current lyric, transport; Escape restores |
+| Visualizer | M | Spectrum analyser, oscilloscope, or a simple VU. WebAudio `AnalyserNode` makes this cheap; the work is making it look good rather than making it work. | [x] Spectrum/scope/VU; off by default |
+| Accent colour from album art | S | Extract a dominant colour and drive `--accent` from it. Pairs naturally with the ten-theme token system already in place. | [x] Quantized dominant artwork color |
+| Command palette | S | `Ctrl/Cmd+K` for every action. The fastest way to make a feature-dense app feel light, and it makes deep features discoverable without more chrome. | [x] Ctrl/Cmd+K searchable actions |
+| Custom themes / user CSS | S | The theme system is already pure tokens. Let users drop a JSON palette in the config folder. Very low cost, high goodwill. | [x] Five colors + restricted local CSS |
+| Virtualised lists | M | The library list will not survive 20,000 rows without windowing. Do this before the grid views in Phase 11, not after. | [x] SQL paging; 40-row track windows |
+| Drag to reorder the queue | S | Move queued tracks directly while preserving the playing song. | [x] Actual drag/drop preserves playing song |
+| Onboarding | S | An empty library offers music-folder selection and optional sharing-server setup. | [x] Folder + server health/save onboarding |
+| Layout presets | S | Save and recall window size/position/mode combinations. | [x] Named geometry/layout/pin/edge presets |
 
 ---
 
@@ -174,18 +191,18 @@ than adding a tenth library view.
 **Theme: this is the fork in the road.** From here on, the app stops being a
 dock and starts being a library manager. Worth pausing to decide.
 
-| Feature | Effort | Description |
-|---|---|---|
-| Playlists | M | Real, persistent, named playlists — distinct from the play queue. Reorder, duplicate, delete. |
-| M3U / PLS / XSPF import & export | S | Interoperability with everything else the user owns. |
-| Smart playlists | M | Rule-based: "rating ≥ 4 AND not played in 30 days AND genre is jazz". Only possible on Phase 7's schema. |
-| Queue vs playlist separation | S | "Play next" and "Add to queue" as distinct actions from "play now". A surprisingly deep UX change, and the thing people miss most when moving from a mature player. |
-| Album / artist grid views | M | Art-first browsing. Needs Phase 7's thumbnail cache and Phase 10's virtualisation. |
-| Folder tree browser | S | Some libraries are organised by folder and no amount of tag inference beats just showing the tree. |
-| Sorting, filtering, multi-select | M | Column sorting, filter-as-you-type, shift/ctrl selection, bulk operations. |
-| Play history | S | A chronological log. Cheap once play counts exist. |
-| Duplicate detection | M | By tags, by file size/duration, or by audio fingerprint. Offer a review screen — never auto-delete. |
-| Recently added / recently played | S | Two queries against Phase 7 data. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Playlists | M | Real, persistent, named playlists — distinct from the play queue. Reorder, duplicate, delete. | [x] Persistent, reorder, duplicate, delete |
+| M3U / PLS / XSPF import & export | S | Interoperability with everything else the user owns. | [x] Existing round trips |
+| Smart playlists | M | Rule-based: "rating ≥ 4 AND not played in 30 days AND genre is jazz". Only possible on Phase 7's schema. | [x] Saved AND rules, ratings/genre/unplayed/duration |
+| Queue vs playlist separation | S | "Play next" and "Add to queue" as distinct actions from "play now". A surprisingly deep UX change, and the thing people miss most when moving from a mature player. | [x] Existing explicit insertion controls |
+| Album / artist grid views | M | Art-first browsing. Needs Phase 7's thumbnail cache and Phase 10's virtualisation. | [x] 40 groups/page, 2000 group cap |
+| Folder tree browser | S | Some libraries are organised by folder and no amount of tag inference beats just showing the tree. | [x] Lazy hierarchy and folder filtering |
+| Sorting, filtering, multi-select | M | Column sorting, filter-as-you-type, shift/ctrl selection, bulk operations. | [x] Sort/search, checkbox/visible Shift and bulk |
+| Play history | S | A chronological log. Cheap once play counts exist. | [x] 10000 retained; latest 200 shown |
+| Duplicate detection | M | By tags, by file size/duration, or by audio fingerprint. Offer a review screen — never auto-delete. | [x] Tag/duration candidates; fingerprint matching open |
+| Recently added / recently played | S | Two queries against Phase 7 data. | [x] Existing added/recent views |
 
 ---
 
@@ -193,17 +210,17 @@ dock and starts being a library manager. Worth pausing to decide.
 
 **Theme: extend the tag editor you now have into a library-wide tool.**
 
-| Feature | Effort | Description |
-|---|---|---|
-| Batch tag editing | M | Select many tracks, edit shared fields, write once. The natural next step for the Phase 5 editor. |
-| Tag from filename / filename from tag | M | Pattern-based, with a live preview: `%artist% - %title%`. Your `metadata.js` scoring already does the hard inference part. |
-| Auto-organise files | M | Move/rename into `Artist/Album/## Title.ext` by a user template. **Always dry-run first, always undoable** — this feature has destroyed more libraries than any other. |
-| MusicBrainz lookup | L | Match an album against the MusicBrainz database and fill in tags, including cover art and release dates. |
-| AcoustID fingerprinting | L | Identify untagged files by their audio. The only real answer to a folder of `track01.mp3`. Needs `chromaprint`. |
-| Album art fetching | M | Download missing covers, embed or save as `folder.jpg`. |
-| Tag presets & templates | S | Reusable field sets for a series or a bootleg collection. |
-| Format conversion | L | Implemented early via optional FFmpeg: full-song conversion, A–B trim/export and chapter/CUE split. Existing files are preserved; advanced timeline editing remains future work. |
-| ReplayGain scan UI | S | Implemented early for song, indexed album and queue; progress and cancellation. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Batch tag editing | M | Select many tracks, edit shared fields, write once. The natural next step for the Phase 5 editor. | [x] Reviewed shared fields; preserved-byte undo |
+| Tag from filename / filename from tag | M | Pattern-based, with a live preview: `%artist% - %title%`. Your `metadata.js` scoring already does the hard inference part. | [x] Previewed patterns in both directions |
+| Auto-organise files | M | Move/rename into `Artist/Album/## Title.ext` by a user template. **Always dry-run first, always undoable** — this feature has destroyed more libraries than any other. | [x] Verified moves, hash-guarded undo, path updates; audio only |
+| MusicBrainz lookup | L | Match an album against the MusicBrainz database and fill in tags, including cover art and release dates. | [x] Recording/release adapter; review required |
+| AcoustID fingerprinting | L | Identify untagged files by their audio. The only real answer to a folder of `track01.mp3`. Needs `chromaprint`. | [x] fpcalc + lookup adapter; tool/key/live acceptance pending |
+| Album art fetching | M | Download missing covers, embed or save as `folder.jpg`. | [x] Chosen-release PNG/JPEG cover fetch/embed |
+| Tag presets & templates | S | Reusable field sets for a series or a bootleg collection. | [x] Named shared field sets |
+| Format conversion | L | Implemented early via optional FFmpeg: full-song conversion, A–B trim/export and chapter/CUE split. Existing files are preserved; multi-cut/fade editing and optional pitch export now exist. | [x] Optional FFmpeg converter and multi-cut/fade editor |
+| ReplayGain scan UI | S | Implemented early for song, indexed album and queue; progress and cancellation. | [x] Existing song/album/queue scan; tag sync open |
 
 ---
 
@@ -212,18 +229,18 @@ dock and starts being a library manager. Worth pausing to decide.
 **Theme: behave like a native app on all three OSes.** Several items here are
 gaps rather than additions.
 
-| Feature | Effort | Description |
-|---|---|---|
-| **MPRIS (Linux)** | M | Without it there are no media-key or desktop-widget controls on Linux at all. You ship `.deb` and `.rpm`, so this is a real gap, not a nicety. |
-| **macOS Now Playing** | M | `MPNowPlayingInfoCenter` integration — Control Centre, lock screen, AirPods controls. Same gap, other platform. |
-| Auto-update | M | `electron-updater` against your existing GitHub Releases. Given that an update once wiped the database, do this only with the Phase 7 migration path proven. |
-| Launch at login | S | Per-OS, via `app.setLoginItemSettings`. |
-| CLI arguments | S | `rhythm-dock /path/to/song.mp3 --play`. Also what makes "Open With" reliable. |
-| Portable mode | S | Detect a marker file and keep all data beside the executable. |
-| Rich notifications | S | Track-change toasts with art and inline transport buttons. |
-| macOS Touch Bar / Windows thumbnail toolbar | S | Small, native, and cheap once the transport is abstracted. |
-| Wayland compatibility pass | M | Always-on-top and window positioning behave differently under Wayland; worth testing explicitly since you target Fedora. |
-| Single-instance + file queueing | S | Opening ten files from the file manager should enqueue ten tracks in one window, not open ten windows. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| **MPRIS (Linux)** | M | Without it there are no media-key or desktop-widget controls on Linux at all. You ship `.deb` and `.rpm`, so this is a real gap, not a nicety. | [ ] Native MPRIS needs implementation |
+| **macOS Now Playing** | M | `MPNowPlayingInfoCenter` integration — Control Centre, lock screen, AirPods controls. Same gap, other platform. | [ ] Native MPNowPlayingInfoCenter needs implementation |
+| Auto-update | M | `electron-updater` against your existing GitHub Releases. Given that an update once wiped the database, do this only with the Phase 7 migration path proven. | [ ] Code + installer upgrade gate remain |
+| Launch at login | S | Per-OS, via `app.setLoginItemSettings`. | [x] Installed Windows/macOS preference; Linux autostart open |
+| CLI arguments | S | `rhythm-dock /path/to/song.mp3 --play`. Also what makes "Open With" reliable. | [x] Multi-file --play/--enqueue/--hidden |
+| Portable mode | S | Detect a marker file and keep all data beside the executable. | [x] Packaged marker + isolated data; installed test pending |
+| Rich notifications | S | Track-change toasts with art and inline transport buttons. | [x] Opt-in art/toast/click; mac actions untested |
+| macOS Touch Bar / Windows thumbnail toolbar | S | Small, native, and cheap once the transport is abstracted. | [x] Windows toolbar + mac Touch Bar code; mac test pending |
+| Wayland compatibility pass | M | Always-on-top and window positioning behave differently under Wayland; worth testing explicitly since you target Fedora. | [ ] Real Wayland/platform pass remains |
+| Single-instance + file queueing | S | Opening ten files from the file manager should enqueue ten tracks in one window, not open ten windows. | [x] Batched startup/second-instance/mac events |
 
 ---
 
@@ -231,16 +248,16 @@ gaps rather than additions.
 
 **Theme: the network features people actually ask for.**
 
-| Feature | Effort | Description |
-|---|---|---|
-| Last.fm scrobbling | M | The default expectation for any serious player. Needs OAuth and an offline scrobble queue. |
-| ListenBrainz scrobbling | S | Same shape, open API, no key negotiation. Often easier to ship first. |
-| Discord Rich Presence | S | Shows what you are listening to. Trivial to implement, disproportionately good for word-of-mouth. |
-| Internet radio | M | Stream URLs plus a directory (Radio Browser API). Reuses the whole playback path. |
-| Podcast support | L | RSS subscriptions, episode list, download management, per-episode resume. This is genuinely a second app inside your app — scope carefully. |
-| Remote control web UI | M | A tiny page served on the LAN so a phone can control the player. Your room server already establishes the pattern. |
-| Chromecast / DLNA / AirPlay | L | Cast to speakers. Three different protocols; pick one and do it properly. |
-| Recommendations | L | Offline recommendations and feedback/mood learning implemented early. Online enrichment still needs a provider adapter and setup. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Last.fm scrobbling | M | The default expectation for any serious player. Uses browser account authorization and an offline scrobble queue. | [x] Signed authorization + persistent outbox; live setup pending |
+| ListenBrainz scrobbling | S | Same shape, open API, no key negotiation. Often easier to ship first. | [x] Token adapter + persistent outbox; live setup pending |
+| Discord Rich Presence | S | Shows what you are listening to. Trivial to implement, disproportionately good for word-of-mouth. | [x] Optional local IPC listening status; live ID/client acceptance pending |
+| Internet radio | M | Stream URLs plus a directory (Radio Browser API). Reuses the whole playback path. | [x] Direct station + Radio Browser; live directory pending |
+| Podcast support | L | RSS subscriptions, episode list, download management, per-episode resume. This is genuinely a second app inside your app — scope carefully. | [x] RSS/Atom follow/download/save/resume |
+| Remote control web UI | M | A tiny page served on the LAN so a phone can control the player. Your room server already establishes the pattern. | [ ] Standalone LAN control remains; rooms already provide web controls |
+| Chromecast / DLNA / AirPlay | L | Cast to speakers. Three different protocols; pick one and do it properly. | [ ] Choose and implement casting route |
+| Recommendations | L | Offline recommendations and feedback/mood learning implemented early. Last.fm similar-artist enrichment is implemented with local-library matching; live setup remains. | [x] Offline + Last.fm similar-artist/local matching; live setup pending |
 
 ---
 
@@ -251,19 +268,19 @@ Spotify.** This is the most distinctive phase in the document. If Rhythm Dock
 is going to have a reason to exist alongside commercial players, it is probably
 here.
 
-| Feature | Effort | Description |
-|---|---|---|
-| Practice mode | M | A–B loop + pitch-preserving slowdown + a count-in. Everything needed to learn a solo, in one screen. Depends on Phase 8. |
-| Pitch / key shift | M | Transpose in semitones without changing tempo. For singers and for transposing instruments. |
-| BPM detection | M | Per track, stored in the DB. Enables tempo-based smart playlists and a running/workout mode. |
-| Key detection | L | Musical key via chroma analysis. Pairs with BPM for DJ-style sorting. |
-| Metronome / click track | S | Synced to the detected BPM. |
-| Spectrogram view | M | Frequency over time. Also the fastest way to spot a transcoded fake FLAC, which the audio-hoarder crowd cares about intensely. |
-| Bookmarks & cue points | S | Named positions within a track, with keyboard jumps. |
-| Parametric EQ | M | Beyond the current 10-band graphic EQ: arbitrary bands, Q control, a response curve display, and importable AutoEQ profiles for headphones. |
-| Audio export of a selection | M | Implemented early: export the A–B region to a new audio file with optional FFmpeg. |
-| Native exclusive output / MIDI | XL | Deferred Phase 8 investigations: separate native output backend and MIDI synth/soundfont configuration. Neither is supplied by the WebAudio path. |
-| Scriptable actions / plugin API | XL | Let users extend the player. Powerful, and a permanent maintenance and security commitment. Think hard. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Practice mode | M | A–B loop + pitch-preserving slowdown + a count-in. Everything needed to learn a solo, in one screen. Depends on Phase 8. | [x] Existing loop/slowdown + four-click count-in |
+| Pitch / key shift | M | Transpose in semitones without changing tempo. For singers and for transposing instruments. | [x] Offline +/-12-semitone export; live shift remains |
+| BPM detection | M | Per track, stored in the DB. Enables tempo-based smart playlists and a running/workout mode. | [ ] Detector/storage/filtering remain |
+| Key detection | L | Musical key via chroma analysis. Pairs with BPM for DJ-style sorting. | [ ] Chroma analysis remains |
+| Metronome / click track | S | Synced to the detected BPM. | [x] Manual BPM, rate-aware click; detection sync open |
+| Spectrogram view | M | Frequency over time. Also the fastest way to spot a transcoded fake FLAC, which the audio-hoarder crowd cares about intensely. | [x] Optional analyser history visualizer |
+| Bookmarks & cue points | S | Named positions within a track, with keyboard jumps. | [x] Named bookmarks, jump/delete, shortcut, backup |
+| Parametric EQ | M | Beyond the current 10-band graphic EQ: arbitrary bands, Q control, a response curve display, and importable AutoEQ profiles for headphones. | [x] 16 bands/Q/preamp/curve + PK/LS/HS text import |
+| Audio export of a selection | M | Implemented early: export the A–B region to a new audio file with optional FFmpeg. | [x] Existing selection export |
+| Native exclusive output / MIDI | XL | Deferred Phase 8 investigations: separate native output backend and MIDI synth/soundfont configuration. Neither is supplied by the WebAudio path. | [ ] Separate native backend and MIDI synth remain |
+| Scriptable actions / plugin API | XL | Let users extend the player. Powerful, and a permanent maintenance and security commitment. Think hard. | [ ] Future scoped extension API decision |
 
 ---
 
@@ -273,18 +290,18 @@ here.
 it.** Do not leave this until last in practice, even though it is last in the
 list — pull items forward continuously.
 
-| Feature | Effort | Description |
-|---|---|---|
-| Crash recovery | S | Restore the queue, position and window state after an unclean exit. |
-| Structured logging & log viewer | S | A user reporting a bug should be able to hand you a file. |
-| Opt-in error reporting | M | Off by default, clearly explained, no telemetry beyond crashes. |
-| Automated tests | M | Your `package.json` `test` script currently exits 1. Start with the pure logic — `metadata.js` scoring, LRC parsing, tag round-trips. Those are where silent regressions hide. |
-| Screen reader support | M | ARIA roles and labels throughout. Currently the SVG-only buttons are largely unreadable to assistive tech. |
-| Full keyboard navigation | S | Partly done in Patch 3; extend to the library and the tag editor. |
-| Interface translation (i18n) | M | Externalise strings. You already ship RTL lyrics rendering, so an RTL *interface* is a natural pairing. |
-| Settings import/export | S | Move a configuration between machines. |
-| Performance budget | M | Measure memory and CPU with a large library and hold a line. Electron players earn their reputation by ignoring this. |
-| Documentation site | S | Even a single well-organised page beats a README section once the feature count triples. |
+| Feature | Effort | Description | Current status (2026-10-02) |
+|---|---|---|---|
+| Crash recovery | S | Restore the queue, position and window state after an unclean exit. | [x] Existing paused renderer recovery |
+| Structured logging & log viewer | S | A user reporting a bug should be able to hand you a file. | [x] Bounded logs, local viewer/export |
+| Opt-in error reporting | M | Off by default, clearly explained, no telemetry beyond crashes. | [x] Opt-in sanitized sender + optional bounded receiver |
+| Automated tests | M | The critical-path test suite now passes. Coverage includes pure logic — `metadata.js` scoring, LRC parsing, tag round-trips. Those are where silent regressions hide. | [x] Expanded real/offline integration suite |
+| Screen reader support | M | ARIA roles and labels throughout. Currently the SVG-only buttons are largely unreadable to assistive tech. | [ ] Labels added; complete assistive-tech audit remains |
+| Full keyboard navigation | S | Partly done in Patch 3; extend to the library and the tag editor. | [ ] Palette/seek/dialog basics; full audit remains |
+| Interface translation (i18n) | M | Externalise strings. You already ship RTL lyrics rendering, so an RTL *interface* is a natural pairing. | [ ] Externalization/translations/RTL interface remain |
+| Settings import/export | S | Move a configuration between machines. | [x] Allowlisted import/export; secrets/paths/routing excluded |
+| Performance budget | M | Measure memory and CPU with a large library and hold a line. Electron players earn their reputation by ignoring this. | [x] Query/DOM regression budgets; full CPU/startup acceptance open |
+| Documentation site | S | Even a single well-organised page beats a README section once the feature count triples. | [x] Local index + maintained guides; hosted publish optional |
 
 ---
 
@@ -340,12 +357,12 @@ implementation is not a substitute for testing the installed app with real devic
 | Simultaneous wired, speaker, and Bluetooth outputs | Implemented in Settings and the audio engine. The 2026-09-24 pass prevents duplicate routing, cleans up failed outputs, and retries a stream after a playback gesture. Accept only after testing the actual device mix and adjusting per-output delay; operating-system Bluetooth limits still apply. |
 | Queue at top / next / end | Implemented as actions on library rows. |
 | Control lock | Implemented with lock button and Ctrl+L. Verify alongside edge mode in the installed app. |
-| Offline/online recommendations | Offline songs/albums now include manual mood filters, learned More/Less feedback and reset. Online enrichment remains Phase 14. |
+| Offline/online recommendations | Offline songs/albums now include manual mood filters, learned More/Less feedback and reset. Last.fm similar-artist enrichment with local matching is implemented; live setup remains Phase 14 acceptance. |
 | YouTube/Spotify URLs and playlists, temporary cache, saved imports | Direct HTTPS audio plus M3U/PLS/XSPF and Telegram links are implemented with bounded two-day cache/save. Progressive remote start and YouTube/Spotify adapters remain Phase 14 implementation, beyond credential setup. |
 | Missing “Controls” button | Permanent Show Lyrics Controls action added in Settings; lyrics menu retains Show/Hide Controls. |
 | Highlight A–B range | Implemented in the player progress track on 2026-09-24; check theme contrast and narrow layouts. |
 | Export A–B section | Implemented before Phase 9 with optional FFmpeg and WAV/FLAC/MP3/M4A/OGG output; original preservation and actual duration tested. |
-| Audio editor and converter | Basic A–B preview/trim, full-track conversion and chapter splitting implemented. Advanced timeline/effect editing remains Phase 12. |
+| Audio editor and converter | Basic A–B preview/trim, full-track conversion and chapter splitting implemented. Multi-cut/reorder/gain/fade editor and offline pitch render are implemented; live effects/persisted projects remain Phase 12. |
 | Recently added playlist/view | Already implemented as the “Added” library view, ordered from library added timestamps. |
 
 

@@ -5,7 +5,9 @@ Phase 1–6 patch plan. Use `../TASKS.md` for checked implementation/acceptance 
 and `ROADMAP.md` for Phase 7 onward. The current engine is streamed HTML media plus
 WebAudio, not Howler; icons use current-color SVG plus generated native variants;
 the vertical preset is 220×560 with wider panels. Local tests pass through schema
-v12 and critical shared-room paths. Installer, hardware and live provider/server
+v13 and critical shared-room paths. Later library, editing, practice and connected
+features are documented in `LATER-PHASES.md`; checked tasks are in `../TASKS.md`.
+Installer, hardware and live provider/server
 acceptance remain separate. NSIS currently retains one-click install and preserves
 app data on uninstall; automatic updating is still gated on installer acceptance.
 

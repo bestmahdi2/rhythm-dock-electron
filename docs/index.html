@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Rhythm Dock documentation</title>
+  <style>
+    :root {font: 17px/1.65 system-ui,sans-serif; color-scheme: dark light;}
+    body {max-width: 880px; margin: auto; padding: 32px 24px 64px;}
+    h1,h2 {line-height: 1.2;} h1 {font-size: clamp(2rem,5vw,3rem);}
+    a {color: light-dark(#12683d,#80e0ac); text-underline-offset: .2em;}
+    a:focus-visible {outline: 3px solid currentColor; outline-offset: 4px;}
+    nav {display: flex; gap: 20px; flex-wrap: wrap; padding: 12px 0;}
+    .cards {display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: 16px;}
+    article {border: 1px solid light-dark(#b7c1bc,#43584b); border-radius: 12px; padding: 20px;}
+    article h2 {font-size: 1.2rem; margin-top: 0;}
+    code {font-size: .95em;} footer {margin-top: 40px;}
+  </style>
+</head>
+<body>
+  <header>
+    <p>Rhythm Dock · Documentation · 2026-10-02</p>
+    <h1>Your music, your queue.</h1>
+    <p>A compact player with lyrics, local library tools and shared listening rooms.</p>
+    <nav aria-label="Documentation navigation">
+      <a href="../TASKS.md">Checked tasks</a>
+      <a href="ROADMAP.md">Phase roadmap</a>
+      <a href="LATER-PHASES.md">Setup and feature guide</a>
+    </nav>
+  </header>
+  <main>
+    <h2>Start listening</h2>
+    <p>Open an audio file or choose your music folder. Use Player, Playlist and Settings,
+      and open Tools from Settings. Ctrl+K (Cmd+K on macOS) finds actions.</p>
+    <div class="cards">
+      <article><h2>Listen together</h2><p>Create a room, invite your friend and share a queue.
+        Phones can join in their browser. Server credentials are configured separately.</p>
+        <a href="../server/README.md">Sharing and Telegram setup</a></article>
+      <article><h2>Library and lyrics</h2><p>Browse artists, albums and folders; use smart playlists,
+        edit lyrics and review batch tags before saving.</p>
+        <a href="LATER-PHASES.md">Tools and account guide</a></article>
+      <article><h2>Audio and practice</h2><p>Use multiple outputs, EQ, loops and a count-in.
+        Optional FFmpeg enables waveform generation, conversion and edited exports.</p>
+        <a href="AUDIO-TOOLS.md">Audio tools and testing</a></article>
+      <article><h2>Progress and limits</h2><p>Code completion, live services, hardware checks and
+        remaining implementations have separate checkboxes.</p>
+        <a href="../TASKS.md">Prioritized checklist</a></article>
+    </div>
+    <h2>Protect your library</h2>
+    <p>Library backups include ratings, playlists, history and bookmarks. File changes require
+      a preview; tag undo restores saved bytes. Organization moves audio files only, so retain
+      companion lyrics and CUE sheets when organizing albums.</p>
+    <h2>Verification</h2>
+    <p>Run <code>npm test</code> and <code>npm run test:ui-smoke</code> in the app directory.
+      The <a href="LATER-PHASES.md#reproduce-local-verification">test guide</a> covers optional
+      FFmpeg and platform requirements. Live service and hardware acceptance remain separate.</p>
+  </main>
+  <footer><p>This page works locally. Linked Markdown guides remain the maintained source;
+    publishing a hosted documentation site is optional.</p></footer>
+</body>
+</html>
