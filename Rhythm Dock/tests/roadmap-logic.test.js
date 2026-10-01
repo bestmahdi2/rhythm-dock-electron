@@ -1,0 +1,94 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const parser=require('../src/renderer/js/lyrics-parser');
+const eq=require('../src/renderer/js/audio/parametric');
+const settings=require('../src/main/services/settings-transfer');
+const fileTools=require('../src/main/services/file-tools');
+const launch=require('../src/main/core/launch-options');
+const providers=require('../src/main/services/connected-providers');
+const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'rd-roadmap-logic-'));
+(async()=>{
+    try{
+        const lrc=parser.processLyrics('[ar:Artist]\n[offset:100]\n[00:12.00][01:44.00]<00:12.00>Hello <00:12.40>world');
+        assert.equal(lrc.isSynced,true);assert.equal(lrc.hasWordTiming,true);assert.equal(lrc.lines.length,2);
+        assert.equal(lrc.lines[0].time,11.9);assert.equal(lrc.lines[1].time,103.9);
+        assert.ok(Math.abs(lrc.lines[1].words[1].time-104.3)<.00001,'repeat word timestamps must follow the repeated line');
+        assert.deepEqual(parser.processLyrics('[ti:Song]\nسلام\nHello').lines,['سلام','Hello']);
+        assert.equal(parser.processLyrics('[125:03.123]Long book').lines[0].time,7503.123);
+        assert.equal(parser.processLyrics(null).lines.length,0);
+        const profile=eq.autoEQ('Preamp: -6 dB\nFilter 1: ON PK Fc 105 Hz Gain 3.2 dB Q 1.4\nFilter 2: OFF PK Fc 500 Hz Gain 2 dB Q 1');
+        const accent=require('../src/renderer/js/art-accent');
+        assert.match(accent.color([0,180,80,255,0,180,80,255,230,0,0,255]),/^#[a-f0-9]{6}$/);
+        assert.equal(accent.color([0,0,0,0]),null);
+        assert.equal(profile.bands.length,1);assert.equal(profile.bands[0].gain,3.2);
+        assert.throws(()=>eq.autoEQ('Filter 1: ON PK Fc 100 Hz Gain 99 dB Q 1'));
+        assert.throws(()=>eq.autoEQ('Filter 1: ON BP Fc 100 Hz Gain 1 dB Q 1'));
+        const exported=settings.exportSettings({colorTheme:'paper',playbackRate:1.25,roomServerUrl:'https://private',providerCredentials:'secret',
+            equalizer:{gains:[0,1],apiToken:'secret'}});
+        assert.equal(exported.settings.colorTheme,'paper');assert.equal(exported.settings.roomServerUrl,undefined);
+        assert.equal(exported.settings.providerCredentials,undefined);assert.equal(exported.settings.equalizer.apiToken,undefined);
+        assert.deepEqual(settings.importSettings(exported),exported.settings);
+        assert.throws(()=>settings.importSettings({...exported,settings:{playbackRate:999}}));
+        const malicious=JSON.parse('{"equalizer":{"__proto__":{"polluted":true}}}');settings.validate(malicious);assert.equal({}.polluted,undefined);
+        assert.equal(fileTools.tagsFromFilename('%artist% - %title%',path.join(scratch,'Artist - Title.mp3')).title,'Title');
+        assert.equal(fileTools.filename('%artist%/%album%/%track% %title%',{artist:'A/B',album:'Album',track:2,title:'CON'}),path.join('A_B','Album','02 _CON'));
+        assert.throws(()=>fileTools.filename('../%title%',{}));
+        const timeline=require('../src/main/services/timeline');
+        const edit=timeline.plan([{start:0,end:1,gain:-3,fadeIn:.2,fadeOut:.1},{start:2,end:4}],4,12);
+        assert.equal(edit.duration,3);assert.match(edit.filter,/asetrate=96000/);assert.match(edit.filter,/concat=n=2/);
+        assert.throws(()=>timeline.plan([{start:2,end:1}],4));
+        assert.throws(()=>timeline.plan([{start:0,end:2,fadeIn:2,fadeOut:1}],4));
+        assert.throws(()=>timeline.plan([{start:0,end:1}],NaN));
+        const broadcasts=require('../src/main/services/broadcasts');
+        const rss=broadcasts.parseFeed('<rss><channel><title>My show</title><item><title><![CDATA[Hello &amp; world]]></title><enclosure url="https://audio.example.test/episode.mp3" type="audio/mpeg"/></item><item><enclosure url="http://127.0.0.1/private.mp3"/></item></channel></rss>','https://feeds.example.test/show.xml');
+        assert.equal(rss.title,'My show');assert.equal(rss.episodes.length,1);assert.equal(rss.episodes[0].title,'Hello & world');
+        const atom=broadcasts.parseFeed('<feed><title>Atom</title><entry><title>Episode</title><link rel="enclosure" href="https://audio.example.test/episode.mp3" type="audio/mpeg"/></entry></feed>','https://feeds.example.test/show.xml');
+        assert.equal(atom.episodes.length,1);
+        assert.throws(()=>broadcasts.parseFeed('<!DOCTYPE rss SYSTEM "file:///private"><rss/>','https://feeds.example.test'));
+        const provider= require('../src/main/services/platform-controls');let shown=0,options;
+        class FakeNotification {static isSupported(){return true;}constructor(value){options=value;}on(){}show(){shown++;}close(){}}
+        let enabled=false;const controls=provider.create({electron:{Notification:FakeNotification,nativeImage:{createFromDataURL:()=>({})}},
+            getStore:()=>({get:()=>enabled}),getWindow:()=>null,send:()=>{}});
+        controls.update({isPlaying:true,title:'First'});assert.equal(shown,0,'notifications must be off by default');
+        enabled=true;controls.update({isPlaying:true,title:'Second',artist:'Artist'});controls.update({isPlaying:true,title:'Second',artist:'Artist'});
+        assert.equal(shown,1);assert.equal(options.title,'Second');assert.equal(options.silent,true);
+        const redact=require('../src/main/services/diagnostics').sanitizeEvents;
+        const events=redact([{event:'renderer:exit',at:new Date().toISOString(),filePath:path.join(scratch,'private'),token:'secret',reason:'crashed',code:1}]);
+        assert.equal(events[0].filePath,undefined);assert.equal(events[0].token,undefined);
+        assert.throws(()=>settings.validate({roadmapAppearance:{visualizer:'scope',css:'@import "secret.css"'}}));
+        const a=path.join(scratch,'a.mp3'),b=path.join(scratch,'b.mp3');fs.writeFileSync(a,'original-a');fs.writeFileSync(b,'original-b');
+        assert.deepEqual(launch.parseArgs(['app',a,b,'--enqueue'],scratch,p=>p.endsWith('.mp3')).files,[a,b]);
+        assert.equal(launch.parseArgs(['app',a,'--hidden']).hidden,true);
+        assert.equal(launch.dataRoot({packaged:false,exePath:a,appData:scratch,exists:()=>true}).portable,false);
+        assert.equal(launch.dataRoot({packaged:true,exePath:a,appData:scratch,exists:()=>true}).root,path.join(scratch,'RhythmDockData'));
+        const tools=new fileTools.FileTools(path.join(scratch,'journal'),{read:p=>({ok:true,tags:{artist:'Artist',album:'Album',title:path.basename(p)}}),
+            write:(p,v)=>{fs.writeFileSync(p,JSON.stringify(v));return {ok:true};}});
+        const preview=await tools.preview({files:[a,b],values:{genre:'Jazz'}});
+        assert.equal(fs.readFileSync(a,'utf8'),'original-a','preview cannot edit files');
+        assert.equal((await tools.apply(preview.id)).state,'done');assert.equal(JSON.parse(fs.readFileSync(a,'utf8')).genre,'Jazz');
+        await tools.undo(preview.id);assert.equal(fs.readFileSync(a,'utf8'),'original-a');assert.equal(fs.readFileSync(b,'utf8'),'original-b');
+        const changed=await tools.preview({files:[a],values:{genre:'Rock'}});fs.appendFileSync(a,'changed');
+        await assert.rejects(tools.apply(changed.id),/changed/);
+        const dest=path.join(scratch,'organized');fs.mkdirSync(dest);
+        const move=await tools.preview({files:[b],mode:'organise',destination:dest,template:'%artist%/%title%'});
+        await tools.apply(move.id);assert.equal(fs.existsSync(b),false);assert.equal(fs.readFileSync(move.rows[0].target,'utf8'),'original-b');
+        await tools.undo(move.id);assert.equal(fs.readFileSync(b,'utf8'),'original-b');
+        const interrupted=await tools.preview({files:[b],mode:'organise',destination:dest,template:'%artist%/%title%'});
+        const copy=interrupted.rows[0];fs.mkdirSync(path.dirname(copy.target),{recursive:true});fs.copyFileSync(b,copy.target);
+        copy.after=copy.before;copy.state='copied';interrupted.state='partial';tools.save(interrupted);
+        await tools.undo(interrupted.id);assert.equal(fs.existsSync(copy.target),false);assert.equal(fs.readFileSync(b,'utf8'),'original-b');
+        assert.throws(()=>providers.signature(null,'secret'));
+        let sent;
+        const response=await providers.lastfm('auth.getSession',{token:'test'},{apiKey:'key',apiSecret:'secret'},async(url,options)=>{
+            sent={url:String(url),fields:Object.fromEntries(options.body)};return new Response(JSON.stringify({session:{key:'session'}}));});
+        assert.equal(response.session.key,'session');assert.equal(sent.fields.api_sig,providers.signature({method:'auth.getSession',api_key:'key',token:'test'},'secret'));
+        const artists=await providers.similarArtists('Artist','key',async()=>new Response(JSON.stringify({similarartists:{artist:[{name:'Other',match:'0.8'}]}})));
+        assert.equal(artists[0].artist,'Other');assert.equal(artists[0].match,.8);
+        const cover=await providers.coverArt('12345678-1234-1234-1234-123456789abc',async()=>new Response('image',{headers:{'Content-Type':'image/png'}}));
+        assert.equal(cover.mimeType,'image/png');assert.equal(Buffer.from(cover.data,'base64').toString(),'image');
+        await assert.rejects(providers.coverArt('../invalid'));
+        await assert.rejects(providers.jsonRequest('https://example.test',{},async()=>new Response('x'.repeat(2*1024*1024+1))),/too large/);
+        console.log('PASS: lyrics repeats/offsets, EQ import, private settings transfer, CLI/portable, preview/apply/undo and signed provider requests');
+    }finally{fs.rmSync(scratch,{recursive:true,force:true});}
+})().catch(error=>{console.error(error);process.exitCode=1;});

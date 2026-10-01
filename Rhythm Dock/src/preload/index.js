@@ -1,6 +1,10 @@
 const {contextBridge, ipcRenderer, webUtils} = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    roadmap: (operation, value) => ipcRenderer.invoke('roadmap-call', operation, value),
+    timelineExport: options => ipcRenderer.invoke('timeline-export',options),
+    onFileMoved: callback => ipcRenderer.on('file-moved',(_event,value)=>callback(value)),
+    onLaunchFiles: callback => ipcRenderer.on('launch-files',(_event,value)=>callback(value)),
     // Renderer to Main
     rendererReady: () => ipcRenderer.send('renderer-ready'),
     diagnosticEvent: (event, details) => ipcRenderer.send('diagnostic-event', event, details),
@@ -89,8 +93,8 @@ contextBridge.exposeInMainWorld('api', {
     libraryRescan: (rootId) => ipcRenderer.invoke('library-rescan', rootId ?? null),
     libraryCancelScan: () => ipcRenderer.invoke('library-cancel-scan'),
     libraryRecheckMissing: () => ipcRenderer.invoke('library-recheck-missing'),
-    libraryRecordPlay: (filePath, listenedMs) => ipcRenderer.send('library-record-play', filePath, listenedMs),
-    libraryRecordSkip: (filePath, listenedMs) => ipcRenderer.send('library-record-skip', filePath, listenedMs),
+    libraryRecordPlay: (filePath, listenedMs, startedAt) => ipcRenderer.send('library-record-play', filePath, listenedMs, startedAt),
+    libraryRecordSkip: (filePath, listenedMs, startedAt) => ipcRenderer.send('library-record-skip', filePath, listenedMs, startedAt),
     libraryExport: () => ipcRenderer.invoke('library-export'),
     libraryImport: () => ipcRenderer.invoke('library-import'),
 
@@ -155,6 +159,8 @@ contextBridge.exposeInMainWorld('api', {
     roomJoin: (options) => ipcRenderer.invoke('room-join', options),
     roomLeave: () => ipcRenderer.invoke('room-leave'),
     roomStatus: () => ipcRenderer.invoke('room-status'),
+    roomSavedHost: () => ipcRenderer.invoke('room-saved-host'),
+    roomResumeHost: () => ipcRenderer.invoke('room-resume-host'),
     roomUploadSong: (position) => ipcRenderer.invoke('room-upload-song', position),
     roomTelegramPair: () => ipcRenderer.invoke('room-telegram-pair'),
     edgeDockToggle: () => ipcRenderer.invoke('edge-dock-toggle'),

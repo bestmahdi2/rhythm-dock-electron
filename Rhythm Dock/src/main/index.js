@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen} = require('electron');
+const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen, safeStorage} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const {Worker} = require('worker_threads');
@@ -193,6 +193,9 @@ const SUPPORTED_EXTENSIONS = [
 
 const isSupportedAudioFile = (filePath) =>
     SUPPORTED_EXTENSIONS.includes(path.extname(filePath).toLowerCase());
+const launchOptions = require('./core/launch-options');
+let pendingLaunch = launchOptions.parseArgs(process.argv, process.cwd(), isSupportedAudioFile);
+let rendererIsReady = false;
 
 const iconFor = (name) => path.join(mediaIconRoot, currentIconVariant(), `${name}.png`);
 
@@ -271,8 +274,9 @@ const createWindow = () => {
     // Paint once before showing, so the window does not flash a transparent frame.
     mainWindow.once('ready-to-show', () => {
         if (store.get('edgeDock', {}).active) setEdgeDock(true);
-        mainWindow.show();
+        if(!showOnReadyHidden)mainWindow.show();
     });
+    const showOnReadyHidden=pendingLaunch.hidden;
 
     // Debounced persistence on move/resize, plus a final flush returned for 'close'.
     persistWindowState = windowState.track(store, mainWindow, () =>
@@ -290,7 +294,9 @@ const createWindow = () => {
         mainWindow.setSize(1000, 600, true);
     });
     mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        rendererIsReady=false;
         diagnostics?.record('renderer:exit', {reason: details.reason, code: details.exitCode});
+        if(details.reason==='crashed')roadmap.reportCrash().catch(()=>{});
         if (['crashed', 'oom', 'abnormal-exit'].includes(details.reason) && rendererRecoveryCount++ === 0) {
             // The persisted queue is restored paused; a crash must not blast audio.
             setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }, 500);
@@ -329,6 +335,8 @@ const createWindow = () => {
         }
     });
 
+    rendererIsReady=false;
+    platformControls.touchBar(mainWindow);
     mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
     mainWindow.on('closed', () => {
@@ -345,33 +353,46 @@ const createWindow = () => {
 
 // --- Helper function to safely send messages to the renderer ---
 const sendToRenderer = (channel, ...args) => {
-    // THIS IS THE FIX: Check if mainWindow exists and is not destroyed
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(channel, ...args);
-    }
+    // Background scans and room events can finish while crash recovery replaces
+    // the frame. Fresh startup state is sent after the new renderer is ready.
+    if(!rendererIsReady||!mainWindow||mainWindow.isDestroyed())return;
+    const contents=mainWindow.webContents;
+    if(contents.isDestroyed()||contents.isCrashed())return;
+    try{contents.send(channel,...args);}catch(_){/* The frame may retire between the checks and send. */}
 };
+const platformControls=require('./services/platform-controls').create({electron:require('electron'),getStore:()=>store,
+    getWindow:()=>mainWindow,send:sendToRenderer});
+const discordPresence=new (require('./services/discord-presence').DiscordPresence)({getConfig:()=>store?.get('discordPresence',{})||{}});
+
+const roadmap = require('./services/roadmap-ipc').install({
+    getStore:()=>store, getWindow:()=>mainWindow,discordPresence,
+    getLayout:()=>({layout:currentLayout,edge:{active:edgeDock.active,side:edgeDock.side}}),
+    applyLayout:preset=>{
+        setEdgeDock(false);
+        currentLayout=preset.layout==='vertical'?'vertical':'horizontal'; currentTab='player';
+        const restored=windowState.restore({get:()=>preset.bounds});
+        const bounds={width:restored.width,height:restored.height};
+        if(Number.isFinite(restored.x)){bounds.x=restored.x;bounds.y=restored.y;}
+        mainWindow.setBounds(bounds); if(!Number.isFinite(restored.x))mainWindow.center();
+        mainWindow.setAlwaysOnTop(Boolean(preset.pinned));store.set('isPinned',Boolean(preset.pinned));
+        sendToRenderer('set-orientation-class',currentLayout==='vertical');
+        if(preset.edge?.active){edgeDock.side=preset.edge.side==='left'?'left':'right';setEdgeDock(true);}
+        persistWindowState();
+    },
+    updated:(oldPath,newPath)=>{
+        for(const root of libraryStore.listRoots())rootWatcher.add(root);
+        if(oldPath!==newPath) library.remove(oldPath);
+        const read=tags.read(newPath); if(read.ok)library.ingest([newPath],()=>read.tags);
+        sendToRenderer('library-updated',{trackCount:library.size,artists:library.listArtists()});
+        if(oldPath!==newPath)sendToRenderer('file-moved',{oldPath,newPath});
+    },
+});
 
 const sendFilePathToWindow = (filePath) => {
     if (!mainWindow) return;
     sendToRenderer('open-file-path', filePath);
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
-};
-
-// Function to parse command-line arguments for a file path
-const getFilePathFromArgs = (argv) => {
-    // The last argument is the most likely candidate for a file path,
-    // especially in packaged apps or during development.
-    const lastArg = argv[argv.length - 1];
-
-    // It's not a file path if it's the app executable itself or a project path like '.'
-    if (lastArg && path.resolve(lastArg) !== path.resolve(process.execPath) && lastArg !== '.') {
-        // A final check to ensure the file actually exists prevents errors.
-        if (fs.existsSync(lastArg)) {
-            return lastArg;
-        }
-    }
-    return null;
 };
 
 // --- Single Instance Lock ---
@@ -388,9 +409,10 @@ if (!gotTheLock) {
             mainWindow.focus();
 
             // Check if the second instance was launched with a file path
-            const filePath = getFilePathFromArgs(commandLine);
-            if (filePath) {
-                sendFilePathToWindow(filePath);
+            const launch = launchOptions.parseArgs(commandLine,workingDirectory,isSupportedAudioFile);
+            if (launch.files.length) {
+                if(rendererIsReady)sendToRenderer('launch-files',launch);
+                else pendingLaunch={...launch,files:[...pendingLaunch.files,...launch.files]};
             }
         }
     });
@@ -402,6 +424,7 @@ app.whenReady().then(() => {
     database.initialize();
     // Import legacy settings before electron-store creates the new config file.
     store = new Store({cwd: paths.getConfigDir()});
+    store.delete('radioPlaying');
     currentLayout = store.get('windowState.layout') === 'vertical' ? 'vertical' : 'horizontal';
     diagnostics = new Diagnostics(path.join(paths.getDataRoot(), 'logs'));
     diagnostics.record('app:start', {version: pkg.version});
@@ -470,29 +493,30 @@ app.whenReady().then(() => {
 
 // This new listener handles the startup logic once the renderer signals it's ready.
 ipcMain.on('renderer-ready', () => {
+    rendererIsReady=true;
     sendToRenderer('set-orientation-class', currentLayout === 'vertical');
-    const filePath = getFilePathFromArgs(process.argv);
-    if (filePath) {
+    if (pendingLaunch.files.length) {
         // Launched with a file: tell the renderer to play it.
-        sendFilePathToWindow(filePath);
+        sendToRenderer('launch-files',pendingLaunch);
     } else {
         // Normal launch: tell the renderer to restore the last session.
         sendToRenderer('restore-state');
     }
+    if(pendingLaunch.hidden) mainWindow.hide();
+    pendingLaunch={files:[],play:false,enqueue:false,hidden:false};
 });
 
-// macOS specific: Handle opening files when the app is running
-app.on('open-file', (event, path) => {
-    event.preventDefault();
-    // This is another safety check. Make sure the app is ready before creating windows.
-    if (app.isReady()) {
-        if (!mainWindow || mainWindow.isDestroyed()) {
-            createWindow();
-            mainWindow.once('ready-to-show', () => sendFilePathToWindow(path));
-        } else {
-            sendFilePathToWindow(path);
-        }
-    }
+// macOS delivers one open-file event per item; combine a file-manager batch.
+let macOpenFiles=[],macOpenTimer;
+app.on('open-file',(event,filePath)=>{
+    event.preventDefault();if(!isSupportedAudioFile(filePath))return;
+    if(!rendererIsReady){pendingLaunch.files.push(filePath);return;}
+    macOpenFiles.push(filePath);clearTimeout(macOpenTimer);
+    macOpenTimer=setTimeout(()=>{
+        if(!mainWindow||mainWindow.isDestroyed()){pendingLaunch.files.push(...macOpenFiles);macOpenFiles=[];createWindow();return;}
+        sendToRenderer('launch-files',{files:[...new Set(macOpenFiles)],enqueue:true});macOpenFiles=[];
+        if(mainWindow.isMinimized())mainWindow.restore();mainWindow.show();mainWindow.focus();
+    },40);
 });
 
 /**
@@ -530,6 +554,7 @@ async function scanAndIndex(dirPath) {
 app.on('before-quit', () => {
     tray.setQuitting(true);
     rootWatcher.close();
+    discordPresence.close();
     // Flushes the strip's position before the window is torn down.
     if (store) lyricsOverlay.close(store);
 });
@@ -554,8 +579,11 @@ app.on('window-all-closed', () => {
 
 // NEW: Listen for playback state changes from the renderer
 ipcMain.on('playback-state-changed', (_event, state) => {
+    remoteCache.protect([state.trackId,state.nextPath]);
     isPlaying = state.isPlaying;
     updateThumbar();
+    platformControls.update(state);
+    discordPresence.update(state);
 
     // Keep the tray's Play/Pause label and tooltip in step with playback.
     tray.rebuildMenu({
@@ -792,6 +820,10 @@ async function cueChaptersFor(filePath) {
 }
 
 ipcMain.handle('get-metadata', async (_event, filePath) => {
+    if(/^https:\/\//i.test(filePath)){
+        const station=store.get('radioStations',[]).find(s=>s.url===filePath);
+        if(station)return {filePath,basename:station.title,title:station.title,artist:'Internet radio',album:'',genre:'',cover:null,lyrics:null,isStream:true};
+    }
     try {
         const metadata = await mm.parseFile(filePath, {includeChapters: /\.m4b$/i.test(filePath)});
         const {title, artist, album, picture, lyrics, genre} = metadata.common;
@@ -1360,6 +1392,16 @@ ipcMain.handle('media-export', async (_event, {filePath, start = 0, end = null, 
     if (selected.canceled) return {cancelled: true};
     return withMediaOperation((options) => mediaTools.convert(filePath, selected.filePath, {start, end, ...options}));
 });
+
+ipcMain.handle('timeline-export',async (_event,options={})=>{
+    try {
+        const extension=['.wav','.flac','.mp3','.m4a','.ogg'].includes(options.extension)?options.extension:'.flac';
+        const picked=await dialog.showSaveDialog(mainWindow,{defaultPath:path.basename(options.filePath,path.extname(options.filePath))+'-edit'+extension,
+            filters:[{name:'Audio',extensions:[extension.slice(1)]}]});
+        if(picked.canceled)return {ok:true,canceled:true};
+        return withMediaOperation(settings=>require('./services/timeline').exportTimeline({...options,targetPath:picked.filePath},settings));
+    }catch(error){return {ok:false,error:error.message};}
+});
 ipcMain.handle('media-chapter-tracks', (_event, filePath) => withMediaOperation(async (options) => {
     const parsed = await mm.parseFile(filePath, {includeChapters: true});
     const list = chapters.mp4Chapters(parsed.format);
@@ -1528,12 +1570,25 @@ ipcMain.handle('library-rescan', async (_event, rootId) => {
 
 ipcMain.handle('library-recheck-missing', () => libraryStore.recheckMissing());
 
-ipcMain.on('library-record-play', (_event, filePath, listenedMs) => {
+async function submitListen(filePath,listenedMs,startedAt) {
+    if(!roadmap.scrobbler.hasEnabled())return;
+    try {
+        let track=database.handle()?.prepare('SELECT * FROM tracks WHERE filePath=?').get(filePath);
+        if(!track){const parsed=await mm.parseFile(filePath,{skipCovers:true});track={artist:parsed.common.artist,title:parsed.common.title,
+            album:parsed.common.album,durationSeconds:parsed.format.duration};}
+        roadmap.scrobbler.enqueue({...track,duration:track.durationSeconds,listenedMs,startedAt});
+    }catch(_){/* Missing files and streams cannot provide a local-tag scrobble. */}
+}
+ipcMain.on('library-record-play', (_event, filePath, listenedMs, startedAt) => {
     libraryStore.recordPlay(filePath, listenedMs);
+    require('./services/library-tools').record(filePath,listenedMs,'play');
+    submitListen(filePath,listenedMs,startedAt);
 });
 
-ipcMain.on('library-record-skip', (_event, filePath, listenedMs) => {
+ipcMain.on('library-record-skip', (_event, filePath, listenedMs, startedAt) => {
     libraryStore.recordSkip(filePath, listenedMs);
+    require('./services/library-tools').record(filePath,listenedMs,'skip');
+    submitListen(filePath,listenedMs,startedAt);
 });
 
 ipcMain.handle('library-export', async () => {
@@ -1689,10 +1744,31 @@ ipcMain.handle('set-translation-config', (_event, config) => {
  */
 // --- Rooms / streaming (request: Phase 6) ---------------------------------------
 
+function savedHostedRoom() {
+    try {const encrypted=store.get('hostedRoomCredential','');return encrypted?
+        JSON.parse(safeStorage.decryptString(Buffer.from(encrypted,'base64'))):null;}catch(_){return null;}
+}
+ipcMain.handle('room-saved-host',()=>{
+    const saved=savedHostedRoom();return saved?{code:saved.code,serverUrl:saved.serverUrl,name:saved.name}:null;
+});
+ipcMain.handle('room-resume-host',async()=>{
+    if(store.get('radioPlaying',false))return {ok:false,error:'Open a local song before hosting a shared room.'};
+    try {const saved=savedHostedRoom();if(!saved)throw new Error('No saved hosted room is available.');
+        const room=await getRoomClient().resumeRoom(saved);return {ok:true,room};
+    }catch(error){return {ok:false,error:error.message};}
+});
+
 ipcMain.handle('room-create', async (_event, options) => {
+    if(store.get('radioPlaying',false))return {ok:false,error:'Open a local song before hosting a shared room.'};
     try {
         const room = await getRoomClient().createRoom(options.serverUrl, options);
-        return {ok: true, room};
+        let resumeSaved=false;
+        if(safeStorage.isEncryptionAvailable()&&safeStorage.getSelectedStorageBackend?.()!=='basic_text') {
+            try {store.set('hostedRoomCredential',safeStorage.encryptString(JSON.stringify({serverUrl:roomClient.serverUrl,
+                code:room.code,hostToken:room.hostToken,password:options.password||'',name:options.name||'Host'})).toString('base64'));resumeSaved=true;}
+            catch(_){store.delete('hostedRoomCredential');}
+        }else store.delete('hostedRoomCredential');
+        return {ok: true, room, resumeSaved};
     } catch (error) {
         return {ok: false, error: error.message};
     }
@@ -1744,6 +1820,7 @@ ipcMain.handle('room-telegram-pair', async () => {
 
 ipcMain.handle('room-leave', () => {
     if (roomClient) roomClient.leave();
+    store.delete('hostedRoomCredential');
     return true;
 });
 

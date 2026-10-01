@@ -706,6 +706,8 @@ function buildEditorLines(text) {
     if (!text) return [];
 
     const lines = [];
+    const offsets=[...String(text).matchAll(/^\[offset:([+-]?\d+)]\s*$/gmi)];
+    const offset=offsets.length?-Number(offsets.at(-1)[1])/1000:0;
 
     for (const rawLine of String(text).split(/\r?\n/)) {
         const line = rawLine.trim();
@@ -734,7 +736,12 @@ function buildEditorLines(text) {
 
         // A repeated-chorus line carries several stamps; each is its own occurrence,
         // and collapsing them would drop every repeat after the first.
-        for (const stamp of stamps) lines.push({text: body, time: stamp.time});
+        for (const stamp of stamps) {
+            const shift=stamp.time-stamps[0].time+offset;
+            const words=shift?body.replace(LRC_WORD_STAMP,(_match,m,s,f)=>formatLrcStamp(stampToSeconds(m,s,f)+shift)
+                .replace('[','<').replace(']','>')):body;
+            lines.push({text:words,time:Math.max(0,stamp.time+offset)});
+        }
     }
 
     lines.sort((a, b) => {
@@ -1067,6 +1074,9 @@ function reportPlaybackState() {
         isPlaying,
         title: currentSongData ? currentSongData.title : null,
         artist: currentSongData ? currentSongData.artist : null,
+        trackId:currentSongData?.filePath,
+        nextPath:playlist[currentIndex+1],
+        cover:currentSongData?.cover,
     });
 }
 
@@ -1090,119 +1100,7 @@ function reportPlaybackState() {
  * Returns `{isSynced, hasWordTiming, lines}`. For a synced lyric each line is
  * `{time, text, words}`, where `words` is null unless the line carried word stamps.
  */
-const LRC_LINE_STAMP = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]/g;
-const LRC_WORD_STAMP = /<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>/g;
-const LRC_ID_TAG = /^\[([a-z]+):([^\]]*)]$/i;
-
-/** `mm`, `ss`, `xx` capture groups to seconds. A 2-digit fraction is centiseconds. */
-function stampToSeconds(minutes, seconds, fraction) {
-    const frac = fraction
-        ? parseInt(fraction, 10) / Math.pow(10, fraction.length)
-        : 0;
-    return parseInt(minutes, 10) * 60 + parseInt(seconds, 10) + frac;
-}
-
-/**
- * Splits an enhanced-LRC line body into timed word segments.
- * Returns null when the line has no word stamps, so callers can cheaply tell whether
- * to render a plain line or a span per word.
- */
-function parseWordStamps(body, lineTime) {
-    LRC_WORD_STAMP.lastIndex = 0;
-    if (!LRC_WORD_STAMP.test(body)) return null;
-
-    LRC_WORD_STAMP.lastIndex = 0;
-    const words = [];
-    let match;
-    let cursor = 0;
-    let pendingTime = lineTime;
-
-    while ((match = LRC_WORD_STAMP.exec(body)) !== null) {
-        // Text between the previous stamp and this one belongs to the previous stamp.
-        const text = body.slice(cursor, match.index);
-        if (text) words.push({time: pendingTime, text});
-        pendingTime = stampToSeconds(match[1], match[2], match[3]);
-        cursor = match.index + match[0].length;
-    }
-
-    const tail = body.slice(cursor);
-    if (tail) words.push({time: pendingTime, text: tail});
-
-    return words.length ? words : null;
-}
-
-function processLyrics(lyricsText) {
-    if (!lyricsText) return {isSynced: false, hasWordTiming: false, lines: []};
-
-    const rawLines = String(lyricsText).split(/\r?\n/);
-    const synced = [];
-    const plain = [];
-    let hasWordTiming = false;
-    let globalOffset = 0;
-
-    for (const rawLine of rawLines) {
-        const line = rawLine.trim();
-        if (!line) continue;
-
-        const idTag = line.match(LRC_ID_TAG);
-        if (idTag) {
-            if (idTag[1].toLowerCase() === 'offset') {
-                const parsed = parseInt(idTag[2], 10);
-                // The tag is in milliseconds and is positive when the lyric should
-                // appear *earlier*, which is the opposite sign to our own offset.
-                if (Number.isFinite(parsed)) globalOffset = -parsed / 1000;
-            }
-            continue;
-        }
-
-        LRC_LINE_STAMP.lastIndex = 0;
-        const stamps = [];
-        let match;
-        while ((match = LRC_LINE_STAMP.exec(line)) !== null) {
-            // Stamps only count as such while they are still a contiguous prefix;
-            // a bracketed `[laughs]` mid-line is lyric text, not a timestamp.
-            if (match.index !== LRC_LINE_STAMP.lastIndex - match[0].length) break;
-            if (stamps.length && match.index !== stamps[stamps.length - 1].end) break;
-            if (!stamps.length && match.index !== 0) break;
-            stamps.push({
-                time: stampToSeconds(match[1], match[2], match[3]),
-                end: match.index + match[0].length,
-            });
-        }
-
-        if (!stamps.length) {
-            plain.push(line);
-            continue;
-        }
-
-        const body = line.slice(stamps[stamps.length - 1].end).trim();
-        if (!body) continue;
-
-        const cleanText = body.replace(LRC_WORD_STAMP, '').replace(/\s+/g, ' ').trim();
-        if (!cleanText) continue;
-
-        for (const stamp of stamps) {
-            const words = parseWordStamps(body, stamp.time);
-            if (words) hasWordTiming = true;
-            synced.push({time: stamp.time, text: cleanText, words});
-        }
-    }
-
-    if (synced.length) {
-        // Repeated-chorus stamps arrive out of order; the tick loop scans backwards
-        // and would find the wrong line if they were not sorted.
-        synced.sort((a, b) => a.time - b.time);
-        if (globalOffset) {
-            for (const line of synced) {
-                line.time += globalOffset;
-                if (line.words) line.words.forEach((word) => { word.time += globalOffset; });
-            }
-        }
-        return {isSynced: true, hasWordTiming, lines: synced};
-    }
-
-    return {isSynced: false, hasWordTiming: false, lines: plain};
-}
+const {processLyrics, stampToSeconds, parseWordStamps,LRC_LINE_STAMP,LRC_WORD_STAMP,LRC_ID_TAG} = window.RhythmLyrics;
 
 function sanitizeForApiSearch(artist, title) {
     const junkRegex = /\[.*?\]|\(.*?\)|official|lyric|video|audio|h[dq]|\s*:.*|\s*-.*|ft\..*|feat\..*/gi;
@@ -2332,6 +2230,7 @@ let statsTrackPath = null;
 let statsListenedMs = 0;
 let statsLastTick = 0;
 let statsRecorded = false;
+let statsStartedAt = 0;
 
 /** Starts measuring a new track, closing off the previous one as a skip. */
 function beginListen(filePath) {
@@ -2339,6 +2238,7 @@ function beginListen(filePath) {
     statsTrackPath = filePath || null;
     statsListenedMs = 0;
     statsLastTick = Date.now();
+    statsStartedAt = statsLastTick;
     statsRecorded = false;
 }
 
@@ -2371,9 +2271,9 @@ function finishListen({reason = 'end', durationMs = 0} = {}) {
         || (total > 0 && listened >= total * PLAY_THRESHOLD_RATIO);
 
     if (qualifies) {
-        window.api.libraryRecordPlay(path, listened, reason === 'end');
+        window.api.libraryRecordPlay(path, listened, statsStartedAt);
     } else if (listened >= SKIP_FLOOR_MS) {
-        window.api.libraryRecordSkip(path, listened);
+        window.api.libraryRecordSkip(path, listened, statsStartedAt);
     }
 
     statsRecorded = true;
@@ -3268,8 +3168,10 @@ function makeRow({title, subtitle, badge, active, onPlay, actions = []}) {
 }
 
 /** Shows the current queue, with the playing track highlighted. */
+let lastQueueWindowStart=-1;
 function renderQueue() {
     if (!playlistResults) return;
+    const scroll=playlistResults.scrollTop;
     playlistResults.innerHTML = '';
 
     if (playlist.length === 0) {
@@ -3279,9 +3181,15 @@ function renderQueue() {
 
     setPlaylistStatus(`${playlist.length} track${playlist.length === 1 ? '' : 's'} in queue`);
 
-    playlist.forEach((filePath, index) => {
+    const virtual=playlist.length>100;
+    const start=virtual?Math.max(0,Math.floor(scroll/44)-5):0;
+    lastQueueWindowStart=start;
+    const end=virtual?Math.min(playlist.length,start+40):playlist.length;
+    if(virtual){const top=document.createElement('div');top.style.height=start*44+'px';playlistResults.append(top);}
+    playlist.slice(start,end).forEach((filePath, relativeIndex) => {
+        const index=start+relativeIndex;
         const name = filePath.split(/[\\/]/).pop();
-        playlistResults.appendChild(makeRow({
+        const row = makeRow({
             title: name,
             active: index === currentIndex,
             onPlay: () => playTrack(index),
@@ -3290,9 +3198,32 @@ function renderQueue() {
                 title: 'Remove from queue',
                 onClick: () => removeFromQueue(index),
             }],
-        }));
+        });
+        row.draggable = true;
+        if(virtual){row.style.height='44px';row.style.flexShrink='0';row.style.margin='0';}
+        row.dataset.queueIndex = index;
+        row.addEventListener('dragstart', event => {
+            if(isLocked){event.preventDefault();return;}
+            event.dataTransfer.setData('application/x-rhythm-queue',String(index));
+            event.dataTransfer.effectAllowed='move';
+        });
+        row.addEventListener('dragover',event=>{
+            if(event.dataTransfer.types.includes('application/x-rhythm-queue'))event.preventDefault();
+        });
+        row.addEventListener('drop',event=>{
+            if(!event.dataTransfer.types.includes('application/x-rhythm-queue')||isLocked)return;
+            event.preventDefault();event.stopPropagation();
+            moveQueueItem(Number(event.dataTransfer.getData('application/x-rhythm-queue')),index);
+        });
+        playlistResults.appendChild(row);
     });
+    if(virtual){const bottom=document.createElement('div');bottom.style.height=(playlist.length-end)*44+'px';playlistResults.append(bottom);}
+    playlistResults.scrollTop=scroll;
 }
+playlistResults?.addEventListener('scroll',()=>{
+    if(playlist.length>100&&activeLibraryView==='queue'&&!librarySearchInput?.value.trim()&&(!room.connected||room.isHost)&&
+        Math.max(0,Math.floor(playlistResults.scrollTop/44)-5)!==lastQueueWindowStart)renderQueue();
+});
 
 /**
  * Removes one entry from the queue, keeping `currentIndex` pointing at the same track.
@@ -3962,6 +3893,7 @@ async function advanceAfterEnd() {
  */
 let playRequest = 0;
 async function playTrack(index, options = {}) {
+    window.api.setStoreValue('radioPlaying',false);
     const {startPaused = false, seekTime = 0, startAtBeginning = false} = options;
     const request = ++playRequest;
 
@@ -4027,6 +3959,7 @@ async function playTrack(index, options = {}) {
     if (ticket !== audio.ticket) return;
 
     currentSongData = songData;
+    reportPlaybackState();
     window.api.libraryPreferences().then((rows) => {
         if (ticket === audio.ticket) document.getElementById('song-mood').value =
             rows.find((row) => row.filePath === filePath)?.mood || '';
@@ -4081,7 +4014,7 @@ async function playTrack(index, options = {}) {
     }
 }
 
-async function loadPlaylistAndPlay(files, startIndex = 0) {
+async function loadPlaylistAndPlay(files, startIndex = 0, options = {}) {
     if (!files || files.length === 0) return;
 
     // Request #13: honour the per-directory exclusion list. Excluded tracks stay on
@@ -4108,7 +4041,7 @@ async function loadPlaylistAndPlay(files, startIndex = 0) {
     // path rather than by its position in the original array.
     const wanted = files[startIndex] ?? usable[0];
     const index = Math.max(0, playlist.indexOf(wanted));
-    playTrack(index);
+    return playTrack(index,options);
 }
 
 // --- App Entry Point & Event Listeners ---
@@ -5322,6 +5255,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Fired when the app is launched by opening a file.
+    window.api.onLaunchFiles(async (launch) => {
+        const ready=document.documentElement.dataset.appReady==='true';
+        if(!ready)await loadAppSettings();
+        if(launch.enqueue || (ready && !launch.play)) {
+            for(const file of launch.files)enqueue(file,QUEUE_POSITIONS.END);
+            if(currentIndex<0 && playlist.length)await playTrack(0,{startPaused:true});
+        }else await loadPlaylistAndPlay(launch.files);
+        startUiLoopOnce();document.documentElement.dataset.appReady='true';
+    });
     window.api.onFilePathReceived(async (filePath) => {
         await loadAppSettings(); // Still need to load theme, volume, etc.
         loadPlaylistAndPlay([filePath]); // But play the new file.
@@ -5629,4 +5571,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('edge-play')?.addEventListener('click', () => playPauseBtn.click());
     document.getElementById('edge-next')?.addEventListener('click', () => nextBtn.click());
     document.getElementById('edge-lock')?.addEventListener('click', () => setLocked(!isLocked));
+});
+
+// Feature modules share the established player state and room permissions.
+document.addEventListener('DOMContentLoaded',()=>{
+    window.roadmapTools = window.RhythmRoadmap.install({engine:audio,equalizer,
+        track:()=>currentSongData,isLocked:()=>isLocked,canControl:()=>!room.connected||room.isHost,
+        tab:setActiveTab,playPaths:loadPlaylistAndPlay,enqueue:path=>enqueue(path,QUEUE_POSITIONS.END),
+        playStream:(url,title)=>{
+            if(room.connected)throw new Error('Leave the shared room before starting a radio stream.');
+            finishListen({reason:'switch'});playlist=[];originalPlaylist=[];currentIndex=-1;
+            currentSongData={filePath:url,title,basename:title,artist:'Internet radio',isStream:true};currentSound=audio;
+            window.api.setStoreValue('radioPlaying',true);
+            lyrics={isSynced:false,lines:[]};displayLyrics(lyrics);titleEl.textContent=title;artistEl.textContent='Internet radio';filenameEl.textContent=title;
+            document.getElementById('chapter-nav').hidden=true;
+            audio.load(url,{autoplay:true});savePlaybackState();renderTransport();
+        },
+        lyric:()=>lyricLineText(lastActiveLyricIndex),exitLyricsFullscreen:()=>isLyricsFullscreen?setLyricsFullscreen(false):Promise.resolve(),
+        transport:command=>document.getElementById({'prev':'prev-btn','next':'next-btn','play-pause':'play-pause-btn'}[command])?.click()});
+});
+window.api.onFileMoved(({oldPath,newPath})=>{
+    playlist=playlist.map(p=>p===oldPath?newPath:p);originalPlaylist=originalPlaylist.map(p=>p===oldPath?newPath:p);
+    favoritesPlaylist=favoritesPlaylist.map(p=>p===oldPath?newPath:p);
+    window.api.setStoreValue('favoritesPlaylist',favoritesPlaylist);
+    if(currentSongData?.filePath===oldPath)currentSongData.filePath=newPath;
+    savePlaybackState();if(activeTab==='playlist')renderQueue();
 });

@@ -25,6 +25,7 @@ const {app} = require('electron');
 const VENDOR_DIR = 'RhythmDock';
 
 let cachedRoot = null;
+let portable = false;
 
 function ensureDir(dirPath) {
     fs.mkdirSync(dirPath, {recursive: true});
@@ -40,7 +41,11 @@ function ensureDir(dirPath) {
  */
 function getDataRoot() {
     if (cachedRoot) return cachedRoot;
-    cachedRoot = ensureDir(path.join(app.getPath('appData'), VENDOR_DIR));
+    const resolved = require('./launch-options').dataRoot({packaged:app.isPackaged,exePath:process.execPath,
+        portableDir:process.env.PORTABLE_EXECUTABLE_DIR,appData:app.getPath('appData')});
+    portable = resolved.portable;
+    cachedRoot = ensureDir(resolved.root);
+    if(portable) app.setPath('userData',ensureDir(path.join(cachedRoot,'runtime')));
     return cachedRoot;
 }
 
@@ -76,6 +81,7 @@ function getDatabasePath() {
  * the first one that exists wins.
  */
 function getLegacyDatabasePaths() {
+    getDataRoot(); if(portable) return [];
     const candidates = [
         // The path used up to and including v1.3.7.
         path.join(app.getPath('userData'), 'lyrics.db'),
@@ -96,6 +102,7 @@ function getLegacyDatabasePaths() {
  * Legacy electron-store config files, for the same one-shot migration treatment.
  */
 function getLegacyConfigPaths() {
+    getDataRoot(); if(portable) return [];
     const appDataDir = app.getPath('appData');
     const candidates = [path.join(app.getPath('userData'), 'config.json')];
     for (const legacyName of ['Rhythm Dock', 'rhythm-dock-electron']) {

@@ -111,6 +111,14 @@ class RoomClient {
     }
 
     /** Joins an existing room as a member. */
+    async resumeRoom({serverUrl,code,hostToken,password='',name='Host'}) {
+        if(!/^https?:\/\//.test(String(serverUrl))||!/^[A-Z0-9]{6}$/.test(String(code))||typeof hostToken!=='string'||hostToken.length<16)
+            throw new Error('The saved room is invalid. Create a new room.');
+        this.serverUrl=String(serverUrl).replace(/\/+$/,'');this.roomCode=code;this.hostToken=hostToken;this.password=password;
+        await this.connect({role:'host',name});return {code};
+    }
+
+    /** Joins an existing room as a member. */
     async joinRoom(serverUrl, code, {name, password} = {}) {
         this.serverUrl = String(serverUrl).replace(/\/+$/, '');
         this.roomCode = String(code).toUpperCase();
