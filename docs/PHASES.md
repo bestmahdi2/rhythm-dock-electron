@@ -1,5 +1,14 @@
 # Rhythm Dock — Rework Roadmap
 
+**Current implementation note (2026-10-02):** this document retains the original
+Phase 1–6 patch plan. Use `../TASKS.md` for checked implementation/acceptance status
+and `ROADMAP.md` for Phase 7 onward. The current engine is streamed HTML media plus
+WebAudio, not Howler; icons use current-color SVG plus generated native variants;
+the vertical preset is 220×560 with wider panels. Local tests pass through schema
+v12 and critical shared-room paths. Installer, hardware and live provider/server
+acceptance remain separate. NSIS currently retains one-click install and preserves
+app data on uninstall; automatic updating is still gated on installer acceptance.
+
 Every phase ships as a standalone `git apply`-able patch file. Apply them **in order**;
 each phase assumes the previous one is applied. Patches are rooted at the repository
 root (the folder that contains `Rhythm Dock/`, `manage.ps1`, `.github/`).

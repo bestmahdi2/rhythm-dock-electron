@@ -1,8 +1,10 @@
 # Rhythm Dock — Feature Roadmap (Phase 7 onward)
 
 Continues from `PHASES.md`, which ends at Phase 6 (streaming & shared rooms).
-Everything here is a proposal, not a commitment — pick what fits the player you
-actually want to build.
+Updated 2026-10-02. Phases 7–8 and feasible pre-9 follow-ups now have local
+implementations and tests. Later phases remain proposals unless explicitly marked
+implemented. `TASKS.md` is the prioritized checklist and separates implementation
+from deferred setup, hardware and installed-app acceptance.
 
 ---
 
@@ -45,7 +47,7 @@ document, and the least visible to a user. Everything downstream depends on it.
 | Feature | Effort | Description |
 |---|---|---|
 | SQLite library schema | M | Tracks, albums, artists, folders, and their relationships in the existing `better-sqlite3` database alongside the lyrics cache. Schema versioned and migrated, never recreated. |
-| Incremental scanning | M | Scan compares `mtime` + size against what is stored and only re-parses changed files. A 50,000-file library currently re-parses entirely on every open; this makes it near-instant on the second run. |
+| Incremental scanning | M | Implemented worker scan compares stored `mtime` + size and only re-parses new or changed files. Startup performance on very large libraries remains an acceptance budget. |
 | Multiple library roots | S | Track more than one folder. Most people have music in at least two places. |
 | Folder watching | M | `chokidar` or `fs.watch` picks up files added or deleted while the app is running, instead of requiring a manual rescan. |
 | Missing-file handling | S | Tracks whose files have vanished are flagged rather than silently dropped, so a temporarily unmounted external drive does not erase half the library. |
@@ -64,23 +66,23 @@ earns credibility with people who care about audio.
 
 | Feature | Effort | Description |
 |---|---|---|
-| **Pitch-preserving speed** | M | Currently changing speed changes pitch, which makes the feature unusable for music (it is fine for podcasts). A phase vocoder or `SoundTouch`-style time-stretch via WebAudio `AudioWorklet` fixes it. Arguably a bug fix, not a feature. |
-| Gapless playback | M | Pre-buffer the next track and hand off at the sample boundary. Live albums, DJ mixes, and most classical are broken without it. |
+| **Pitch-preserving speed** | M | Implemented with Chromium media-element pitch preservation and a persisted option. Rate/pitch properties are tested; listening quality remains acceptance. A dedicated worklet would be a later quality improvement. |
+| Gapless playback | M | Implemented next-track prebuffer reuse with two decks. It avoids a fresh load during handoff; native sample-exact continuity requires the separate output work below. |
 | Crossfade | S | Configurable 0–12s overlap, with an option to disable it for gapless albums specifically. |
-| ReplayGain / EBU R128 | L | Scan tracks for loudness, store the gain in the DB and optionally in tags, apply on playback. Stops a quiet 1970s master being inaudible after a loud modern one. Track gain and album gain both. |
+| ReplayGain / EBU R128 | L | Tag gain plus optional FFmpeg song/queue/album analysis, SQLite measurements and gain application are implemented. Track and shared album gain have true-peak protection. Optional tag writing remains Phase 12. |
 | Output device selection | S | Pick the output device explicitly instead of following the system default. `devices.js` already exists; this exposes it. |
-| Exclusive / bit-perfect output | XL | WASAPI exclusive on Windows, hog mode on macOS. Requires leaving WebAudio for a native addon. Only worth it if you are targeting audiophiles; be honest about whether you are. |
+| Exclusive / bit-perfect output | XL | Investigation complete: this requires a separate native backend, format negotiation and effect bypass. Actual implementation moved to Phase 15; WebAudio does not supply it. |
 | A–B repeat | S | Set two points and loop between them. Trivial to build, disproportionately loved by anyone learning an instrument or a language. |
 | Skip silence | S | Detect and skip leading/trailing silence and long gaps. |
 | Balance & channel mixer | S | L/R balance, mono downmix, channel swap. Accessibility feature as much as an audio one — genuinely important for users with single-sided hearing loss. |
-| Wider format support | M | APE, WavPack, DSD, MIDI, tracker modules. Each needs a decoder; scope this by what you actually own. |
-| CUE sheet support | M | Single-file albums split into tracks by an accompanying `.cue`. |
+| Wider format support | M | Optional FFmpeg preparation for APE/WavPack/DSF/DFF and MOD/XM/IT/S3M. WavPack has a real fixture test. Other decoders depend on the chosen build. MIDI synth/soundfont implementation moved to Phase 15. |
+| CUE sheet support | M | Matching sidecar navigation and optional queued tagged FLAC sections; original album is preserved. |
 | Chapters (m4b) | M | Audiobook chapter navigation, with per-book position memory. |
 
-2026-09-24 code pass: CUE sidecars and MP4/M4B chapters now have navigation in
-the player; per-M4B positions use schema v10 and the library backup. Test
-chaptered media in the installed app before treating format support as accepted.
-Other Phase 8 audio-quality and hardware checks remain open in `TASKS.md`.
+2026-10-02 verification: real generated M4B/CUE/WavPack fixtures pass, including
+Nero chapter parsing, section export and loudness analysis. Schema v12 stores
+measurements, album fingerprints and discovery feedback. See `AUDIO-TOOLS.md` for
+setup/limits. Hardware sound quality and installed-app acceptance remain open.
 
 ---
 
@@ -98,14 +100,16 @@ code and real-device acceptance are separate; `TASKS.md` tracks the latter.
    with per-device delay; the system-default alias is screened to avoid duplicate
    playback when device identity is available. **Priority gate:** test a wired
    device, speakers, and multiple Bluetooth earbuds together on the target OS.
-   The current development machine exposes only one playback endpoint.
+   Delay is available for the main route and extras. The latest run exposed one
+   physical endpoint; the prior 2026-09-24 headphones-plus-speakers run is retained.
 4. Queue placement: local and room controls offer top, after-current, and end.
 5. Lock: controls are blocked until unlock, including in the wall strip.
 6. Recommendations: offline track and album suggestions use artist, album,
-   genre, ratings, likes, plays, and skips. Vibe inference, learning from
-   explicit feedback, and optional online enrichment remain in Phase 14.
-7. Online sources: direct HTTPS audio is streamed into a two-day bounded cache
-   and can be saved. YouTube/Spotify links and playlists need provider-specific
+   genre, ratings, likes, plays, skips, manual mood labels and learned explicit
+   feedback. Optional online enrichment and acoustic vibe inference remain Phase 14.
+7. Online sources: direct HTTPS audio and M3U/PLS/XSPF playlists download into a
+   two-day bounded cache and can be saved. Telegram accepts these links.
+   YouTube/Spotify links and playlists need provider-specific
    discovery and a supported playable source; plan them in Phase 14. Do not label
    those sources implemented merely because direct media URLs work.
 
@@ -198,8 +202,8 @@ dock and starts being a library manager. Worth pausing to decide.
 | AcoustID fingerprinting | L | Identify untagged files by their audio. The only real answer to a folder of `track01.mp3`. Needs `chromaprint`. |
 | Album art fetching | M | Download missing covers, embed or save as `folder.jpg`. |
 | Tag presets & templates | S | Reusable field sets for a series or a bootleg collection. |
-| Format conversion | L | Transcode via a bundled `ffmpeg`. Useful, but it doubles your binary size — consider making it an optional download. |
-| ReplayGain scan UI | S | The batch front-end to Phase 8's analysis. |
+| Format conversion | L | Implemented early via optional FFmpeg: full-song conversion, A–B trim/export and chapter/CUE split. Existing files are preserved; advanced timeline editing remains future work. |
+| ReplayGain scan UI | S | Implemented early for song, indexed album and queue; progress and cancellation. |
 
 ---
 
@@ -236,7 +240,7 @@ gaps rather than additions.
 | Podcast support | L | RSS subscriptions, episode list, download management, per-episode resume. This is genuinely a second app inside your app — scope carefully. |
 | Remote control web UI | M | A tiny page served on the LAN so a phone can control the player. Your room server already establishes the pattern. |
 | Chromecast / DLNA / AirPlay | L | Cast to speakers. Three different protocols; pick one and do it properly. |
-| Recommendations | L | "More like this" from local play data, or via the Last.fm similar-artists API. |
+| Recommendations | L | Offline recommendations and feedback/mood learning implemented early. Online enrichment still needs a provider adapter and setup. |
 
 ---
 
@@ -257,7 +261,8 @@ here.
 | Spectrogram view | M | Frequency over time. Also the fastest way to spot a transcoded fake FLAC, which the audio-hoarder crowd cares about intensely. |
 | Bookmarks & cue points | S | Named positions within a track, with keyboard jumps. |
 | Parametric EQ | M | Beyond the current 10-band graphic EQ: arbitrary bands, Q control, a response curve display, and importable AutoEQ profiles for headphones. |
-| Audio export of a selection | M | Save a looped region as a new file. |
+| Audio export of a selection | M | Implemented early: export the A–B region to a new audio file with optional FFmpeg. |
+| Native exclusive output / MIDI | XL | Deferred Phase 8 investigations: separate native output backend and MIDI synth/soundfont configuration. Neither is supplied by the WebAudio path. |
 | Scriptable actions / plugin API | XL | Let users extend the player. Powerful, and a permanent maintenance and security commitment. Think hard. |
 
 ---
@@ -321,7 +326,7 @@ Worth stating, because a roadmap is also a list of what you are declining:
 
 ## Phase 9.5 — Edge dock, discovery and streaming
 
-### Request check-in (2026-09-24)
+### Request check-in (2026-10-02)
 
 This section records the follow-up requests before planning more phases. Source-level
 implementation is not a substitute for testing the installed app with real devices.
@@ -329,18 +334,18 @@ implementation is not a substitute for testing the installed app with real devic
 | Request | Current status / next action |
 |---|---|
 | Better button icons, app logo, and possible new name | Open design task for Phase 10. Produce a small set of names and visual concepts, check file-association and tray readability, then choose before changing the app ID or data path. |
-| Bot connection to receive songs and put them in the queue | Promoted to P0 in `TASKS.md`, immediately after collaborative room queue edits and friend song intake. Define bot pairing, authorization, accepted media/link types, and whether incoming items require confirmation. |
+| Bot connection to receive songs and put them in the queue | Pair-code authorized private chats send attachments or HTTPS audio/playlists at first/next/end. Mocked API/restart tests pass; real token/server acceptance remains P0. |
 | Edge-docked super-minimize mode | Implemented with a 48px wall strip, hover expansion, vertical movement, wall switching, title scroll, and Ctrl+Alt+D. Installed-app and multi-monitor acceptance remain. |
 | Dark/light switch | Already a visual switch in Settings (`.settings-action`), with the button toggling counterpart palettes. |
 | Simultaneous wired, speaker, and Bluetooth outputs | Implemented in Settings and the audio engine. The 2026-09-24 pass prevents duplicate routing, cleans up failed outputs, and retries a stream after a playback gesture. Accept only after testing the actual device mix and adjusting per-output delay; operating-system Bluetooth limits still apply. |
 | Queue at top / next / end | Implemented as actions on library rows. |
 | Control lock | Implemented with lock button and Ctrl+L. Verify alongside edge mode in the installed app. |
-| Offline/online recommendations | Offline song and album suggestions now use local metadata and listening history. Vibe learning and optional online enrichment remain open. |
-| YouTube/Spotify URLs and playlists, temporary cache, saved imports | Direct HTTPS audio links now download to a bounded, two-day cache with an explicit save action. Progressive playback, real URL acceptance, Telegram links, and YouTube/Spotify playlist discovery remain open. Define playlist import as metadata/links separately from playable audio. |
-| Missing “Controls” button | The Lyrics menu currently has Show/Hide Controls. Reproduce which screen or mode lost the expected button, then restore the relevant control in Phase 10. |
+| Offline/online recommendations | Offline songs/albums now include manual mood filters, learned More/Less feedback and reset. Online enrichment remains Phase 14. |
+| YouTube/Spotify URLs and playlists, temporary cache, saved imports | Direct HTTPS audio plus M3U/PLS/XSPF and Telegram links are implemented with bounded two-day cache/save. Progressive remote start and YouTube/Spotify adapters remain Phase 14 implementation, beyond credential setup. |
+| Missing “Controls” button | Permanent Show Lyrics Controls action added in Settings; lyrics menu retains Show/Hide Controls. |
 | Highlight A–B range | Implemented in the player progress track on 2026-09-24; check theme contrast and narrow layouts. |
-| Export A–B section | Open Phase 15 task. Export the selected time span with a bundled or optional transcoder, choose output format, and preserve the original file. |
-| Audio editor and converter | Open Phase 15 task. Scope trim/split, preview, metadata, supported formats, and whether FFmpeg is bundled or optional. |
+| Export A–B section | Implemented before Phase 9 with optional FFmpeg and WAV/FLAC/MP3/M4A/OGG output; original preservation and actual duration tested. |
+| Audio editor and converter | Basic A–B preview/trim, full-track conversion and chapter splitting implemented. Advanced timeline/effect editing remains Phase 12. |
 | Recently added playlist/view | Already implemented as the “Added” library view, ordered from library added timestamps. |
 
 

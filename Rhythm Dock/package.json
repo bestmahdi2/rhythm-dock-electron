@@ -27,9 +27,11 @@
     "dist:linux": "npm run icons && electron-builder --linux --x64",
     "dist:all": "npm run dist:win && npm run dist:mac && npm run dist:linux",
     "postinstall": "electron-builder install-app-deps",
-    "test": "node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && npm run test:db-migration && npm --prefix ../server test",
+    "test": "node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/remote-playlist.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && node tests/audio-devices.test.js && node tests/media-tools.test.js && node tests/room-client-integration.test.js && npm run test:db-migration && npm --prefix ../server test",
     "test:db-migration": "electron tests/db-migration-smoke.js",
-    "test:ui-smoke": "electron tests/pre-phase9-ui-smoke.js"
+    "test:media-tools": "node tests/media-tools.test.js",
+    "test:ui-smoke": "electron tests/pre-phase9-ui-smoke.js",
+    "test:media-integration": "node tests/media-tools-integration.test.js"
   },
   "keywords": [],
   "author": {

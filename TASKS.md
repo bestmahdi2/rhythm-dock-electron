@@ -1,101 +1,147 @@
 # Rhythm Dock — prioritized task checklist
 
-Updated 2026-09-24 from `docs/PHASES.md`, `docs/ROADMAP.md`, `server/README.md`, and the current source. **This order follows the requested product goal:** friends hear one synchronized queue and can both add music, including songs sent to a Telegram bot. The numbered requests from the earlier lists are included below. `[x]` means a code path exists; `[ ]` means implementation or acceptance remains. Source presence alone does not prove an installed release works.
+Updated **2026-10-02** after the source audit and local implementation/test pass. This is the single backlog for the original requests, follow-ups, and unfinished roadmap phases.
+
+**Checkbox meaning:** `[x]` = implemented, or a requested investigation has a recorded decision; `[ ]` = work remains. Acceptance tasks are separate so a working feature can be checked without pretending it was deployed or heard on every device. API/server credentials and live acceptance are deliberately left for later, as requested. Phase 9 lyrics already existed; this pass completes the local Phase 1–8 work and the feasible follow-ups promoted before it.
 
 ## P0 — shared listening and data safety
 
-- [ ] **1. Finish collaborative room queues — implementation in progress.** Phase 6 already streams the host's audio and synchronizes browser/desktop guests. The 2026-09-24 P0 pass adds host-authoritative add at top/next/end, remove, and move; shares a path-free catalog from the persistent library; and exposes those actions to authorized browser and desktop guests. Move/remove use track IDs so a stale row number cannot target another song. Server permission/routing tests pass. Still required: live two-guest acceptance, reconnect and rapid-edit checks, queue state persistence policy, and a scalable catalog search for very large libraries. A guest must see a track added by the other guest and hear it at the same position before this box is checked.
-- [ ] **2. Let both friends contribute music — code path implemented, device acceptance open.** Browser and desktop controllers can submit local audio to the host at top/next/end. The server enforces a 30 MB limit and audio extension allowlist; only the host token can retrieve a pending file. The host imports into its stable data directory, indexes it, queues it, and removes the temporary server copy. Pending uploads expire after two days or server restart. The browser and desktop show pending/error/success feedback. Server tests cover upload authorization and host retrieval. Still test actual audio import/playback, interrupted transfers, concurrent uploads, and two real clients. Listener access remains blocked.
-- [ ] **3. Telegram bot intake — code path implemented for attachments, live acceptance and links open.** Optional server-side `TELEGRAM_BOT_TOKEN` enables Bot API polling; the host creates a ten-minute pairing code and a private chat sends `/pair CODE`. Supported audio attachments up to the hosted Bot API's 20 MB download limit use the same temporary host-import path, with success/error replies. A mock API test covers pairing and attachment intake. Still required: obtain the bot token, test against Telegram, handle supported playable links/playlist intake, verify duplicate update/restart behavior, and decide host approval policy. Do not check off until live acceptance passes.
-- [ ] **4. Prove the room end to end on a real server.** Configure HTTPS/WSS, creation secret and room password, then test two friends on separate networks/devices: join, grant control, add/reorder songs, play in sync, disconnect/reconnect, and host loss. The server is a relay; it does not persist audio or room state. Add a deployment/restart persistence decision if the queue must survive a server restart. No server deployment is done by this checklist.
-- [ ] **5. Protect library data through installed upgrades.** Stable paths, migration, and backups are in code (original #7; Phase 7). The 2026-09-24 Electron smoke test passed legacy import, v1→v10 schema migration, backup creation, and reopen using isolated temporary data; it checks playlists, ratings, and audiobook positions. Still test a real old-to-new installer upgrade with library, lyrics, settings, and backup/restore before checking this off. Gate auto-update on this proof.
-- [ ] **6. Verify simultaneous outputs on the requested devices.** Main plus extra outputs and manual delay exist in Settings. The 2026-09-24 code pass prevents the same selected device, including the system-default alias when identifiable, being both primary and extra and improves failure/retry behavior. A simulated routing test covers two extra devices sharing one master graph and separate delays. On 2026-09-24, the real Electron smoke test enumerated WH-XB900N headphones and Realtek speakers, played a quiet WAV through the shared graph with the speakers as a 120 ms delayed extra output, observed playback time advancing, and released the route successfully. Human listening and latency alignment still need acceptance; the phone is not exposed by Windows as a playback output, so a third-device test remains open. This is the priority pre-Phase-9 audio gate.
-- [ ] **7. Establish project tests and diagnostics for the critical paths.** `npm test` passes the isolated Electron database migration smoke test and 48 server checks, including guest upload and mocked Telegram intake. `npm run test:ui-smoke` now verifies the real renderer's theme switch, lock, queue actions, wall docking, and a real extra-output route when a second device is present; it uses temporary app data. Add direct host queue mutation/import, crash/reconnect tests, and structured logs that let a user report a room or output failure without exposing tokens. Phase 16.
+- [x] Host-authoritative shared queue; authorized guests add at top/next/end, remove, reorder, and see the same queue. Persistent library catalog uses opaque IDs rather than exposing host paths. Exact local queue order is saved and restored, including shuffle order and an empty queue. Fixed first-song insertion into an empty queue.
+- [x] Both friends contribute local audio. Authorized uploads are capped at 30 MB, retrieved only by the host, imported into stable app data, and acknowledged. Repeated retrieval can reuse an identical imported file; changing rooms during import cannot add it to the new room.
+- [x] Desktop room reconnect, fresh welcome snapshots, host queue/settings/lyrics republishing, old-socket isolation, failed-login rejection, and connection timeout. An actual loopback server with a host and two desktop clients passes catalog, audio-byte relay, queue fan-out, and host/guest reconnect checks.
+- [x] Telegram private-chat pairing, supported attachments, HTTPS audio/playlist links, top/next/end placement, duplicate update suppression, and optional persisted polling offset. Mocked Bot API tests pass. Pairing code possession authorizes the private chat; `/unpair` revokes it. Pairings must be recreated after a server restart.
+- [x] Stable data paths, additive schema migrations through v12, pre-migration backups, library export/merge restore, and paused session restoration. Fixed startup ordering so a newly created settings file cannot block legacy settings migration. Tests preserve lyrics, playlists, ratings, book positions, discovery preferences, and measured loudness.
+- [x] Bounded local diagnostics with predefined fields, export action, and one automatic renderer-crash recovery. Queue restores paused. URLs, file paths, and credential fields are excluded from diagnostic records; nothing is uploaded automatically.
+- [x] Repeatable local tests for critical database, renderer, media, room, Telegram, cache, and output paths.
 
-## P1 — requested player and sharing experience
+### Deferred setup and real-world acceptance — highest priority when access is ready
 
-- [ ] **8. Edge-docked super-minimize — code path added, visual acceptance open.** A 48px wall strip shows song title, previous/play/next, lock, and exit; hover expands the existing 105px vertical player. Dragging the handle can move it vertically or to the other wall, with work-area clamping across monitors. Ctrl+Alt+D toggles it; normal geometry and pin state restore on exit. Geometry and real Electron toggle/wall-bound tests pass. Check hover, dragging, control lock, tray interaction, and display disconnect on the installed app before marking complete. Phase 9.5; original follow-up #1.
-- [ ] **9. Direct audio URL intake and bounded cache — host app path added, other sources open.** The host can paste a direct public HTTPS audio link, choose top/next/end, download it into a 100 MB-per-file and 512 MB-total temporary cache, and save the current cached song to the library. Unsaved files expire after two days. The cache has a local test for reuse, expiry, and save. Test real remote files and playback, then add a faster progressive start; Telegram links and YouTube/Spotify playlist discovery remain open. Their full audio needs a supported playback source. Phase 9.5; follow-up #7.
-- [ ] **10. Named playlists and complete file actions — core code added, installed-app acceptance open.** SQLite schema v6 stores named lists separately from the live queue. The Playlist tab can create, save, choose, play, delete, import and export M3U/PLS/XSPF lists, add the current song, and remove entries; the track menu opens this flow. JSON library backup/restore includes named lists. The existing show/open/copy/delete/exclude file actions remain. Format round-trip tests pass. Test installed import/export with real files and resolve whether “file path” and “full path” need distinct copy actions. Original #13; Phase 11.
-- [ ] **11. Make the requested three-tab shell — code path added, visual acceptance open.** Three bottom dots now select Player, Playlist, and Settings, with accessible names and titles. Edit Tags is a track action with a Done button that returns to the prior tab. Check the installed app in horizontal and vertical layouts before marking complete. Original #14.
-- [ ] **12. Reproduce the missing Controls button.** Lyrics menu currently exposes Show/Hide Controls. Identify which mode/screen the report refers to and restore the intended button there. Phase 10.
-- [ ] **13. Visually accept the A–B region.** The 2026-09-24 progress-bar highlight uses the current accent. Check it in dark/light themes and compact/vertical sizes, including start/end changes and track switches. Follow-up A–B request.
-- [ ] **14. Add offline recommendations — song and album suggestions with optional song autoplay implemented, acceptance open.** The For You view scores available songs and groups albums from matching artist, genre, likes, persistent star ratings, plays and skips; each recommendation explains its reason. An opt-in setting adds one song when the queue ends. The migration smoke test checks song ranking, hiding, and album grouping. Still test the installed UI and automatic handoff, add vibe learning from explicit feedback, then consider optional online enrichment. Phase 9.5/14; follow-up #6.
-- [ ] **15. Improve icons, logo, and name.** Prepare a few concrete visual/name options, test taskbar/tray/filetype readability in both themes, then change branding without changing the stable data path. Also visually verify the Windows thumbnail buttons; the app still uses inline SVG rather than a Font Awesome set. Original #4 and follow-up branding request.
-- [ ] **16. Finish layout and audio acceptance on the installed app.** Check the vertical player (#12), lyric sizing/overlap (#9–10), end/replay state (#11, #21), fast-skip lyric flash (#6), restored-song volume burst (#22), theme contrast and padded middle-click progress seek (#24), timer notification (#26), and earbud-removal pause (#3) on representative hardware. Fix regressions found.
-- [ ] **17. Decide whether explicit 10% buffering is needed.** The engine already streams large files instead of decoding the whole file. Measure startup on large local and remote files; only add a 10% threshold if it improves responsiveness. Original #18.
+- [ ] Configure room server domain, HTTPS/WSS, `CREATE_SECRET`, and room password; verify two friends on separate networks hear the same queue and can both add songs. Loopback protocol/byte tests are complete; internet synchronization and human listening are not.
+- [ ] Configure `TELEGRAM_BOT_TOKEN` and writable `TELEGRAM_STATE_FILE`; test actual pairing, attachments, links, reconnect, and restarts. Docker Compose now supplies a dedicated offset volume. A crash between delivery and saving the offset can repeat the last update; this is not an exactly-once delivery guarantee.
+- [ ] Accept a real old-to-new Windows installer upgrade with settings/library/lyrics and backup restore. Automated legacy import/reopen is complete. Keep auto-update blocked until this installer check passes.
+- [ ] Listen through speakers plus headphones/earbuds, align delays, then add more outputs if available. A phone counts as a room listener unless Windows exposes it as an audio output. The 2026-09-24 two-output smoke pass remains recorded; the latest run exposed only Realtek speakers and skipped the real extra-output route.
+- [ ] Check earbud disconnect on hardware. Removing an earbud from the ear while it stays connected requires device-specific wear detection; the implemented watcher reacts to output disappearance/default changes, not physical wear sensors.
+- [ ] Accept vertical/docked layouts, hover/drag, monitor removal, A–B colors, Windows thumbnail/tray/file icons, lyric wrapping/fast skips, timer notification, and startup sound by using the packaged app. Automated geometry, control lock, transport and replay checks pass.
+- [ ] Accept speed/pitch sound quality, audible gapless/crossfade boundaries, measured loudness, and Bluetooth latency by listening. HTML media prebuffer reuse is tested; sample-exact native output is not claimed.
 
-## P2 — unfinished roadmap features
+## Completed local work before Phase 9
 
-### Phase 7 — library foundation
+### Phases 1–6 — foundations and original 26 requests
 
-- [x] SQLite library tables, multiple roots, missing-file flags, play/skip counts, recent/added views, and JSON library backup/restore exist in `src/main/services/library-store.js` and database migrations.
-- [x] Incremental scan based on file mtime/size; unchanged files keep their metadata without a tag read. Schema v8 stores fingerprints. The worker reads tags only for new or changed files.
-- [x] Watch library roots for adds/deletes and update the index while running. Recursive `fs.watch` with debouncing and a periodic fallback now starts for saved and new roots; a file-change test passes.
-- [x] Run persistent-root scans and metadata parsing off the main process with progress/cancellation. A worker, visible Cancel Scan control, and cancellation test are in place. Incomplete scans preserve prior missing-file flags.
-- [x] Cache embedded album art as bounded 512px thumbnails keyed by SHA-256 content hash, with reuse and startup pruning. The cache is used for current track art and can serve future grid views.
-- [x] Persistent 0–5 star ratings live separately from Like and play counts, survive root removal and JSON backup/restore, and influence offline recommendations. Optional tag sync remains deferred.
+- [x] #1 Distinct MP3/filetype icons, deterministic icon generation, Windows/macOS/Linux packaging definitions and build workflows. Cross-platform installer execution remains acceptance work.
+- [x] #2 Tag-first artist/title inference plus filename, folder and sibling evidence.
+- [x] #3 Pause when an active/default/extra output disconnects; ignore removal of an unused device. Device watcher tests include default alias changes.
+- [x] #4 Theme-aware Windows thumbnail icons and current-color in-app SVG buttons. A new logo/name or alternative icon set remains a Phase 10 design task.
+- [x] #5 Tray minimize/restore, configurable global shortcuts, and failure reporting for shortcuts owned by another app.
+- [x] #6 Async track/lyric guards discard results from skipped tracks.
+- [x] #7 Keep the database/settings on updates; tested legacy import, schema migration, backup and reopen.
+- [x] #8 Recursive subfolder scanning and artist/library search.
+- [x] #9–10 Active lyric font fitting and separate lyric/control layout.
+- [x] #11/#21 End state returns transport to play; replay rewinds; lyrics reset. Real renderer audio-fixture tests pass.
+- [x] #12 Readable vertical player (220px), wider vertical Playlist/Settings panels (340px), layout restoration and wall anchoring.
+- [x] #13 File actions: reveal/open file/folder; copy filename, title/artist, absolute file path and folder path; delete to trash; persistent folder exclusion; playlist show/hide and named-list management. “File Path” is already the full absolute path.
+- [x] #14 Player/Playlist/Settings tabs with three bottom dots; tags remain a separate file action returning to the previous tab.
+- [x] #15 Persian/English/French/Arabic translation selection, button, cache and RTL presentation. Live provider acceptance remains deferred.
+- [x] #16 Artist search and play-all; #17 liked-song queue.
+- [x] #18 Streaming local-file startup. A sparse 159 MB, one-hour WAV became ready in 21–42 ms in the latest Electron test. A forced 10% threshold would delay local start. Remote imports currently complete their bounded download before queueing; progressive remote start remains Phase 14.
+- [x] #19/#23 Speed control and pitch-preservation setting (duplicate request consolidated).
+- [x] #20 Full-window file drop; drops are ignored while controls are locked.
+- [x] #22 Gain ramp on start and paused startup/session restore; rapid pause/resume cannot be stopped by a stale pause timer.
+- [x] #24 Theme-aware progress track and padded wheel/middle-click seeking.
+- [x] #25 Equalizer, presets and saved settings; #26 countdown stop/fade and work reminder.
+- [x] Shared rooms, browser/desktop membership, clock projection, drift correction, listener permissions, host controls, byte-range relay and deployment templates. Live server acceptance is listed in P0 above.
+
+### Phase 7 — persistent library
+
+- [x] SQLite tracks/roots/missing flags/play and skip counts/recent and added views; JSON backup/merge restore.
+- [x] Incremental mtime/size fingerprints; unchanged files avoid tag parsing.
+- [x] Background worker scanning with progress/cancel; incomplete scans preserve prior missing flags.
+- [x] Root watching with debouncing and fallback rescan.
+- [x] Bounded embedded-art thumbnail cache.
+- [x] Persistent 0–5 ratings independent of likes, included in backup and recommendations. Optional tag-writing is deferred to Phase 12.
 
 ### Phase 8 — audio depth
 
-- [x] Playback-rate/pitch-preservation option, gapless prebuffer/crossfade, tag-based ReplayGain application, output selection, A–B repeat, skip silence, balance/mono/swap, equalizer and simultaneous output code exist.
-- [ ] Validate pitch quality, true gapless handoff, crossfade, ReplayGain loudness, and multi-output latency with audio fixtures; add a ReplayGain scan/analysis path if tag data is missing.
-- [ ] Scope extra decoders for APE/WavPack/DSD/MIDI/tracker files against actual demand.
-- [x] CUE sidecars and MP4/M4B embedded chapters expose previous/next/select navigation. Schema v10 stores per-M4B resume positions and includes them in JSON backup/restore; parser, routing, and migration tests pass. Installed playback with real chaptered media remains an acceptance check. CUE virtual-track listing as separate queue items is future work.
-- [ ] Investigate exclusive/bit-perfect native output separately; the WebAudio EQ path cannot provide it.
+- [x] Playback speed with Chromium pitch preservation; prebuffered two-deck handoff and configurable crossfade. Fixed crossfade queue advancement reloading the incoming song and retiring the fading deck too early. Buffered paused loads now have a usable paused state.
+- [x] Track/album ReplayGain tags and missing-tag loudness analysis. Optional FFmpeg scans a song, queue or indexed album, stores EBU R128 loudness/true peak, and applies bounded gain with peak protection. Changes to any analysed album file invalidate its album gain.
+- [x] Primary output selection plus simultaneous extra outputs; common master graph, separate delays including **main-output delay**, duplicate physical/default alias prevention, failed-route cleanup and retry.
+- [x] A–B repeat, skip silence, balance/mono/channel swap and equalizer paths.
+- [x] CUE and M4B chapter navigation and per-book resume/backup. Added bounded Nero `chpl` parsing for real FFmpeg-produced M4B files.
+- [x] Queue chapter/CUE sections as separately playable tagged FLAC tracks with optional FFmpeg; originals stay untouched. Real generated chapter/section fixtures pass.
+- [x] Wider-format scope and decoder path: optional FFmpeg prepares APE, WavPack, DSF/DFF and MOD/XM/IT/S3M into a bounded two-day FLAC cache. Real WavPack decoding and app IPC playback preparation pass. Availability of the other decoders depends on the chosen FFmpeg build.
+- [x] Exclusive/bit-perfect and MIDI feasibility decision recorded: these require a separate native output backend and soundfont/synth configuration respectively. Their actual implementation is explicitly queued in Phase 15 below, rather than promised by the WebAudio graph.
+
+### Follow-ups promoted before Phase 9
+
+- [x] Wall-docked mini mode, vertical scrolling title, hover expansion, vertical movement, left/right switching and Ctrl+Alt+D; no middle-screen resting position. Expanded panels remain wall anchored.
+- [x] Real light/dark switch with switch role and accessible state.
+- [x] Multiple local outputs with main/extra delay alignment controls (priority request #3).
+- [x] Add at top / after current / end from library and shared-room controls.
+- [x] Lock button and Ctrl+L; only unlock remains interactive, including in the wall strip.
+- [x] Offline song/album recommendations from artist/genre/likes/ratings/plays/skips; opt-in next-song radio, manual mood labels/filters, learned “More/Less like this” feedback, explanation and reset. Feedback survives rescans, restart and backup.
+- [x] Public HTTPS audio and M3U/M3U8/PLS/XSPF playlists, partial-failure reporting, preserved insertion order, cache reuse, two-day expiry, 100 MB/file and 512 MB/cache caps, explicit save. HLS and provider pages are not treated as audio files.
+- [x] Permanent “Show Lyrics Controls” action in Settings, in addition to the lyrics menu.
+- [x] Theme-colored A–B selection plus export to a new WAV/FLAC/MP3/M4A/OGG file; full-track conversion and chapter splitting. Optional FFmpeg executable picker/check, progress and cancellation; existing files/originals are preserved.
+- [x] “Added” library view and named playlist create/add/remove/play/import/export/delete.
+
+## Validation evidence — latest local pass
+
+- `npm test`: geometry, caches/playlists, worker/watcher, chapters, output routing/device watcher, media-tool safety, actual loopback desktop rooms, v1→v12 migration/reopen, mocked Telegram restart/link tests, and **48 server checks passed**.
+- `npm run test:ui-smoke` with optional `FFMPEG_TEST_BINARY`: actual Electron startup settings migration, theme switch, click lock/unlock, queue insertion/reorder/remove/persistence, wall/vertical panel geometry, end replay, rapid pause/resume, rate/pitch properties, primary delay, A–B looping, prebuffer reuse, crossfade without reload, large-file startup, WavPack preparation, CUE section queueing, actual guest upload into an empty desktop queue, byte-identical audio relay and renderer-crash paused recovery passed. Latest physical extra-output route skipped because only one real device was connected. Fixture lyrics providers are offline.
+- `npm run test:media-integration` with FFmpeg: real loudness/album measurement, accurate 1.5-second A–B FLAC export, original preservation, tagged CUE section, embedded M4B chapters and WavPack decode passed.
+- See `docs/AUDIO-TOOLS.md` for optional FFmpeg setup, reproducible tests and limits. No bot/server credentials were added, no deployment was performed, and no bundled FFmpeg binary was committed.
+
+## Later roadmap — implementation still required
 
 ### Phase 9 — lyrics
 
-- [x] `docs/ROADMAP.md` labels Phase 9 shipped: editor/tap sync, sidecar/embed, providers, karaoke timing, full screen, desktop overlay, typography, per-track offset, and translation cache. Keep regression checks in P1.
+- [x] Existing v1.6 lyrics editor/tap sync, sidecar/embed/providers, karaoke timing, full screen/desktop overlay, typography, per-track offset and translation cache. Keep its API and installed-app regression checks in P0 acceptance.
 
 ### Phase 10 — interface
 
-- [ ] Waveform seek bar with cached peaks; Now Playing full-screen view; visualizer.
-- [ ] Album-art-derived accent, custom theme import/user CSS, and a command palette.
-- [ ] Virtualized library lists before large libraries or grid views; drag-to-reorder queue.
+- [ ] Waveform seek bar with cached peaks, Now Playing full screen and visualizer.
+- [ ] Album-art accent, custom themes/user CSS and command palette.
+- [ ] Virtualized lists and drag-to-reorder queue; large catalog paging/search beyond current whole-catalog snapshots.
 - [ ] First-run folder onboarding and saved layout presets.
+- [ ] Better icon/logo/name options and human selection; retain the stable app data directory.
 
 ### Phase 11 — library management
 
-- [x] Named playlists and M3U/PLS/XSPF import/export have code paths and format round-trip tests. Installed-app acceptance remains in P1.
-- [ ] Rule-based smart playlists.
-- [ ] Explicit queue-versus-playlist behavior throughout player, rooms, and Telegram.
-- [ ] Album/artist art grids and folder-tree browsing.
-- [ ] Sorting, filtering, multi-select and bulk actions; chronological play history; duplicate review (never automatic deletion).
-- [x] Recently added/recently played queries and queue insertion positions exist.
+- [x] Named playlists and M3U/PLS/XSPF round trips; recent/added views; explicit queue insertion and exact session order.
+- [ ] Rule-based smart playlists; album/artist art grids and folder-tree browsing.
+- [ ] Multi-select/bulk actions, sorting/filtering, chronological history and duplicate review.
+- [ ] Optional durable server room identity/persistence and room-history policy. Current rooms/pending uploads are temporary; a server restart requires a new room. The desktop saved queue survives.
 
 ### Phase 12 — tags and files
 
-- [ ] Batch tag editing; filename/tag pattern conversion with preview; undoable file organization with dry run.
-- [ ] MusicBrainz lookup, AcoustID identification, missing-cover fetch, tag presets.
-- [ ] Format conversion and basic audio editor (trim/split/preview); export an A–B selection as a new file without changing the original. Decide whether FFmpeg is bundled or optional.
+- [x] Audio converter, A–B trim/export and chapter/CUE splitting were promoted before Phase 9. FFmpeg is optional, not bundled.
+- [ ] Batch tag editing, filename/tag patterns with preview, undoable dry-run file organization and optional rating-tag sync.
+- [ ] MusicBrainz/AcoustID lookup, missing-cover fetch and tag presets.
+- [ ] Advanced editor (arbitrary multi-cut timeline, fades/effects, undo); current editing is A–B selection and chapter split.
 
 ### Phase 13 — desktop integration
 
-- [ ] MPRIS on Linux and macOS Now Playing controls.
-- [ ] Auto-update after the P0 data-upgrade test; launch-at-login; CLI arguments; portable mode.
-- [ ] Rich track notifications and a Wayland positioning pass.
-- [x] Windows thumbnail toolbar and single-instance/open-file handling have code paths; test packaged behavior, especially opening several files into one queue.
+- [x] Windows thumbnail toolbar and single-instance/open-file paths.
+- [ ] Linux MPRIS/macOS Now Playing, launch-at-login, richer CLI options and explicit portable data mode.
+- [ ] Auto-update only after the P0 installer data-safety gate; track notifications and Wayland checks.
 
-### Phase 14 — connected features beyond rooms
+### Phase 14 — connected features
 
-- [ ] Last.fm and ListenBrainz scrobbling with an offline submission queue; Discord Rich Presence.
-- [ ] Internet radio; podcast feeds/download/resume; LAN remote web control.
-- [ ] Choose and implement one casting route (Chromecast, DLNA, or AirPlay) before promising all three.
-- [ ] Complete room collaboration and Telegram integration in P0 before expanding the service surface.
+- [x] Offline recommendations, shared queues and direct audio/playlist intake were promoted before Phase 9.
+- [ ] Online recommendation enrichment/provider adapters (accounts, matching and fallback); credentials alone do not implement this.
+- [ ] YouTube playlist discovery/visible player and Spotify OAuth/authorized player/local-library matching. These still need implementation and provider setup; their audio is not handled by the local cache/output graph. See provider planning in `docs/ROADMAP.md`.
+- [ ] Progressive remote-file playback, radio streams and HLS, podcasts, LAN remote control and one chosen casting route.
+- [ ] Last.fm/ListenBrainz scrobbling with offline submission queue and Discord presence.
 
-### Phase 15 — musician tools
+### Phase 15 — musician/native tools
 
-- [ ] Practice mode and pitch/key shifting; BPM and musical-key detection; metronome.
-- [ ] Spectrogram, named bookmarks/cue points, parametric EQ/response curve/AutoEQ profiles.
-- [ ] A–B export and editor/converter in Phase 12 above; evaluate a plugin/script API only with a clear use case and security model.
+- [ ] Native exclusive/bit-perfect output backend with device format negotiation; separate bypass path for effects and multi-output mixing.
+- [ ] MIDI rendering with chosen synthesizer, soundfont picker/licensing, and sample cache. MIDI is not claimed as a supported input yet.
+- [ ] Practice mode/count-in, pitch/key shift, BPM/key detection and metronome.
+- [ ] Spectrogram, named bookmarks/cue points and parametric EQ/AutoEQ.
+- [x] A–B audio export promoted to the pre-9 work; plugin/script API remains a future scoped decision.
 
 ### Phase 16 — quality and accessibility
 
-- [ ] Crash recovery and readable structured logs; opt-in crash reporting.
-- [ ] Automated test suite (P0), screen-reader labels, full keyboard navigation, interface i18n including RTL.
-- [ ] Settings import/export, large-library CPU/memory budget, and a maintained documentation site.
-
-## Already implemented from the original 26 requests
-
-The earlier code audit found implemented paths for distinct MP3 icons (#1), artist inference (#2), tray and shortcuts (#5), stale-lyric guards (#6), recursive subfolder scanning (#8), lyric fit/layout (#9–10), transport end handling (#11, #21–22), vertical layout (#12), lyrics translation (#15), artist search/play-all (#16), liked-song play (#17), speed control (#19 and duplicate #23), full-window drop (#20), equalizer (#25), and work timer (#26). Items with an acceptance risk or a remaining specification gap are listed in P0/P1. The dark/light control is already drawn as a switch, control lock is implemented, and “Added” is a library view.
+- [x] Bounded local logs, crash recovery and automated critical-path suite promoted before Phase 9.
+- [ ] Opt-in crash reporting, screen-reader/keyboard audit, interface i18n/RTL, settings import/export, large-library CPU/memory budgets and maintained documentation site.
