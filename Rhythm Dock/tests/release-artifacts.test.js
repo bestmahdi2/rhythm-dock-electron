@@ -12,18 +12,22 @@ const {verifyVersion,expectedFiles,collect}=require('../scripts/release-artifact
     const {expandMacro}=require('app-builder-lib/out/util/macroExpander');
     const pkg=require('../package.json');
     const info={version,productName:pkg.build.productName,sanitizedProductName:pkg.build.productName};
-    const builderLinux=['AppImage','deb','rpm','tar.gz'].map(ext=>{
+    const builderLinux=arch=>['AppImage','deb','rpm','tar.gz'].map(ext=>{
         const options=ext==='AppImage'?pkg.build.appImage:pkg.build[ext];
         const pattern=options?.artifactName||pkg.build.linux.artifactName;
-        return expandMacro(pattern,getArtifactArchName(Arch.x64,ext),info,{ext});
+        return expandMacro(pattern,getArtifactArchName(arch,ext),info,{ext});
     });
-    assert.deepEqual(expectedFiles('linux-x64'),builderLinux);
+    assert.deepEqual(expectedFiles('linux-x64'),builderLinux(Arch.x64));
+    assert.deepEqual(expectedFiles('linux-arm64'),builderLinux(Arch.arm64));
+    const workflow=require('js-yaml').load(fs.readFileSync(path.join(__dirname,'../../.github/workflows/release.yml'),'utf8'));
+    const platforms=workflow.jobs.build.strategy.matrix.include.map(entry=>entry.name);
+    assert.deepEqual([...platforms].sort(),['windows-x64','windows-ia32','windows-arm64','macos-x64','macos-arm64','linux-x64','linux-arm64'].sort());
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'rhythm-release-'));
     try{
-        for(const platform of ['windows-x64','macos-x64','macos-arm64','linux-x64']){
+        for(const platform of platforms){
             const dir=path.join(root,platform);fs.mkdirSync(dir);
             await assert.rejects(collect(platform,dir),/Missing required/);
-            const files=platform==='linux-x64'?builderLinux:expectedFiles(platform);
+            const files=platform.startsWith('linux-')?builderLinux(platform==='linux-x64'?Arch.x64:Arch.arm64):expectedFiles(platform);
             for(const name of files)fs.writeFileSync(path.join(dir,name),`fixture:${name}`);
             assert.deepEqual(await collect(platform,dir),files);
             const sums=fs.readFileSync(path.join(dir,'release',`SHA256SUMS-${platform}.txt`),'utf8').trim().split('\n');

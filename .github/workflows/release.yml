@@ -58,6 +58,12 @@ jobs:
           - name: windows-x64
             os: windows-2022
             args: --win nsis portable --x64
+          - name: windows-ia32
+            os: windows-2022
+            args: --win nsis portable --ia32
+          - name: windows-arm64
+            os: windows-11-arm
+            args: --win nsis portable --arm64
           - name: macos-x64
             os: macos-15-intel
             args: --mac dmg zip --x64
@@ -67,6 +73,9 @@ jobs:
           - name: linux-x64
             os: ubuntu-24.04
             args: --linux AppImage deb rpm tar.gz --x64
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            args: --linux AppImage deb rpm tar.gz --arm64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -15,13 +15,20 @@ function verifyVersion(ref=process.env.GITHUB_REF||''){
 }
 function expectedFiles(platform,version=pkg.version){
     const prefix=`Rhythm Dock-${version}`;
-    if(platform==='windows-x64')return [`Rhythm Dock Setup ${version}-x64.exe`,`Rhythm Dock Portable ${version}-x64.exe`];
+    if(['windows-x64','windows-ia32','windows-arm64'].includes(platform)){
+        const arch=platform.slice(8);
+        return [`Rhythm Dock Setup ${version}-${arch}.exe`,`Rhythm Dock Portable ${version}-${arch}.exe`];
+    }
     if(platform==='macos-x64'||platform==='macos-arm64'){
         const arch=platform.slice(6);return [`${prefix}-${arch}.dmg`,`${prefix}-${arch}.zip`];
     }
     if(platform==='linux-x64')return [
         `${prefix}-x86_64.AppImage`,`${prefix}-amd64.deb`,
         `${prefix}-x86_64.rpm`,`${prefix}-x64.tar.gz`,
+    ];
+    if(platform==='linux-arm64')return [
+        `${prefix}-arm64.AppImage`,`${prefix}-arm64.deb`,
+        `${prefix}-aarch64.rpm`,`${prefix}-arm64.tar.gz`,
     ];
     throw new Error(`Unknown release platform: ${platform}`);
 }

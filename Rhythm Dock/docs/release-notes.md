@@ -1,4 +1,7 @@
-# Rhythm Dock 1.7.0
+# Rhythm Dock 1.7.1
+
+- Expanded architecture coverage: Windows x64/x86/ARM64; macOS Intel/Apple Silicon; Linux x64/ARM64.
+- Fixed Linux package verification to use electron-builder's per-format architecture names.
 
 - Guided Windows setup with installation-folder selection and a short getting-started guide.
 - Installer and portable packages for Windows; DMG and ZIP for macOS Intel/Apple Silicon; DEB/RPM and AppImage/tar.gz for Linux.
@@ -16,3 +19,11 @@ Windows: use **Setup** for guided installation and file associations, or **Porta
 Builds are unsigned. macOS packages are not notarized. Database protections apply to installer operations and tested migrations; keep personal backups as usual.
 
 Each platform includes a SHA256SUMS file. Every push produces workflow artifacts. A new version pushed to master publishes a GitHub Release only after all builds and validation pass. Existing release tags are never moved to a different commit.
+
+| OS | CPU | Packages |
+| --- | --- | --- |
+| Windows | x64, x86 (ia32), ARM64 | Guided Setup EXE + Portable EXE |
+| macOS | Intel x64, Apple Silicon ARM64 | DMG + ZIP |
+| Linux | x64, ARM64 | DEB + RPM + AppImage + tar.gz |
+
+Linux 32-bit x86 and macOS 32-bit builds are not available in this Electron version. ARM64 builds require a 64-bit OS; 32-bit ARM/ARMv7 is not included in this matrix. Package names follow native conventions: x64 Linux DEBs use amd64 and RPM/AppImage use x86_64; ARM64 RPMs use aarch64. Other ARM64 packages use arm64.

@@ -1,6 +1,6 @@
 {
   "name": "rhythm-dock-electron",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "A lightweight, feature-rich music player.",
   "main": "src/main/index.js",
   "homepage": "https://github.com/bestmahdi2/rhythm-dock-electron",
@@ -17,14 +17,14 @@
     "dist:current": "npm run icons && electron-builder --publish never",
     "build:win64": "npm run icons && electron-builder --win --x64",
     "build:win32": "npm run icons && electron-builder --win --ia32",
-    "dist:win": "npm run icons && electron-builder --win --x64 --ia32",
+    "dist:win": "npm run icons && electron-builder --win --x64 --ia32 --arm64",
     "build:mac:x64": "npm run icons && electron-builder --mac --x64",
     "build:mac:arm64": "npm run icons && electron-builder --mac --arm64",
     "dist:mac": "npm run icons && electron-builder --mac --x64 --arm64",
     "build:linux:appimage": "npm run icons && electron-builder --linux AppImage --x64",
     "build:linux:deb": "npm run icons && electron-builder --linux deb --x64",
     "build:linux:rpm": "npm run icons && electron-builder --linux rpm --x64",
-    "dist:linux": "npm run icons && electron-builder --linux --x64",
+    "dist:linux": "npm run icons && electron-builder --linux --x64 --arm64",
     "dist:all": "npm run dist:win && npm run dist:mac && npm run dist:linux",
     "postinstall": "electron-builder install-app-deps",
     "test": "node tests/release-artifacts.test.js && node tests/installer-safety.test.js && node tests/audio-interruptions.test.js && node tests/file-icons.test.js && node tests/platform-audio.test.js && node tests/playback-open.test.js && node tests/platform-controls.test.js && node tests/roadmap-logic.test.js && node tests/discord-presence.test.js && node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/remote-playlist.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && node tests/audio-devices.test.js && node tests/media-tools.test.js && node tests/room-client-integration.test.js && node tests/room-restart-integration.test.js && npm run test:db-migration && npm --prefix ../server test",
@@ -235,13 +235,16 @@
           "target": "nsis",
           "arch": [
             "x64",
-            "ia32"
+            "ia32",
+            "arm64"
           ]
         },
         {
           "target": "portable",
           "arch": [
-            "x64"
+            "x64",
+            "ia32",
+            "arm64"
           ]
         }
       ],
@@ -314,25 +317,29 @@
         {
           "target": "AppImage",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         },
         {
           "target": "deb",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         },
         {
           "target": "rpm",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         },
         {
           "target": "tar.gz",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
