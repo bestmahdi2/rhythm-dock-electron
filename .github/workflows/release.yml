@@ -81,7 +81,9 @@ jobs:
             os: windows-2022
             args: --win nsis portable --ia32
           - name: windows-arm64
-            os: windows-11-arm
+            # Sharp 0.33 and NSIS tooling run on x64; builder downloads ARM64
+            # Electron and rebuilds runtime dependencies for the target CPU.
+            os: windows-2022
             args: --win nsis portable --arm64
           - name: macos-x64
             os: macos-15-intel
@@ -110,6 +112,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm libarchive-tools fakeroot
+      - name: Install native FPM for Linux ARM64
+        if: matrix.name == 'linux-arm64'
+        run: |
+          sudo apt-get install -y --no-install-recommends ruby ruby-dev build-essential
+          sudo gem install fpm --version 1.16.0 --no-document
+          fpm --version
+          echo 'USE_SYSTEM_FPM=true' >> "$GITHUB_ENV"
+          echo "CUSTOM_FPM_PATH=$(command -v fpm)" >> "$GITHUB_ENV"
       - name: Install dependencies for the native runner architecture
         run: npm ci
         working-directory: Rhythm Dock

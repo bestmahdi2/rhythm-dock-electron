@@ -1,7 +1,8 @@
-# Rhythm Dock 1.7.1
+# Rhythm Dock 1.7.2
 
 - Expanded architecture coverage: Windows x64/x86/ARM64; macOS Intel/Apple Silicon; Linux x64/ARM64.
 - Fixed Linux package verification to use electron-builder's per-format architecture names.
+- ARM build tools: Windows ARM64 packages are cross-built on Windows x64; Linux ARM64 uses native Ruby/FPM rather than the builder's bundled x86 executable.
 
 - Guided Windows setup with installation-folder selection and a short getting-started guide.
 - Installer and portable packages for Windows; DMG and ZIP for macOS Intel/Apple Silicon; DEB/RPM and AppImage/tar.gz for Linux.

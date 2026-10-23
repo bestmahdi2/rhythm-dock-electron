@@ -21,6 +21,13 @@ const {verifyVersion,expectedFiles,collect}=require('../scripts/release-artifact
     assert.deepEqual(expectedFiles('linux-arm64'),builderLinux(Arch.arm64));
     const workflow=require('js-yaml').load(fs.readFileSync(path.join(__dirname,'../../.github/workflows/release.yml'),'utf8'));
     const platforms=workflow.jobs.build.strategy.matrix.include.map(entry=>entry.name);
+    const windowsArm=workflow.jobs.build.strategy.matrix.include.find(entry=>entry.name==='windows-arm64');
+    assert.equal(windowsArm.os,'windows-2022','Windows ARM64 packaging must use the supported x64 Sharp host');
+    assert.ok(windowsArm.args.includes('--arm64'),'host architecture must not change the output architecture');
+    const nativeFpm=workflow.jobs.build.steps.find(step=>step.name==='Install native FPM for Linux ARM64');
+    assert.equal(nativeFpm.if,"matrix.name == 'linux-arm64'");
+    assert.ok(nativeFpm.run.includes('gem install fpm --version 1.16.0'));
+    assert.ok(nativeFpm.run.includes('USE_SYSTEM_FPM=true'));
     assert.deepEqual([...platforms].sort(),['windows-x64','windows-ia32','windows-arm64','macos-x64','macos-arm64','linux-x64','linux-arm64'].sort());
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'rhythm-release-'));
     try{
