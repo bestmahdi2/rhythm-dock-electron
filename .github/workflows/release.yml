@@ -1,129 +1,144 @@
-# .github/workflows/release.yml
-
 name: Build and Release
 
-# Runs when you push a tag that starts with 'v' (e.g. v1.4.0).
-# Can also be started by hand from the Actions tab.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: ['**']
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
+  validate:
+    name: Validate and test
+    runs-on: windows-2022
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Rhythm Dock/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check version consistency
+        id: version
+        shell: bash
+        run: node "Rhythm Dock/scripts/release-artifacts.js" version >> "$GITHUB_OUTPUT"
+      - name: Install app dependencies
+        run: npm ci
+        working-directory: Rhythm Dock
+      - name: Install server test dependencies
+        run: npm install --ignore-scripts --package-lock=false
+        working-directory: server
+      - name: Generate icons
+        run: npm run icons
+        working-directory: Rhythm Dock
+      - name: Run tests and database preservation checks
+        run: npm test
+        working-directory: Rhythm Dock
 
+  build:
+    name: Build ${{ matrix.name }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
-      # One platform failing should not throw away the artifacts from the others.
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            name: Windows
-            script: dist:win
-            artifacts: |
-              Rhythm Dock/dist/*.exe
-              Rhythm Dock/dist/*.exe.blockmap
-
-          - os: macos-latest
-            name: macOS
-            script: dist:mac
-            artifacts: |
-              Rhythm Dock/dist/*.dmg
-              Rhythm Dock/dist/*.zip
-
-          - os: ubuntu-latest
-            name: Linux
-            script: dist:linux
-            artifacts: |
-              Rhythm Dock/dist/*.AppImage
-              Rhythm Dock/dist/*.deb
-              Rhythm Dock/dist/*.rpm
-              Rhythm Dock/dist/*.tar.gz
-
+          - name: windows-x64
+            os: windows-2022
+            args: --win nsis portable --x64
+          - name: macos-x64
+            os: macos-15-intel
+            args: --mac dmg zip --x64
+          - name: macos-arm64
+            os: macos-15
+            args: --mac dmg zip --arm64
+          - name: linux-x64
+            os: ubuntu-24.04
+            args: --linux AppImage deb rpm tar.gz --x64
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      # rpmbuild is not on the ubuntu runner by default, which is one of the reasons
-      # the Linux build never produced anything. libarchive-tools provides bsdtar,
-      # which electron-builder shells out to when packing the .rpm payload.
-      - name: Install Linux build tooling
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Rhythm Dock/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Linux packaging tools
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm libarchive-tools fakeroot
-
-      # better-sqlite3 is a native module. Prebuilt binaries exist for common
-      # platform/arch pairs but not all of them, so the toolchain has to be present.
-      - name: Setup Python (node-gyp)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Dependencies
-        run: npm install
-        working-directory: './Rhythm Dock'
-
-      # macOS builds both x64 and arm64. The arm64 slice needs its own native rebuild.
-      - name: Rebuild native modules
-        run: npx electron-builder install-app-deps
-        working-directory: './Rhythm Dock'
-
-      - name: Build ${{ matrix.name }}
-        run: npm run ${{ matrix.script }}
-        working-directory: './Rhythm Dock'
+      - name: Install dependencies for the native runner architecture
+        run: npm ci
+        working-directory: Rhythm Dock
+      - name: Generate application and file-type icons
+        run: npm run icons
+        working-directory: Rhythm Dock
+      - name: Build installer and portable packages
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        working-directory: Rhythm Dock
         env:
-          # Unsigned builds. Without this, electron-builder tries to notarise on macOS
-          # and fails the job outright when no certificate is configured.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify artifact set and write checksums
+        run: node scripts/release-artifacts.js collect ${{ matrix.name }}
+        working-directory: Rhythm Dock
+      - uses: actions/upload-artifact@v4
         with:
           name: rhythm-dock-${{ matrix.name }}
-          path: ${{ matrix.artifacts }}
+          path: Rhythm Dock/dist/release/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
   release:
-    name: Publish Release
-    needs: build
-    runs-on: ubuntu-latest
-    # Only cut a release for an actual tag push, not for a manual test run.
-    if: startsWith(github.ref, 'refs/tags/v')
-
+    name: Publish versioned release
+    needs: [validate, build]
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-rhythm-dock-${{ needs.validate.outputs.version }}
+      cancel-in-progress: false
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Flatten artifact directories
+          pattern: rhythm-dock-*
+          path: release
+          merge-multiple: true
+      - name: Publish packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          mkdir -p release
-          find artifacts -type f \( \
-            -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o \
-            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' \
-          \) -exec cp {} release/ \;
-          ls -lh release
-
-      - name: Create and Publish Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: 'release/*'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          generateReleaseNotes: true
-          allowUpdates: true
+          set -euo pipefail
+          tag="v$VERSION"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > tag.json 2>/dev/null; then
+            git fetch origin "refs/tags/$tag:refs/tags/$tag"
+            tagged_commit=$(git rev-list -n 1 "$tag")
+            if [ "$tagged_commit" != "$GITHUB_SHA" ]; then
+              echo "Version $VERSION is already tagged at a different commit. Packages are available as workflow artifacts; bump the version for another release." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Rhythm Dock $VERSION" --notes-file "Rhythm Dock/docs/release-notes.md" --draft
+          fi
+          gh release upload "$tag" release/* --clobber
+          gh release edit "$tag" --draft=false --latest
+          echo "Published [$tag](https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag)" >> "$GITHUB_STEP_SUMMARY"
