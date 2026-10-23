@@ -2021,6 +2021,7 @@ ipcMain.on('room-kick', (_e, {memberId}) => roomClient?.kickMember(memberId));
 ipcMain.handle('set-active-tab', (_event, tab) => {
     if (!mainWindow || mainWindow.isDestroyed()) return false;
     if (!['player', 'playlist', 'settings', 'tags'].includes(tab)) return false;
+    const previousTab = currentTab;
     currentTab = tab;
     if (edgeDock.active) {
         expandEdgeDock(true);
@@ -2034,10 +2035,11 @@ ipcMain.handle('set-active-tab', (_event, tab) => {
     }
 
     const bounds = mainWindow.getBounds();
-    const targetHeight = tab === 'player' ? (store.get('playerTabHeight', 180)) : 420;
+    const targetHeight = tab === 'player'
+        ? store.get('playerTabHeight', windowState.PRESETS.horizontal.height) : 420;
 
     // Remember the player height so a user who resized the dock keeps their size.
-    if (tab !== 'player' && bounds.height <= 260) {
+    if (tab !== 'player' && previousTab === 'player') {
         store.set('playerTabHeight', bounds.height);
     }
 

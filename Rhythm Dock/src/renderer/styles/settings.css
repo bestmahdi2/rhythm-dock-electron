@@ -1,0 +1,103 @@
+/* Settings category navigation. Original form controls keep their IDs/handlers. */
+#tab-settings, #tab-settings * { box-sizing: border-box; }
+.container[data-active-tab="settings"] { min-width: 0; border-radius: 18px; }
+.container[data-active-tab="settings"] > .content-wrapper,
+.container[data-active-tab="settings"] > .lyrics-section { visibility: hidden; }
+#tab-settings {
+    top: 46px;
+    bottom: 58px;
+    padding: 12px;
+    border-radius: 0;
+    gap: 10px;
+}
+.container.vertical-mode #tab-settings { top: 46px; bottom: 58px; padding: 12px; }
+#tab-settings > .panel-head { gap: 8px; margin: 0; min-height: 32px; }
+#tab-settings > .panel-head .panel-title { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+#tab-settings #version-menu-display { flex-shrink: 0; min-width: 0; font-size: 11px; color: var(--text-3); }
+#tab-settings .settings-category-back { display: inline-flex; align-items: center; gap: 2px; padding: 4px; font-size: 11px; border: 0; background: transparent; color: var(--text-3); }
+#tab-settings .settings-category-back svg { width: 14px; height: 14px; }
+#tab-settings .settings-category-back[hidden],
+#tab-settings .settings-home[hidden],
+#tab-settings .settings-category-page[hidden],
+#tab-settings #roadmap-tools-card[hidden] { display: none; }
+#tab-settings > .settings-scroll { padding: 0 3px 8px 0; margin: 0; min-width: 0; }
+.settings-category-entry {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 61px;
+    padding: 12px 2px;
+    text-align: left;
+    color: var(--text);
+    background: transparent;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    cursor: pointer;
+}
+.settings-category-entry:hover { background: var(--surface-1); border-radius: 8px; }
+.settings-category-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; color: var(--text-3); background: var(--surface-2); }
+.settings-category-entry svg { width: 17px; height: 17px; flex-shrink: 0; }
+.settings-category-copy { flex: 1; min-width: 0; }
+.settings-category-name { display: block; font-size: 13px; font-weight: 600; }
+.settings-category-copy small { display: block; margin-top: 4px; font-size: 11px; line-height: 1.4; color: var(--text-3); }
+.settings-category-section { min-width: 0; border-top: 1px solid var(--line); padding: 12px 0; }
+.settings-category-section > summary { cursor: pointer; color: var(--text); font-size: 13px; font-weight: 600; }
+.settings-category-section[open] > summary { margin-bottom: 12px; }
+.settings-category-content { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+#tab-settings .settings-category-content > .settings-block { min-width: 0; max-width: 100%; border: 0; border-radius: 0; background: transparent; padding: 0; margin: 0; }
+#tab-settings .settings-category-content > .settings-block > .settings-block-head .settings-title { display: none; }
+#tab-settings .settings-block-head { margin-bottom: 4px; min-height: 0; }
+#tab-settings .settings-block-head:not(:has(.settings-value, .switch)) { display: none; }
+#tab-settings .settings-category-content .settings-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin: 4px 0 10px; overflow-wrap: anywhere; }
+#tab-settings .settings-category-content .settings-title { font-size: 13px; }
+#tab-settings .settings-category-content .settings-row { flex-wrap: wrap; gap: 8px; min-width: 0; }
+#tab-settings .settings-category-content .settings-row > label[for] { flex-basis: 100%; font-size: 12px; min-width: 0; }
+#tab-settings .settings-category-content .settings-row:has(> input[type="range"]) { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+#tab-settings .settings-category-content .settings-row:has(> input[type="range"]) > label { grid-area: 1 / 1; }
+#tab-settings .settings-category-content .settings-row:has(> input[type="range"]) > .settings-value { grid-area: 1 / 2; }
+#tab-settings .settings-category-content .settings-row > input[type="range"] { grid-area: 2 / 1 / 3 / 3; min-width: 0; width: 100%; }
+#tab-settings .settings-category-content .settings-row > select { flex: 1 1 100%; width: 100%; min-width: 0; max-width: 100%; }
+#tab-settings .settings-category-content .settings-input,
+#tab-settings .settings-category-content .settings-select { min-width: 0; max-width: 100%; font-size: 12px; border-radius: 8px; }
+#tab-settings .settings-category-content .settings-input.full { width: 100%; }
+#tab-settings .settings-category-content .settings-row > input:not([type="range"]):not([type="checkbox"]) { flex: 1; width: 0; min-width: 50px; }
+#tab-settings .settings-category-content .settings-button,
+#tab-settings .settings-category-content > button[data-settings-page] { width: auto; max-width: 100%; min-height: 32px; font-size: 12px; padding: 6px 10px; border-radius: 8px; white-space: normal; overflow-wrap: anywhere; }
+#tab-settings .settings-category-content > button[data-settings-page] { text-align: left; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); cursor: pointer; }
+#tab-settings .settings-category-content .settings-check { margin-inline: 0; padding-inline: 0; align-items: flex-start; font-size: 12px; line-height: 1.5; gap: 10px; }
+#tab-settings .settings-category-content .settings-check input { flex-shrink: 0; margin-top: 2px; }
+#tab-settings .settings-category-content .settings-action { width: 100%; margin: 0; padding: 10px 0; font-size: 12px; height: auto; min-height: 38px; }
+#tab-settings .settings-category-content .settings-action::before { right: 17px; }
+#tab-settings .settings-category-content .settings-action span { white-space: normal; }
+#tab-settings .settings-category-content .settings-value { font-size: 11px; }
+#tab-settings .theme-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+#tab-settings .theme-swatch-name { font-size: 10px; }
+#tab-settings .theme-swatch { min-width: 0; }
+#tab-settings .eq-bands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; height: auto; padding: 12px; }
+#tab-settings .eq-band { height: auto; flex-direction: column-reverse; align-items: stretch; gap: 10px; }
+#tab-settings .eq-slider { width: 100%; height: 4px; margin: 0; transform: none; }
+#tab-settings .eq-band-label { font-size: 11px; }
+#tab-settings .shortcut-row { gap: 10px; flex-wrap: wrap; font-size: 12px; }
+#tab-settings .shortcut-row kbd { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 11px; }
+#tab-settings .shortcut-group { font-size: 11px; }
+#tab-settings .output-row { min-width: 0; flex-wrap: wrap; }
+#tab-settings .output-row-check { flex-basis: 65%; }
+#tab-settings .output-delay { flex: 0 1 72px; width: 72px; }
+#tab-settings .room-members { max-height: none; }
+#tab-settings .room-member { flex-wrap: wrap; }
+#tab-settings .room-member-name { min-width: 75px; }
+#tab-settings .room-code-display { flex-wrap: wrap; padding: 10px; }
+#tab-settings .library-roots { min-width: 0; }
+#tab-settings .library-root { flex-wrap: wrap; }
+.container[data-active-tab="settings"] .tab-bar { width: calc(100% - 24px); bottom: 10px; padding: 4px; border-radius: 12px; background: var(--surface-1); }
+.container[data-active-tab="settings"] .tab-bar .tab-dot { flex: 1; min-width: 0; height: 30px; border-radius: 8px; }
+.container[data-active-tab="settings"] .tab-bar .tab-dot.active { background: var(--surface-2); color: var(--accent); }
+.container.vertical-mode[data-active-tab="settings"] .tab-bar .tab-dot { height: 34px; font-size: 11px; }
+/* Embedded tools retain their own controls and a scrollable work area. */
+#tab-settings .rd-dialog[data-embedded="true"] { padding: 0; }
+#tab-settings .rd-dialog[data-embedded="true"] .rd-head h2 { font-size: 16px; overflow-wrap: anywhere; }
+#tab-settings .rd-dialog[data-embedded="true"] .rd-field { min-width: min(130px, 100%); }
+#tab-settings .rd-dialog[data-embedded="true"] #rd-body { padding-right: 4px; }
+#tab-settings .rd-dialog[data-embedded="true"] #rd-body button { max-width: 100%; white-space: normal; }

@@ -1,0 +1,135 @@
+/* Player review, phase one. Existing DOM controls and event handlers are retained.
+   Scope content changes to Player so Playlist and Settings can be reviewed separately. */
+.player-action-label { font-size: 11px; }
+.container[data-active-tab="player"]:not(.collapsed) {
+    padding: 10px 16px 56px;
+    gap: 10px;
+    min-width: 0;
+    border-radius: 18px;
+}
+.container[data-active-tab="player"] .header-bar {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+}
+.container[data-active-tab="player"] .window-controls { gap: 0; }
+.container[data-active-tab="player"] .content-wrapper {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    padding: 4px 0 0;
+}
+.container[data-active-tab="player"] #album-art-wrapper { width: 76px; height: 76px; }
+.container[data-active-tab="player"] #album-art { border-radius: 12px; }
+.container[data-active-tab="player"] #title { font-size: 16px; font-weight: 600; }
+.container[data-active-tab="player"] #artist { font-size: 12px; }
+.container[data-active-tab="player"] .current-playlist { font-size: 11px; margin-bottom: 5px; }
+.container[data-active-tab="player"] .time-display { font-size: 11px; }
+.container[data-active-tab="player"] .side-controls {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
+    justify-items: center;
+    gap: 6px;
+    width: 100%;
+    padding-top: 4px;
+}
+.container[data-active-tab="player"] .playback-buttons,
+.container[data-active-tab="player"] .utility-buttons { display: contents; }
+.container[data-active-tab="player"] #shuffle-btn { grid-area: 1 / 1; }
+.container[data-active-tab="player"] #prev-btn { grid-area: 1 / 2; }
+.container[data-active-tab="player"] #play-pause-btn { grid-area: 1 / 3; width: 46px; height: 46px; }
+.container[data-active-tab="player"] #next-btn { grid-area: 1 / 4; }
+.container[data-active-tab="player"] #loop-btn { grid-area: 1 / 5; }
+.container[data-active-tab="player"] .volume-control-wrapper { grid-area: 2 / 1; }
+.container[data-active-tab="player"] #ab-repeat-btn { grid-area: 2 / 2; width: 44px; border-radius: 8px; }
+.container[data-active-tab="player"] #like-btn { grid-area: 2 / 3; }
+.container[data-active-tab="player"] .utility-buttons > .dropdown { grid-area: 2 / 4 / 3 / 6; justify-self: stretch; }
+.container[data-active-tab="player"] #file-dropdown-btn {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--surface-1);
+}
+.container[data-active-tab="player"] .lyrics-section { margin: 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+.container[data-active-tab="player"].lyrics-hidden .lyrics-section { display: none; }
+.container[data-active-tab="player"] .lyrics-container { flex: 1; height: auto; min-height: 0; padding-bottom: 8px; }
+.container[data-active-tab="player"] .lyrics-controls {
+    position: static; align-self: flex-end; flex-shrink: 0; transform: none;
+    opacity: 1; pointer-events: auto; max-width: 100%;
+}
+.container[data-active-tab="player"] .tab-bar {
+    width: calc(100% - 24px);
+    bottom: 10px;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--surface-1);
+}
+.container[data-active-tab="player"] .tab-bar .tab-dot { flex: 1; min-width: 0; height: 30px; border-radius: 8px; }
+.container[data-active-tab="player"] .tab-bar .tab-dot.active { background: var(--surface-2); color: var(--accent); }
+.container[data-active-tab="player"].vertical-mode .header-bar { justify-content: center; }
+.container[data-active-tab="player"].vertical-mode .window-controls { flex-wrap: wrap; gap: 2px; }
+.container[data-active-tab="player"].vertical-mode .content-wrapper { display: flex; gap: 10px; }
+.container[data-active-tab="player"].vertical-mode #album-art-wrapper { width: 100%; max-width: 144px; height: auto; }
+.container[data-active-tab="player"].vertical-mode .main-controls { text-align: left; }
+.container[data-active-tab="player"].vertical-mode .track-info { width: 100%; }
+.container[data-active-tab="player"].vertical-mode #title,
+.container[data-active-tab="player"].vertical-mode #artist { text-align: left; }
+.container[data-active-tab="player"].vertical-mode .current-playlist { margin-inline: 0; }
+.container[data-active-tab="player"].vertical-mode .tab-bar .tab-dot { height: 34px; font-size: 11px; }
+.container[data-active-tab="player"].vertical-mode .volume-slider-popup { left: 0; transform: none; }
+.container[data-active-tab="player"]:not(.vertical-mode) .volume-slider-popup { left: 0; right: auto; }
+
+/* The edge strip remains the existing 48px hover-to-expand player. */
+.container.edge-docked.collapsed { border-radius: 16px; }
+.edge-control { display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; }
+#edge-play { height: 38px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.edge-handle { width: 22px; height: 4px; margin: 6px 0; opacity: .65; }
+
+/* Saved compact windows remain usable; no control is removed at small sizes. */
+@media (max-height: 300px) and (min-width: 280px) {
+    .container[data-active-tab="player"]:not(.vertical-mode) { gap: 4px; padding: 6px 12px 48px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .header-bar { padding-bottom: 3px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .content-wrapper { gap: 8px; grid-template-columns: 44px minmax(0, 1fr) 124px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #album-art-wrapper { width: 44px; height: 44px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .side-controls { grid-column: 3; grid-row: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 2px; padding: 0; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #prev-btn { grid-area: 1 / 1; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #play-pause-btn { grid-area: 1 / 2; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #next-btn { grid-area: 1 / 3; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #shuffle-btn { grid-area: 2 / 1; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #ab-repeat-btn { grid-area: 2 / 2; width: 32px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #loop-btn { grid-area: 2 / 3; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .volume-control-wrapper { grid-area: 3 / 1; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #like-btn { grid-area: 3 / 2; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .utility-buttons > .dropdown { grid-area: 3 / 3; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .player-action-label { display: none; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #play-pause-btn { width: 32px; height: 32px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .side-controls button { height: 28px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) #title { font-size: 14px; }
+    .container[data-active-tab="player"]:not(.vertical-mode) .current-playlist { margin-bottom: 0; }
+}
+@media (max-height: 480px) {
+    .container[data-active-tab="player"].vertical-mode { padding: 6px 10px 52px; gap: 4px; }
+    .container[data-active-tab="player"].vertical-mode .content-wrapper { gap: 4px; }
+    .container[data-active-tab="player"].vertical-mode #album-art-wrapper { max-width: 64px; }
+    .container[data-active-tab="player"].vertical-mode #play-pause-btn { width: 36px; height: 36px; }
+    .container[data-active-tab="player"].vertical-mode .side-controls { gap: 2px; }
+}
+@media (max-width: 180px) {
+    .container[data-active-tab="player"].vertical-mode { padding-inline: 6px; }
+    .container[data-active-tab="player"].vertical-mode .side-controls { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; }
+    .container[data-active-tab="player"].vertical-mode .side-controls button { max-width: 100%; }
+    .container[data-active-tab="player"].vertical-mode #play-pause-btn { width: 28px; height: 32px; }
+    .container[data-active-tab="player"].vertical-mode .player-action-label { display: none; }
+    .container[data-active-tab="player"].vertical-mode #title { font-size: 13px; }
+}
+/* A manually resized legacy window can be shorter than any preset. Keep its
+   player controls reachable by scrolling between the fixed header and footer. */
+@media (max-height: 220px) {
+    .container[data-active-tab="player"]:not(.collapsed) .content-wrapper {
+        flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+        -webkit-app-region: no-drag;
+    }
+    .container[data-active-tab="player"]:not(.collapsed) .lyrics-section { flex: 0 0 auto; }
+}

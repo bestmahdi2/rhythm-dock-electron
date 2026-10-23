@@ -31,6 +31,9 @@
     "test:db-migration": "electron tests/db-migration-smoke.js",
     "test:media-tools": "node tests/media-tools.test.js",
     "test:ui-smoke": "electron tests/pre-phase9-ui-smoke.js",
+    "test:player-layout": "electron tests/player-layout.test.js",
+    "test:playlist-layout": "electron tests/playlist-layout.test.js",
+    "test:settings-layout": "electron tests/settings-layout.test.js",
     "test:media-integration": "node tests/formats-playback-integration.test.js && node tests/media-tools-integration.test.js",
     "test:roadmap": "node tests/roadmap-logic.test.js && npm run test:db-migration && npm run test:ui-smoke"
   },

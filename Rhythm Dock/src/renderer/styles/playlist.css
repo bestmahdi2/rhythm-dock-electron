@@ -1,0 +1,130 @@
+/* Playlist phase: retain the existing list, native menus and input IDs. */
+.container:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) {
+    min-width: 0;
+    border-radius: 18px;
+}
+.container:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) > .content-wrapper,
+.container:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) > .lyrics-section { visibility: hidden; }
+#playlist-panel,
+#tab-playlist-options {
+    top: 46px;
+    bottom: 58px;
+    padding: 12px;
+    border-radius: 0;
+    gap: 10px;
+    background: var(--panel-bg);
+}
+.container.vertical-mode #playlist-panel,
+.container.vertical-mode #tab-playlist-options { bottom: 58px; }
+#playlist-panel .playlist-header { gap: 8px; margin: 0; }
+#playlist-panel .playlist-heading { flex: 1; min-width: 0; }
+#playlist-panel .panel-title { font-size: 17px; font-weight: 600; }
+#playlist-panel .playlist-status {
+    font-size: 11px;
+    line-height: 1.4;
+    margin: 3px 0 0;
+    padding: 0;
+    border: 0;
+    color: var(--text-3);
+}
+#playlist-panel > .library-search-input {
+    flex: 0 0 34px;
+    width: 100%;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 12px;
+}
+#playlist-options-open { background: var(--surface-2); border-radius: 8px; font-size: 12px; }
+#playlist-panel #library-view-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    overflow: visible;
+    min-width: 0;
+}
+#playlist-panel #library-view-chips.hidden { display: none; }
+#playlist-panel #library-view-chips .chip {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 30px;
+    padding: 5px 6px;
+    font-size: 12px;
+    border-radius: 8px;
+    white-space: nowrap;
+}
+#playlist-panel #library-more-views {
+    flex: 1.25 1 0;
+    min-width: 0;
+    width: 0;
+    height: 30px;
+    font-size: 11px;
+    padding: 4px;
+    border-radius: 8px;
+}
+#playlist-panel .library-toolbar { padding: 0; gap: 8px; }
+#playlist-panel #named-playlist-select { width: 0; min-width: 0; height: 32px; font-size: 12px; border-radius: 8px; }
+#playlist-browse-toggle { width: 34px; height: 32px; flex-shrink: 0; padding: 5px; border-radius: 8px; }
+#playlist-browse-toggle.active { color: var(--accent); background: var(--accent-soft); }
+#playlist-browse-panel { flex-shrink: 0; max-height: 110px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+#playlist-browse-panel[hidden],#playlist-browse-toggle[hidden] { display: none; }
+#playlist-panel .playlist-browse-controls { padding: 8px; gap: 8px; flex-wrap: wrap; }
+#playlist-panel .playlist-browse-controls label { flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-3); }
+#playlist-panel .playlist-browse-controls select { min-width: 0; width: 100%; font-size: 11px; }
+.playlist-list-heading { flex-shrink: 0; display: flex; justify-content: space-between; gap: 8px; color: var(--text-3); font-size: 11px; }
+#playlist-view-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#playlist-reorder-hint { flex-shrink: 0; }
+#playlist-results { margin: 0; padding: 0; }
+#playlist-results .playlist-row {
+    min-height: 44px;
+    gap: 4px;
+    padding: 0 3px;
+    border-top: 1px solid var(--line);
+    border-radius: 5px;
+}
+#playlist-results .playlist-row-main { padding: 5px 3px; overflow: hidden; }
+#playlist-results .playlist-row-title { font-size: 13px; font-weight: 500; }
+#playlist-results .playlist-row-subtitle { font-size: 11px; color: var(--text-3); }
+#playlist-results .playlist-row-action { width: 28px; height: 30px; color: var(--text-3); }
+#playlist-results .playlist-row-action svg { width: 16px; height: 16px; }
+.playlist-row-duration { flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3); }
+.playlist-row-grip { width: 14px; flex-shrink: 0; display: flex; color: var(--text-4); cursor: grab; }
+.playlist-row-grip svg { width: 12px; height: 16px; }
+#playlist-results .playlist-row.unavailable .playlist-row-subtitle { display: none; }
+#playlist-results .playlist-unavailable-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+#tab-playlist-options .panel-head { margin: 0; min-width: 0; }
+#playlist-options-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+#tab-playlist-options .playlist-options-content { padding: 0 3px; }
+#tab-playlist-options .playlist-option-section {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    padding: 12px 0;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+}
+#tab-playlist-options .playlist-option-section[hidden] { display: none; }
+#tab-playlist-options summary { cursor: pointer; font-size: 13px; color: var(--text); font-weight: 600; }
+#tab-playlist-options .playlist-option-section[open] summary { margin-bottom: 12px; }
+#tab-playlist-options .settings-row { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
+#tab-playlist-options .settings-row input { flex: 1 1 100%; width: 100%; max-width: 100%; min-width: 0; }
+#tab-playlist-options .settings-row select { flex: 1 1 100%; width: 100%; max-width: 100%; min-width: 0; }
+#tab-playlist-options .settings-button { width: auto; padding: 6px 10px; min-height: 32px; font-size: 12px; border-radius: 8px; }
+#tab-playlist-options #playlist-options-status { min-height: 16px; white-space: normal; margin: 0; font-size: 11px; }
+.container:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) .tab-bar {
+    width: calc(100% - 24px);
+    bottom: 10px;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--surface-1);
+}
+.container:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) .tab-bar .tab-dot { flex: 1; min-width: 0; height: 30px; border-radius: 8px; }
+.container:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) .tab-bar .tab-dot.active { background: var(--surface-2); color: var(--accent); }
+.container.vertical-mode:is([data-active-tab="playlist"], [data-active-tab="playlist-options"]) .tab-bar .tab-dot { height: 34px; font-size: 11px; }
+@media (max-height: 460px) {
+    #playlist-panel { gap: 7px; padding-top: 8px; }
+}

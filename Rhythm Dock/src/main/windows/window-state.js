@@ -15,8 +15,8 @@ const STORE_KEY = 'windowState';
 
 // The compact dock the app has always opened as.
 const PRESETS = {
-    horizontal: {width: 380, height: 180},
-    horizontalCompact: {width: 380, height: 122},
+    horizontal: {width: 380, height: 360},
+    horizontalCompact: {width: 380, height: 260},
     vertical: {width: 220, height: 560},
 };
 

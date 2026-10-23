@@ -340,7 +340,8 @@ function install(actions) {
         actions.tab('settings');
         const scroll=settingsPanel.querySelector('.settings-scroll');
         if(scroll)scroll.scrollTop=0;
-        categories.querySelector('button')?.focus({preventScroll:true});
+        if(window.settingsNavigation)window.settingsNavigation.home();
+        else categories.querySelector('button')?.focus({preventScroll:true});
     }
     const visual=el('canvas');visual.id='rd-visual';visual.width=512;visual.height=64;visual.setAttribute('aria-label','Audio visualizer');visual.hidden=true;
     const wave=el('canvas');wave.id='rd-waveform';wave.width=512;wave.height=52;wave.tabIndex=0;wave.setAttribute('role','slider');wave.setAttribute('aria-label','Waveform seek');wave.hidden=true;

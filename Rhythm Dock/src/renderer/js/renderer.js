@@ -2952,6 +2952,7 @@ window.addEventListener('resize', () => {
  */
 function setActiveTab(tab) {
     activeTab = tab;
+    containerEl.dataset.activeTab = tab;
     containerEl.scrollLeft = 0;
     containerEl.scrollTop = 0;
     document.getElementById('tab-playlist-options')?.classList.toggle('show', tab === 'playlist-options');
@@ -3014,6 +3015,7 @@ function buildEqualizerUI() {
         slider.step = '0.5';
         slider.value = '0';
         slider.dataset.band = String(index);
+        slider.setAttribute('aria-label', `Equalizer ${frequency >= 1000 ? `${frequency / 1000} kHz` : `${frequency} Hz`} gain in dB`);
         // Vertical sliders via orient/appearance are inconsistent across engines;
         // a rotated horizontal input renders identically everywhere.
         slider.addEventListener('input', () => {
@@ -3141,6 +3143,27 @@ function setPlaylistStatus(message) {
     if (detailStatus) detailStatus.textContent = message || '';
 
     if (playlistStatus) playlistStatus.textContent = message || '';
+}
+
+function updatePlaylistBrowseHeading() {
+    const remote = room.connected && !room.isHost;
+    const label = document.getElementById('playlist-view-label');
+    if (label) label.textContent = remote ? 'Shared queue' : activeLibraryView === 'named'
+        ? selectedPlaylistName() : activeLibraryView === 'queue' ? 'Current queue'
+            : LIBRARY_VIEWS.find(view => view.id === activeLibraryView)?.label || 'Songs';
+    const hint = document.getElementById('playlist-reorder-hint');
+    if (hint) hint.hidden = remote || activeLibraryView !== 'queue' || browseControlsActive();
+    const toggle = document.getElementById('playlist-browse-toggle');
+    if (toggle) {
+        toggle.hidden = remote;
+        toggle.classList.toggle('active', browseControlsActive());
+        toggle.title = browseControlsActive() ? 'Browse and sort — filters or search active' : 'Browse and sort';
+    }
+    if (remote) {
+        const panel = document.getElementById('playlist-browse-panel');
+        if (panel) panel.hidden = true;
+        toggle?.setAttribute('aria-expanded', 'false');
+    }
 }
 
 function togglePlaylistPanel(force) {
@@ -3274,7 +3297,7 @@ async function refreshPlaylistFileStatus(){
         }
     }
 }
-function makeRow({title, subtitle, badge, active, filePath, missing, onPlay, actions = []}) {
+function makeRow({title, subtitle, badge, active, filePath, missing, durationSeconds, onPlay, actions = []}) {
     const row = document.createElement('div');
     row.className = 'playlist-row' + (active ? ' active' : '');
 
@@ -3285,6 +3308,8 @@ function makeRow({title, subtitle, badge, active, filePath, missing, onPlay, act
     const titleEl2 = document.createElement('span');
     titleEl2.className = 'playlist-row-title';
     titleEl2.textContent = title;
+    main.title = [title, subtitle].filter(Boolean).join(' · ');
+    main.setAttribute('aria-label', `Play ${title}`);
     main.appendChild(titleEl2);
 
     if (subtitle) {
@@ -3307,6 +3332,8 @@ function makeRow({title, subtitle, badge, active, filePath, missing, onPlay, act
         badgeEl.textContent = badge;
         row.appendChild(badgeEl);
     }
+
+    paintPlaylistDuration(row, durationSeconds);
 
     const rowActions = filePath && !/^https?:/i.test(filePath)
         ? [{icon: 'edit', title: 'Edit tags', onClick: () => openTagsEditor(filePath)}] : [];
@@ -3331,6 +3358,46 @@ function makeRow({title, subtitle, badge, active, filePath, missing, onPlay, act
     }
 
     return row;
+}
+
+function paintPlaylistDuration(row, seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    let duration = row.querySelector('.playlist-row-duration');
+    if (!duration) {
+        duration = document.createElement('span');
+        duration.className = 'playlist-row-duration';
+        row.insertBefore(duration, row.querySelector('.playlist-row-action'));
+    }
+    duration.textContent = formatTime(seconds);
+    duration.setAttribute('aria-label', `Duration ${formatTime(seconds)}`);
+}
+
+// Only hydrate rendered rows. Virtualization and queue indices keep
+// their existing behavior, and stale rows are never updated after navigation.
+async function hydratePlaylistRows(rows) {
+    if (!rows.length) return;
+    try {
+        const details = new Map((await window.api.libraryTrackDetails(rows.map(row => row.dataset.filePath)))
+            .map(track => [track.filePath, track]));
+        for (const row of rows) {
+            if (!row.isConnected) continue;
+            const track = details.get(row.dataset.filePath);
+            if (!track) continue;
+            const main = row.querySelector('.playlist-row-main');
+            if (track.title) {
+                main.querySelector('.playlist-row-title').textContent = track.title;
+                main.setAttribute('aria-label', `Play ${track.title}`);
+            }
+            const subtitle = [track.artist, track.album].filter(Boolean).join(' · ');
+            if (subtitle) {
+                let sub = main.querySelector('.playlist-row-subtitle');
+                if (!sub) { sub = document.createElement('span'); sub.className = 'playlist-row-subtitle'; main.append(sub); }
+                sub.textContent = subtitle;
+            }
+            main.title = [track.title || track.basename, subtitle].filter(Boolean).join(' · ');
+            paintPlaylistDuration(row, track.durationSeconds);
+        }
+    } catch (error) { console.warn('Could not load playlist display details', error); }
 }
 
 /** Shows the current queue, with the playing track highlighted. */
@@ -3361,13 +3428,19 @@ function renderQueue() {
             title: name,
             active: index === currentIndex,
             onPlay: () => playTrack(index),
-            actions: [{
+            actions: [...queueActions(filePath), {
                 icon: 'close',
                 title: 'Remove from queue',
                 onClick: () => removeFromQueue(index),
-            }],
+            }, ...(index > 0 ? [{icon: 'up', title: 'Move up', onClick: () => moveQueueItem(index, index - 1)}] : []),
+                ...(index < playlist.length - 1 ? [{icon: 'down', title: 'Move down', onClick: () => moveQueueItem(index, index + 1)}] : [])],
         });
         row.draggable = true;
+        const grip = document.createElement('span');
+        grip.className = 'playlist-row-grip';
+        grip.setAttribute('aria-hidden', 'true');
+        grip.append(window.DockIcons.create('grip'));
+        row.prepend(grip);
         if(virtual){row.style.height='44px';row.style.flexShrink='0';row.style.margin='0';}
         row.dataset.queueIndex = index;
         row.addEventListener('dragstart', event => {
@@ -3387,6 +3460,7 @@ function renderQueue() {
     });
     if(virtual){const bottom=document.createElement('div');bottom.style.height=(playlist.length-end)*44+'px';playlistResults.append(bottom);}
     playlistResults.scrollTop=scroll;
+    hydratePlaylistRows(Array.from(playlistResults.querySelectorAll('.playlist-row')));
 }
 playlistResults?.addEventListener('scroll',()=>{
     if(playlist.length>100&&activeLibraryView==='queue'&&!browseControlsActive()&&(!room.connected||room.isHost)&&
@@ -3588,7 +3662,7 @@ async function renderBrowseView(view) {
             }
             loadPlaylistAndPlay(paths,Math.max(0,paths.indexOf(filePath)),{playlistName:'All Songs'});
         };
-        const append = page => page.forEach(row=>playlistResults.append(makeRow({filePath:row.filePath,missing:row.missing,title:row.title||row.basename,
+        const append = page => page.forEach(row=>playlistResults.append(makeRow({filePath:row.filePath,missing:row.missing,durationSeconds:row.durationSeconds,title:row.title||row.basename,
             subtitle:row.artist,onPlay:()=>playAll(row.filePath),actions:queueActions(row.filePath)})));
         append(rows);
         if(rows.length<result.data.total){
@@ -3629,6 +3703,7 @@ async function renderBrowseView(view) {
         more.remove();
         for(const row of rows.slice(shown,shown+200))playlistResults.append(makeRow({
             filePath:row.filePath,missing:row.missing,
+            durationSeconds:row.durationSeconds,
             title:row.title||row.basename||row.filePath,subtitle:row.artist|| (row.missing?'File is missing':''),
             active:row.filePath===playlist[currentIndex],onPlay:()=>view==='queue'?playTrack(row.queueIndex):
                 !row.missing&&loadPlaylistAndPlay(playable,playable.indexOf(row.filePath),{playlistName:view==='named'?selectedPlaylistName():view==='liked'?'Liked Songs':LIBRARY_VIEWS.find(item=>item.id===view)?.label||'Queue'}),
@@ -3658,7 +3733,7 @@ function renderLibraryViewChips() {
     if (room.connected && !room.isHost) return;
 
     if (bar.childElementCount === 0) {
-        for (const view of LIBRARY_VIEWS) {
+        for (const view of LIBRARY_VIEWS.slice(0, 3)) {
             const chip = document.createElement('button');
             chip.className = 'chip';
             chip.dataset.view = view.id;
@@ -3666,11 +3741,22 @@ function renderLibraryViewChips() {
             chip.addEventListener('click', () => setLibraryView(view.id));
             bar.appendChild(chip);
         }
+        const more = document.createElement('select');
+        more.id = 'library-more-views';
+        more.className = 'settings-select';
+        more.setAttribute('aria-label', 'More library views');
+        more.add(new Option('More', ''));
+        for (const view of LIBRARY_VIEWS.slice(3)) more.add(new Option(view.label, view.id));
+        more.addEventListener('change', () => { if (more.value) setLibraryView(more.value); });
+        bar.append(more);
     }
 
     bar.querySelectorAll('.chip').forEach((chip) => {
         chip.classList.toggle('active', chip.dataset.view === activeLibraryView);
+        chip.setAttribute('aria-pressed', String(chip.dataset.view === activeLibraryView));
     });
+    const more = document.getElementById('library-more-views');
+    if (more) more.value = LIBRARY_VIEWS.slice(3).some(view => view.id === activeLibraryView) ? activeLibraryView : '';
 }
 
 function setLibraryView(view) {
@@ -3689,6 +3775,7 @@ function setLibraryView(view) {
 async function renderActiveLibraryView() {
     if (!playlistResults) return;
     ++browseRevision;
+    updatePlaylistBrowseHeading();
     document.querySelector('.playlist-browse-controls').hidden = room.connected && !room.isHost;
 
     if (room.connected && !room.isHost) {
@@ -3867,6 +3954,7 @@ async function renderNamedPlaylist() {
         playlistResults.appendChild(makeRow({
             title: row.title || row.basename || row.filePath.split(/[\\/]/).pop(),
             filePath:row.filePath,missing:row.missing,
+            durationSeconds:row.durationSeconds,
             subtitle: row.artist || (row.missing ? 'File is missing' : ''),
             onPlay: () => {
                 const index = playable.indexOf(row.filePath);
@@ -3884,6 +3972,13 @@ async function renderNamedPlaylist() {
 }
 
 function initNamedPlaylists() {
+    document.getElementById('playlist-browse-toggle')?.addEventListener('click', event => {
+        const panel = document.getElementById('playlist-browse-panel');
+        if (!panel || isLocked) return;
+        panel.hidden = !panel.hidden;
+        event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
+        if (!panel.hidden) document.getElementById('playlist-filter')?.focus();
+    });
     document.getElementById('playlist-options-open')?.addEventListener('click', () => {
         updatePlaylistOptionsState();
         setActiveTab('playlist-options');
@@ -4085,6 +4180,7 @@ function renderLikedSongs() {
             }],
         }));
     });
+    hydratePlaylistRows(Array.from(playlistResults.querySelectorAll('.playlist-row')));
 }
 
 /** Renders search results: artists first, then individual tracks. */
@@ -5195,7 +5291,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     tabPager?.querySelectorAll('.tab-dot').forEach((dot) => {
-        dot.addEventListener('click', () => setActiveTab(dot.dataset.tab));
+        dot.addEventListener('click', () => {
+            setActiveTab(dot.dataset.tab);
+            if (dot.dataset.tab === 'settings') {
+                const dialog = document.getElementById('roadmap-dialog');
+                if (dialog?.open && dialog.dataset.embedded === 'true') dialog.close();
+                window.settingsNavigation?.home({focus: false});
+            }
+        });
     });
 
     if (eqEnabledEl) {
@@ -6097,6 +6200,8 @@ document.addEventListener('DOMContentLoaded',()=>{
         },
         lyric:()=>lyricLineText(lastActiveLyricIndex),exitLyricsFullscreen:()=>isLyricsFullscreen?setLyricsFullscreen(false):Promise.resolve(),
         transport:command=>document.getElementById({'prev':'prev-btn','next':'next-btn','play-pause':'play-pause-btn'}[command])?.click()});
+    window.settingsNavigation = window.RhythmSettings.install({isLocked: () => isLocked,
+        openTool: page => window.roadmapTools.open(page)});
 });
 window.api.onFileMoved(({oldPath,newPath})=>{
     playlist=playlist.map(p=>p===oldPath?newPath:p);originalPlaylist=originalPlaylist.map(p=>p===oldPath?newPath:p);

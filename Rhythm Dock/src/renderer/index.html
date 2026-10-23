@@ -9,9 +9,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Rhythm Dock</title>
     <link rel="stylesheet" href="styles/icons.css"/>
+    <link rel="stylesheet" href="styles/player.css"/>
+    <link rel="stylesheet" href="styles/playlist.css"/>
+    <link rel="stylesheet" href="styles/settings.css"/>
 </head>
 <body>
-<div id="container" class="container">
+<div id="container" class="container" data-active-tab="player">
     <div id="edge-strip" class="edge-strip" aria-label="Edge dock">
         <button id="edge-exit" class="edge-control" title="Exit edge dock (Ctrl+Alt+D)" aria-label="Exit edge dock"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"></path></svg></button>
         <div id="edge-handle" class="edge-handle" title="Drag up/down or to the other screen edge" aria-label="Drag edge dock"></div>
@@ -165,6 +168,7 @@
                 <div class="dropdown">
                     <button class="dropdown-toggle" id="file-dropdown-btn" title="Track and file actions">
                         <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H4v20h16V8ZM14 2v6h6M8 13h8M8 17h5"></path></svg>
+                        <span class="player-action-label">Files</span>
                     </button>
                 </div>
             </div>
@@ -639,24 +643,44 @@
          ==================================================================== -->
     <div id="playlist-panel" class="playlist-panel">
         <div class="playlist-header">
-            <span class="panel-title">Songs</span>
-            <input id="library-search-input" class="library-search-input" type="search"
-                   placeholder="Search this playlist..." autocomplete="off"/>
-            <button id="close-playlist-btn" class="close-drawer-btn" title="Back to player">
+            <div class="playlist-heading">
+                <span class="panel-title">Playlist</span>
+                <div id="playlist-status" class="playlist-status" role="status" aria-live="polite"></div>
+            </div>
+            <button id="playlist-options-open" class="settings-button">Options</button>
+            <button id="close-playlist-btn" class="close-drawer-btn" title="Back to player" aria-label="Back to player">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
                 </svg>
             </button>
         </div>
+        <input id="library-search-input" class="library-search-input" type="search"
+               placeholder="Search title, artist, album…" aria-label="Search songs" autocomplete="off"/>
         <div id="library-view-chips" class="chip-row library-view-chips"></div>
         <div class="library-toolbar">
             <select id="named-playlist-select" class="settings-select" aria-label="Named playlist">
                 <option value="">Choose a playlist</option>
             </select>
-            <button id="playlist-options-open" class="settings-button">Playlist options</button>
+            <button id="playlist-browse-toggle" class="settings-button" aria-expanded="false"
+                    aria-controls="playlist-browse-panel" title="Browse and sort" aria-label="Browse and sort">
+                <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6"></path></svg>
+            </button>
         </div>
+        <div id="playlist-browse-panel" hidden>
+            <div class="playlist-browse-controls">
+                <label>Filter<select id="playlist-filter" class="settings-select" aria-label="Filter playlist">
+                    <option value="all">All tracks</option><option value="liked">Liked tracks</option>
+                    <option value="long">5 minutes or longer</option><option value="short">Under 5 minutes</option>
+                </select></label>
+                <label>Sort<select id="playlist-sort" class="settings-select" aria-label="Sort playlist">
+                    <option value="original">Playlist order</option><option value="title">Title A–Z</option>
+                    <option value="artist">Artist A–Z</option><option value="album">Album A–Z</option>
+                    <option value="duration">Duration: shortest first</option><option value="duration-desc">Duration: longest first</option>
+                </select></label>
+            </div>
+        </div>
+        <div class="playlist-list-heading"><span id="playlist-view-label">Current queue</span><span id="playlist-reorder-hint">Drag to reorder</span></div>
         <div id="playlist-results" class="playlist-results"></div>
-        <div id="playlist-status" class="playlist-status"></div>
     </div>
 
     <section id="tab-playlist-options" class="tab-panel" aria-label="Playlist options">
@@ -665,28 +689,15 @@
             <span id="playlist-options-title" class="panel-title">Playlist options</span>
         </div>
         <div class="settings-scroll playlist-options-content">
-            <section class="settings-block"><h3>Browse and sort</h3>
-        <div class="playlist-browse-controls">
-            <select id="playlist-filter" class="settings-select" aria-label="Filter playlist">
-                <option value="all">All tracks</option><option value="liked">Liked tracks</option>
-                <option value="long">5 minutes or longer</option><option value="short">Under 5 minutes</option>
-            </select>
-            <select id="playlist-sort" class="settings-select" aria-label="Sort playlist">
-                <option value="original">Playlist order</option><option value="title">Title A–Z</option>
-                <option value="artist">Artist A–Z</option><option value="album">Album A–Z</option>
-                <option value="duration">Duration: shortest first</option><option value="duration-desc">Duration: longest first</option>
-            </select>
-        </div>
-            </section>
-            <section class="settings-block" id="playlist-selected-actions"><h3>This playlist</h3>
+            <details class="settings-block playlist-option-section" id="playlist-selected-actions" open><summary>This playlist</summary>
         <div class="settings-row named-playlist-controls">
 
             <button id="named-playlist-play" class="settings-button">Play All</button>
             <button id="named-playlist-add-current" class="settings-button">Add Song</button>
             <button id="named-playlist-delete" class="settings-button danger">Delete List</button>
         </div>
-            </section>
-            <section class="settings-block"><h3>Add music from a link</h3>
+            </details>
+            <details class="settings-block playlist-option-section"><summary>Add music from a link</summary>
         <div class="settings-row remote-audio-controls">
             <input id="remote-audio-url" class="settings-input" type="url" placeholder="YouTube, YouTube Music, Spotify track or audio link" aria-label="Audio or platform link"/>
             <select id="remote-audio-position" class="settings-select" aria-label="Add link to queue position">
@@ -698,20 +709,20 @@
             <button id="remote-audio-save" class="settings-button">Save Current Link</button>
             <button id="remote-audio-download" class="settings-button">Download MP3…</button>
         </div>
-            </section>
-            <section class="settings-block"><h3>Create a playlist</h3>
+            </details>
+            <details class="settings-block playlist-option-section"><summary>Create a playlist</summary>
         <div class="settings-row named-playlist-controls">
             <input id="named-playlist-name" class="settings-input" maxlength="80" placeholder="New playlist name" aria-label="New playlist name"/>
             <button id="named-playlist-create" class="settings-button">Create</button>
             <button id="named-playlist-save-queue" class="settings-button">Save Queue</button>
         </div>
-            </section>
-            <section class="settings-block"><h3>Import and export</h3>
+            </details>
+            <details class="settings-block playlist-option-section"><summary>Import and export</summary>
         <div class="settings-row named-playlist-controls">
             <button id="named-playlist-import" class="settings-button">Import List</button>
             <button id="named-playlist-export" class="settings-button">Export List</button>
         </div>
-            </section>
+            </details>
         </div>
         <p id="playlist-options-status" class="playlist-status" role="status"></p>
     </section>
@@ -1095,6 +1106,7 @@
 <script src="js/timer.js"></script>
 <script src="js/lyrics-parser.js"></script>
 <script src="js/roadmap-tools.js"></script>
+<script src="js/settings-navigation.js"></script>
 <script src="js/art-accent.js"></script>
 <script src="js/native-popups.js"></script>
 <script src="../shared/media-formats.js"></script>
