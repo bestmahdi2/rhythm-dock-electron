@@ -5,7 +5,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 
-const EXTRA_FORMATS = ['.ape', '.wv', '.dsf', '.dff', '.mod', '.xm', '.it', '.s3m'];
+const formats = require('../../shared/media-formats');
+const EXTRA_FORMATS = [...formats.decoded, ...formats.midi];
 const ENCODERS = {'.wav': ['pcm_s24le', 'wav'], '.flac': ['flac', 'flac'],
     '.mp3': ['libmp3lame', 'mp3'], '.m4a': ['aac', 'ipod'], '.ogg': ['libvorbis', 'ogg']};
 const MAX_OUTPUT_BYTES = 1024 * 1024 * 1024;
@@ -28,6 +29,8 @@ function loudnessResult(stderr, target = -18) {
     return {integratedLufs: integrated, truePeakDb: peak,
         gainDb: Math.max(-24, Math.min(12, target - integrated, -1 - peak)), targetLufs: target};
 }
+
+function optionsToolName(executable) { return /fluidsynth/i.test(executable || '') ? 'FluidSynth' : 'FFmpeg'; }
 
 function run(executable, args, {signal, onProgress = () => {}, outputPath, timeoutMs = 30 * 60000,
     spawnImpl = spawn} = {}) {
@@ -57,12 +60,12 @@ function run(executable, args, {signal, onProgress = () => {}, outputPath, timeo
         child.stderr.on('data', (data) => { stderr = (stderr + data).slice(-65536); });
         child.once('error', (error) => {
             clean(); reject(new Error(error.code === 'ENOENT' ?
-                'FFmpeg is not installed. Choose its executable in Settings → Audio tools.' : error.message));
+                (optionsToolName(executable) + ' is not installed. Choose its executable in Settings → Audio tools.') : error.message));
         });
         child.once('close', (code) => {
             clean();
             if (failure) return reject(failure);
-            if (code !== 0) return reject(new Error('FFmpeg could not process this file. Check its format and your FFmpeg build.'));
+            if (code !== 0) return reject(new Error(optionsToolName(executable) + ' could not process this file. Check its format and decoder installation.'));
             resolve({stdout, stderr});
         });
     });
@@ -130,12 +133,39 @@ function pruneCache(root, protectedFiles = []) {
 }
 
 async function prepare(filePath, root, options = {}) {
-    if (!EXTRA_FORMATS.includes(path.extname(filePath).toLowerCase())) return {filePath};
+    const extension = path.extname(filePath).toLowerCase();
+    let decode = EXTRA_FORMATS.includes(extension) || options.force;
+    if (!decode && formats.containers.includes(extension)) {
+        try {
+            const metadata = await require('music-metadata').parseFile(filePath, {duration:false,skipCovers:true});
+            decode = /alac|apple lossless/i.test(metadata.format.codec || '');
+        } catch (_) { decode = true; }
+    }
+    if (!decode) return {filePath};
     const stat = fs.statSync(localFile(filePath));
-    const key = crypto.createHash('sha256').update(`${filePath}:${stat.size}:${stat.mtimeMs}`).digest('hex');
+    const midi = formats.midi.includes(extension);
+    let fontKey = '';
+    if (midi) {
+        if (!options.soundfont) throw new Error('MIDI playback needs a SoundFont (.sf2). Choose one in Settings → Audio tools.');
+        const font = fs.statSync(localFile(options.soundfont));
+        fontKey = `:${options.soundfont}:${font.size}:${font.mtimeMs}:${options.fluidsynth || 'fluidsynth'}`;
+    }
+    const key = crypto.createHash('sha256').update(`${filePath}:${stat.size}:${stat.mtimeMs}${fontKey}`).digest('hex');
     fs.mkdirSync(root, {recursive: true});
-    const target = path.join(root, `${key}.flac`);
-    if (!fs.existsSync(target)) await convert(filePath, target, options);
+    const target = path.join(root, `${key}${midi ? '.wav' : '.flac'}`);
+    if (!fs.existsSync(target)) {
+        if (midi) {
+            const temporary = path.join(root, `${key}.${crypto.randomUUID()}.part.wav`);
+            try {
+                await run(options.fluidsynth || 'fluidsynth',
+                    ['-ni','-F',temporary,'-T','wav','-O','s16','-r','48000',options.soundfont,filePath],
+                    {...options,outputPath:temporary});
+                const size = fs.statSync(temporary).size;
+                if (size <= 44 || size > MAX_OUTPUT_BYTES) throw new Error('Invalid or oversized MIDI render.');
+                fs.copyFileSync(temporary,target,fs.constants.COPYFILE_EXCL);
+            } finally { fs.rmSync(temporary,{force:true}); }
+        } else await convert(filePath, target, options);
+    }
     pruneCache(root, [target]);
     return {filePath: target, sourcePath: filePath, decoded: true};
 }

@@ -1222,6 +1222,7 @@ label,
 /* Hover follows the connected popup; keyboard focus and pointer dragging also
    keep the slider available while it is being adjusted. */
 .volume-control-wrapper:hover .volume-slider-popup,
+.volume-control-wrapper.pointer-open .volume-slider-popup,
 .volume-control-wrapper.dragging .volume-slider-popup {
     display: block;
 }
@@ -4048,3 +4049,32 @@ select:disabled {
 .lyrics-editor-status.success {
     color: var(--accent);
 }
+
+/* Persistent bottom navigation, independent of player content and panel height. */
+.container { --tab-footer-height: 48px; padding-bottom: calc(var(--tab-footer-height) + var(--sp-3)); }
+.tab-bar {
+    position: absolute;
+    left: 50%; bottom: var(--sp-3); transform: translateX(-50%);
+    margin: 0; max-width: calc(100% - 16px);
+}
+.tab-bar .tab-dot { width: auto; min-width: 72px; height: 30px; padding: 0 12px; gap: 6px; }
+.tab-bar .tab-dot svg, .tab-bar .tab-dot .tab-btn-label { display: inline-block; }
+.tab-bar .tab-dot::before { display: none; }
+.tab-panel, .playlist-panel { bottom: calc(var(--tab-footer-height) + var(--sp-2)); padding-bottom: var(--sp-3); min-height: 0; }
+.container.vertical-mode .tab-panel, .container.vertical-mode .playlist-panel { bottom: calc(var(--tab-footer-height) + var(--sp-2)); padding-bottom: var(--sp-3); }
+.container.vertical-mode .tab-bar { width: calc(100% - 8px); }
+.container.vertical-mode .tab-bar .tab-dot { flex: 1; min-width: 0; padding: 3px 1px; height: 34px; flex-direction: column; gap: 2px; font-size: 9px; }
+.container.vertical-mode .tab-btn .tab-btn-label { display: inline-block; }
+.container.vertical-mode .tab-bar svg { width: 12px; height: 12px; }
+.library-toolbar { display: flex; gap: 8px; align-items: center; padding: 8px 0; flex: 0 0 auto; }
+.library-toolbar select { flex: 1; min-width: 0; }
+.playlist-header { gap: 10px; }
+.playlist-header input { flex: 1; min-width: 0; }
+#playlist-panel .playlist-results { flex: 1; min-height: 0; }
+#playlist-panel .library-view-chips { flex-shrink: 0; padding: 6px 0; }
+.playlist-options-content .settings-row { flex-wrap: wrap; gap: 8px; }
+.playlist-options-content .settings-row input { flex: 1; min-width: 140px; }
+.playlist-options-content h3 { margin: 0 0 12px; font-size: 13px; }
+#playlist-options-status { flex-shrink: 0; }
+
+.container.vertical-mode { padding-bottom: calc(var(--tab-footer-height) + var(--sp-2)); }

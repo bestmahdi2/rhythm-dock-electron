@@ -27,11 +27,11 @@
     "dist:linux": "npm run icons && electron-builder --linux --x64 --arm64",
     "dist:all": "npm run dist:win && npm run dist:mac && npm run dist:linux",
     "postinstall": "electron-builder install-app-deps",
-    "test": "node tests/prepare-release.test.js && node tests/release-artifacts.test.js && node tests/installer-safety.test.js && node tests/audio-interruptions.test.js && node tests/file-icons.test.js && node tests/platform-audio.test.js && node tests/playback-open.test.js && node tests/platform-controls.test.js && node tests/roadmap-logic.test.js && node tests/discord-presence.test.js && node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/remote-playlist.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && node tests/audio-devices.test.js && node tests/media-tools.test.js && node tests/room-client-integration.test.js && node tests/room-restart-integration.test.js && npm run test:db-migration && npm --prefix ../server test",
+    "test": "node tests/formats-support.test.js && node tests/native-popup.test.js && node tests/prepare-release.test.js && node tests/release-artifacts.test.js && node tests/installer-safety.test.js && node tests/audio-interruptions.test.js && node tests/file-icons.test.js && node tests/platform-audio.test.js && node tests/playback-open.test.js && node tests/platform-controls.test.js && node tests/roadmap-logic.test.js && node tests/discord-presence.test.js && node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/remote-playlist.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && node tests/audio-devices.test.js && node tests/media-tools.test.js && node tests/room-client-integration.test.js && node tests/room-restart-integration.test.js && npm run test:db-migration && npm --prefix ../server test",
     "test:db-migration": "electron tests/db-migration-smoke.js",
     "test:media-tools": "node tests/media-tools.test.js",
     "test:ui-smoke": "electron tests/pre-phase9-ui-smoke.js",
-    "test:media-integration": "node tests/media-tools-integration.test.js",
+    "test:media-integration": "node tests/formats-playback-integration.test.js && node tests/media-tools-integration.test.js",
     "test:roadmap": "node tests/roadmap-logic.test.js && npm run test:db-migration && npm run test:ui-smoke"
   },
   "keywords": [],
@@ -227,6 +227,110 @@
         "role": "Viewer",
         "mimeType": "audio/x-s3m",
         "icon": "build/icons/filetypes/s3m"
+      },
+      {
+        "ext": "webm",
+        "name": "WEBM File",
+        "description": "WEBM media",
+        "role": "Viewer",
+        "mimeType": "audio/webm",
+        "icon": "build/icons/filetypes/webm"
+      },
+      {
+        "ext": "aif",
+        "name": "AIF File",
+        "description": "AIF media",
+        "role": "Viewer",
+        "mimeType": "audio/aiff",
+        "icon": "build/icons/filetypes/aif"
+      },
+      {
+        "ext": "mpc",
+        "name": "MPC File",
+        "description": "MPC media",
+        "role": "Viewer",
+        "mimeType": "audio/x-musepack",
+        "icon": "build/icons/filetypes/mpc"
+      },
+      {
+        "ext": "tta",
+        "name": "TTA File",
+        "description": "TTA media",
+        "role": "Viewer",
+        "mimeType": "audio/x-tta",
+        "icon": "build/icons/filetypes/tta"
+      },
+      {
+        "ext": "tak",
+        "name": "TAK File",
+        "description": "TAK media",
+        "role": "Viewer",
+        "mimeType": "audio/x-tak",
+        "icon": "build/icons/filetypes/tak"
+      },
+      {
+        "ext": "mka",
+        "name": "MKA File",
+        "description": "MKA media",
+        "role": "Viewer",
+        "mimeType": "audio/x-matroska",
+        "icon": "build/icons/filetypes/mka"
+      },
+      {
+        "ext": "mid",
+        "name": "MID File",
+        "description": "MID media",
+        "role": "Viewer",
+        "mimeType": "audio/midi",
+        "icon": "build/icons/filetypes/mid"
+      },
+      {
+        "ext": "midi",
+        "name": "MIDI File",
+        "description": "MIDI media",
+        "role": "Viewer",
+        "mimeType": "audio/midi",
+        "icon": "build/icons/filetypes/midi"
+      },
+      {
+        "ext": "m3u",
+        "name": "M3U File",
+        "description": "M3U media",
+        "role": "Viewer",
+        "mimeType": "audio/x-mpegurl",
+        "icon": "build/icons/filetypes/m3u"
+      },
+      {
+        "ext": "m3u8",
+        "name": "M3U8 File",
+        "description": "M3U8 media",
+        "role": "Viewer",
+        "mimeType": "application/vnd.apple.mpegurl",
+        "icon": "build/icons/filetypes/m3u8"
+      },
+      {
+        "ext": "pls",
+        "name": "PLS File",
+        "description": "PLS media",
+        "role": "Viewer",
+        "mimeType": "audio/x-scpls",
+        "icon": "build/icons/filetypes/pls"
+      },
+      {
+        "ext": "xspf",
+        "name": "XSPF File",
+        "description": "XSPF media",
+        "role": "Viewer",
+        "mimeType": "application/xspf+xml",
+        "icon": "build/icons/filetypes/xspf"
+      },
+      {
+        "ext": "cue",
+        "name": "CUE File",
+        "description": "CUE media",
+        "role": "Viewer",
+        "mimeType": "application/x-cue",
+        "icon": "build/icons/filetypes/cue"
       }
     ],
     "win": {
@@ -355,7 +459,7 @@
         "Type": "Application",
         "Categories": "AudioVideo;Audio;Player;Music;",
         "Keywords": "music;audio;player;mp3;flac;lyrics;",
-        "MimeType": "audio/mpeg;audio/mp4;audio/flac;audio/wav;audio/x-wav;audio/ogg;audio/opus;audio/aac;audio/x-ms-wma;audio/aiff;audio/x-aiff;video/mp4;audio/x-rhythmdock-mp3;audio/x-rhythmdock-m4a;audio/x-rhythmdock-m4b;audio/x-rhythmdock-flac;audio/x-rhythmdock-wav;audio/x-rhythmdock-ogg;audio/x-rhythmdock-opus;audio/x-rhythmdock-aac;audio/x-rhythmdock-wma;audio/x-rhythmdock-aiff;audio/x-rhythmdock-mp4;audio/x-rhythmdock-ape;audio/x-rhythmdock-wv;audio/x-rhythmdock-dsf;audio/x-rhythmdock-dff;audio/x-rhythmdock-mod;audio/x-rhythmdock-xm;audio/x-rhythmdock-it;audio/x-rhythmdock-s3m;"
+        "MimeType": "audio/mpeg;audio/mp4;audio/flac;audio/wav;audio/x-wav;audio/ogg;audio/opus;audio/aac;audio/x-ms-wma;audio/aiff;audio/x-aiff;video/mp4;audio/x-rhythmdock-mp3;audio/x-rhythmdock-m4a;audio/x-rhythmdock-m4b;audio/x-rhythmdock-flac;audio/x-rhythmdock-wav;audio/x-rhythmdock-ogg;audio/x-rhythmdock-opus;audio/x-rhythmdock-aac;audio/x-rhythmdock-wma;audio/x-rhythmdock-aiff;audio/x-rhythmdock-mp4;audio/x-rhythmdock-ape;audio/x-rhythmdock-wv;audio/x-rhythmdock-dsf;audio/x-rhythmdock-dff;audio/x-rhythmdock-mod;audio/x-rhythmdock-xm;audio/x-rhythmdock-it;audio/x-rhythmdock-s3m;audio/x-ape;audio/x-wavpack;audio/x-dsf;audio/x-dff;audio/x-mod;audio/x-xm;audio/x-it;audio/x-s3m;audio/webm;audio/x-musepack;audio/x-tta;audio/x-tak;audio/x-matroska;audio/midi;audio/x-mpegurl;application/vnd.apple.mpegurl;audio/x-scpls;application/xspf+xml;application/x-cue;audio/x-rhythmdock-webm;audio/x-rhythmdock-aif;audio/x-rhythmdock-mpc;audio/x-rhythmdock-tta;audio/x-rhythmdock-tak;audio/x-rhythmdock-mka;audio/x-rhythmdock-mid;audio/x-rhythmdock-midi;audio/x-rhythmdock-m3u;audio/x-rhythmdock-m3u8;audio/x-rhythmdock-pls;audio/x-rhythmdock-xspf;audio/x-rhythmdock-cue;"
       },
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "maintainer": "Masterous <masterous@alibadiee.ir>",
@@ -391,7 +495,39 @@
         "audio/x-rhythmdock-mod",
         "audio/x-rhythmdock-xm",
         "audio/x-rhythmdock-it",
-        "audio/x-rhythmdock-s3m"
+        "audio/x-rhythmdock-s3m",
+        "audio/x-ape",
+        "audio/x-wavpack",
+        "audio/x-dsf",
+        "audio/x-dff",
+        "audio/x-mod",
+        "audio/x-xm",
+        "audio/x-it",
+        "audio/x-s3m",
+        "audio/webm",
+        "audio/x-musepack",
+        "audio/x-tta",
+        "audio/x-tak",
+        "audio/x-matroska",
+        "audio/midi",
+        "audio/x-mpegurl",
+        "application/vnd.apple.mpegurl",
+        "audio/x-scpls",
+        "application/xspf+xml",
+        "application/x-cue",
+        "audio/x-rhythmdock-webm",
+        "audio/x-rhythmdock-aif",
+        "audio/x-rhythmdock-mpc",
+        "audio/x-rhythmdock-tta",
+        "audio/x-rhythmdock-tak",
+        "audio/x-rhythmdock-mka",
+        "audio/x-rhythmdock-mid",
+        "audio/x-rhythmdock-midi",
+        "audio/x-rhythmdock-m3u",
+        "audio/x-rhythmdock-m3u8",
+        "audio/x-rhythmdock-pls",
+        "audio/x-rhythmdock-xspf",
+        "audio/x-rhythmdock-cue"
       ]
     },
     "deb": {

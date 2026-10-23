@@ -1,6 +1,10 @@
 const {contextBridge, ipcRenderer, webUtils} = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    midiToolsPick: kind => ipcRenderer.invoke('midi-tools-pick',kind),
+    midiToolsCheck: () => ipcRenderer.invoke('midi-tools-check'),
+    lyricsImportFile: () => ipcRenderer.invoke('lyrics-import-file'),
+    showNativePopup: request => ipcRenderer.invoke('native-popup', request),
     exportLyrics: payload => ipcRenderer.invoke('lyrics-export', payload),
     configureFileMenu: enabled => ipcRenderer.invoke('file-menu-configure', enabled),
     roadmap: (operation, value) => ipcRenderer.invoke('roadmap-call', operation, value),

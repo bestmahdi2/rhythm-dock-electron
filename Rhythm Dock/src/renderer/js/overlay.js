@@ -14,8 +14,6 @@ const nextEl = document.getElementById('overlay-next');
 const overlayEl = document.getElementById('overlay');
 const playIconEl = document.getElementById('overlay-play-icon');
 
-const PLAY_PATH = 'M8 5v14l11-7z';
-const PAUSE_PATH = 'M6 19h4V5H6v14zm8-14v14h4V5h-4z';
 
 let isClickThrough = false;
 
@@ -31,7 +29,7 @@ function render(payload = {}) {
         nextEl.textContent = (payload.next || '').trim();
     }
     if (playIconEl) {
-        playIconEl.firstElementChild?.setAttribute('d', payload.isPlaying ? PAUSE_PATH : PLAY_PATH);
+        window.DockIcons.paint(playIconEl, payload.isPlaying ? 'pause' : 'play');
     }
     // The main window is authoritative for direction: an RTL translation has to flip
     // this strip too, and it is the only side that knows the target language.

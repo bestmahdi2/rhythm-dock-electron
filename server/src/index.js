@@ -51,7 +51,7 @@ const registry = new RoomRegistry({stateFile:process.env.ROOM_STATE_FILE||'',
 const relay = new AudioRelay();
 const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const UPLOAD_TTL_MS = 2 * 24 * 60 * 60 * 1000;
-const UPLOAD_EXTENSIONS = new Set(['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff']);
+const UPLOAD_EXTENSIONS = new Set(require('./audio-formats'));
 const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-dock-uploads-'));
 const uploads = new Map();
 function hasUploadCapacity(roomCode) {

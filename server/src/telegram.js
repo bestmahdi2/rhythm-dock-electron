@@ -8,7 +8,7 @@ const fs = require('node:fs');
 
 const PAIR_TTL_MS = 10 * 60 * 1000;
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // Official hosted Bot API getFile limit.
-const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff']);
+const AUDIO_EXTENSIONS = new Set(require('./audio-formats'));
 
 class TelegramIntake {
     constructor({token, registry, onAudio, onLink, request = fetch, statePath = ''}) {

@@ -8,17 +8,18 @@
     <link rel="stylesheet" href="styles/roadmap.css"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Rhythm Dock</title>
+    <link rel="stylesheet" href="styles/icons.css"/>
 </head>
 <body>
 <div id="container" class="container">
     <div id="edge-strip" class="edge-strip" aria-label="Edge dock">
-        <button id="edge-exit" class="edge-control" title="Exit edge dock (Ctrl+Alt+D)" aria-label="Exit edge dock">↗</button>
+        <button id="edge-exit" class="edge-control" title="Exit edge dock (Ctrl+Alt+D)" aria-label="Exit edge dock"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"></path></svg></button>
         <div id="edge-handle" class="edge-handle" title="Drag up/down or to the other screen edge" aria-label="Drag edge dock"></div>
         <div id="edge-title-viewport" class="edge-title-viewport"><span id="edge-title">No song loaded</span></div>
-        <button id="edge-prev" class="edge-control" title="Previous" aria-label="Previous">⏮</button>
-        <button id="edge-play" class="edge-control" title="Play or pause" aria-label="Play or pause">▶</button>
-        <button id="edge-next" class="edge-control" title="Next" aria-label="Next">⏭</button>
-        <button id="edge-lock" class="edge-control" title="Lock controls" aria-label="Lock controls">♙</button>
+        <button id="edge-prev" class="edge-control" title="Previous" aria-label="Previous"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5v14M19 5 9 12l10 7Z"></path></svg></button>
+        <button id="edge-play" class="edge-control" title="Play or pause" aria-label="Play or pause"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5 19 12 8 19Z"></path></svg></button>
+        <button id="edge-next" class="edge-control" title="Next" aria-label="Next"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 5v14M5 5l10 7-10 7Z"></path></svg></button>
+        <button id="edge-lock" class="edge-control" title="Lock controls" aria-label="Lock controls"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 10V7a5 5 0 0 1 9-3M5 10h14v11H5ZM12 14v3"></path></svg></button>
     </div>
 
     <!-- ====================================================================
@@ -39,46 +40,32 @@
 
             <div class="dropdown">
                 <button class="dropdown-toggle" id="lyrics-dropdown-btn" title="Lyrics">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path>
-                    </svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 3h16v18H4ZM8 7h8M8 11h8M8 15h5"></path></svg>
                 </button>
             </div>
 
             <div class="dropdown">
                 <button class="dropdown-toggle" id="app-dropdown-btn" title="App menu">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path>
-                    </svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5h.01M12 12h.01M12 19h.01"></path></svg>
                 </button>
             </div>
 
             <span class="titlebar-sep" aria-hidden="true"></span>
 
             <button id="lock-btn" title="Lock the controls (Ctrl+L)">
-                <svg id="lock-open-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm6-9h-1V6A5 5 0 0 0 7.1 5.5a1 1 0 0 0 1.94.5A3 3 0 0 1 15 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"></path>
-                </svg>
-                <svg id="lock-closed-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
-                    <path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM9 8V6a3 3 0 0 1 6 0v2H9z"></path>
-                </svg>
+                <svg id="lock-open-icon" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 10V7a5 5 0 0 1 9-3M5 10h14v11H5ZM12 14v3"></path></svg>
+                <svg id="lock-closed-icon" style="display: none;" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5ZM12 14v3"></path></svg>
             </button>
             <button id="pin-btn" title="Keep on top">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"></path>
-                </svg>
+                <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6M9 3v6l-3 4v2h12v-2l-3-4V3M12 15v7"></path></svg>
             </button>
 
             <button id="minimize-btn" title="Minimize">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 12.75h12v-1.5H6z"></path>
-                </svg>
+                <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14"></path></svg>
             </button>
 
             <button id="close-btn" title="Close">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
-                </svg>
+                <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"></path></svg>
             </button>
         </div>
     </div>
@@ -99,7 +86,7 @@
 
         <div class="main-controls">
             <div class="track-info">
-                <button id="current-playlist" class="current-playlist" title="Open current queue" aria-label="Current playlist: Queue. Open queue.">♫ <span id="current-playlist-name">Queue</span> <span aria-hidden="true">›</span></button>
+                <button id="current-playlist" class="current-playlist" title="Open current queue" aria-label="Current playlist: Queue. Open queue."><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6h13M8 12h13M8 18h8M3 6h.01M3 12h.01M3 18h.01"></path></svg> <span id="current-playlist-name">Queue</span> <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"></path></svg></button>
                 <div id="title">No song loaded</div>
                 <div id="artist">Open a file or folder</div>
             </div>
@@ -120,10 +107,10 @@
                     <span id="time-remaining" title="Click to switch between remaining and total">-0:00</span>
                 </div>
                 <div id="chapter-nav" class="chapter-nav" hidden>
-                    <button id="chapter-prev" type="button" title="Previous chapter" aria-label="Previous chapter">‹</button>
+                    <button id="chapter-prev" type="button" title="Previous chapter" aria-label="Previous chapter"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"></path></svg></button>
                     <select id="chapter-select" aria-label="Choose chapter"></select>
-                    <button id="chapter-next" type="button" title="Next chapter" aria-label="Next chapter">›</button>
-                    <button id="chapter-queue" type="button" title="Queue each chapter as a track" aria-label="Queue each chapter as a track">＋</button>
+                    <button id="chapter-next" type="button" title="Next chapter" aria-label="Next chapter"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"></path></svg></button>
+                    <button id="chapter-queue" type="button" title="Queue each chapter as a track" aria-label="Queue each chapter as a track"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14M12 5v14"></path></svg></button>
                 </div>
             </div>
         </div>
@@ -134,31 +121,19 @@
         <div class="side-controls">
             <div class="playback-buttons">
                 <button id="prev-btn" title="Previous">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path>
-                    </svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5v14M19 5 9 12l10 7Z"></path></svg>
                 </button>
                 <button id="play-pause-btn" title="Play / Pause (Space)">
-                    <svg id="play-icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M8 5v14l11-7z"></path>
-                    </svg>
-                    <svg id="pause-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path>
-                    </svg>
+                    <svg id="play-icon" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5 19 12 8 19Z"></path></svg>
+                    <svg id="pause-icon" style="display: none;" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5v14M16 5v14"></path></svg>
                 </button>
                 <button id="next-btn" title="Next">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M16 6h2v12h-2zm-4.5 6l-8.5 6V6z"></path>
-                    </svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 5v14M5 5l10 7-10 7Z"></path></svg>
                 </button>
                 <div class="volume-control-wrapper">
                     <button id="volume-btn" title="Mute / Unmute — scroll anywhere to change volume">
-                        <svg id="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>
-                        </svg>
-                        <svg id="volume-mute-icon" style="display: none;" viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path>
-                        </svg>
+                        <svg id="volume-icon" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 4 6 9H2v6h4l5 5ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"></path></svg>
+                        <svg id="volume-mute-icon" style="display: none;" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 4 6 9H2v6h4l5 5ZM17 9l6 6m0-6-6 6"></path></svg>
                     </button>
                     <div class="volume-slider-popup">
                         <input id="volume-slider" type="range" min="0" max="1" value="1" step="0.01"
@@ -172,20 +147,12 @@
                      chevron menu. They are modes you toggle constantly, so they
                      belong on the surface where their state is visible. -->
                 <button id="shuffle-btn" title="Shuffle">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"></path>
-                    </svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m17 3 4 4-4 4M3 17l5-5M14 7h7M3 7h4l10 10h4m-4-4 4 4-4 4"></path></svg>
                 </button>
                 <button id="loop-btn" title="Repeat: off → all → one">
-                    <svg id="loop-off-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
-                        <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
-                    </svg>
-                    <svg id="loop-all-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
-                        <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path>
-                    </svg>
-                    <svg id="loop-one-icon" viewBox="0 0 24 24" style="display: none;" aria-hidden="true">
-                        <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v2.5H13z"></path>
-                    </svg>
+                    <svg id="loop-off-icon" style="display: none;" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4M21 13v3a2 2 0 0 1-2 2H3"></path></svg>
+                    <svg id="loop-all-icon" style="display: none;" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4M21 13v3a2 2 0 0 1-2 2H3"></path></svg>
+                    <svg id="loop-one-icon" style="display: none;" class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4M21 13v3a2 2 0 0 1-2 2H3M10 10l2-1v6"></path></svg>
                 </button>
                 <!-- A-B repeat: one button cycling set-A -> set-B -> clear, which
                      is cheaper to learn than two buttons and a clear. -->
@@ -193,15 +160,11 @@
                     <span id="ab-repeat-label" class="ab-label">A-B</span>
                 </button>
                 <button id="like-btn" title="Add to favourites">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path>
-                    </svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"></path></svg>
                 </button>
                 <div class="dropdown">
                     <button class="dropdown-toggle" id="file-dropdown-btn" title="Track and file actions">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"></path>
-                        </svg>
+                        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H4v20h16V8ZM14 2v6h6M8 13h8M8 17h5"></path></svg>
                     </button>
                 </div>
             </div>
@@ -272,7 +235,7 @@
                 </button>
 
                 <button class="settings-action" id="toggle-magnifier-btn">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
+                    <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0"></path></svg>
                     <span id="toggle-magnifier-label">Hide Album Art Preview on Hover</span>
                 </button>
             </section>
@@ -388,6 +351,13 @@
                     <button id="ffmpeg-pick" class="settings-button">Choose FFmpeg</button>
                     <button id="ffmpeg-check" class="settings-button">Check</button>
                     <button id="media-cancel" class="settings-button">Cancel Operation</button>
+                </div>
+                <span class="settings-title">MIDI instruments</span>
+                <span class="settings-hint">MIDI playback uses FluidSynth with an SF2 or SF3 SoundFont. Choose instrument samples and an installed FluidSynth executable, or use FluidSynth from PATH.</span>
+                <div class="settings-row">
+                    <button id="midi-synth-pick" class="settings-button">Choose FluidSynth</button>
+                    <button id="midi-font-pick" class="settings-button">Choose SoundFont</button>
+                    <button id="midi-tools-check" class="settings-button">Check MIDI</button>
                 </div>
                 <span id="media-tools-status" class="settings-hint" role="status">Ready</span>
                 <span class="settings-title">YouTube &amp; Spotify links</span>
@@ -669,6 +639,7 @@
          ==================================================================== -->
     <div id="playlist-panel" class="playlist-panel">
         <div class="playlist-header">
+            <span class="panel-title">Songs</span>
             <input id="library-search-input" class="library-search-input" type="search"
                    placeholder="Search this playlist..." autocomplete="off"/>
             <button id="close-playlist-btn" class="close-drawer-btn" title="Back to player">
@@ -678,6 +649,23 @@
             </button>
         </div>
         <div id="library-view-chips" class="chip-row library-view-chips"></div>
+        <div class="library-toolbar">
+            <select id="named-playlist-select" class="settings-select" aria-label="Named playlist">
+                <option value="">Choose a playlist</option>
+            </select>
+            <button id="playlist-options-open" class="settings-button">Playlist options</button>
+        </div>
+        <div id="playlist-results" class="playlist-results"></div>
+        <div id="playlist-status" class="playlist-status"></div>
+    </div>
+
+    <section id="tab-playlist-options" class="tab-panel" aria-label="Playlist options">
+        <div class="panel-head">
+            <button id="playlist-options-back" class="settings-button">Back to songs</button>
+            <span id="playlist-options-title" class="panel-title">Playlist options</span>
+        </div>
+        <div class="settings-scroll playlist-options-content">
+            <section class="settings-block"><h3>Browse and sort</h3>
         <div class="playlist-browse-controls">
             <select id="playlist-filter" class="settings-select" aria-label="Filter playlist">
                 <option value="all">All tracks</option><option value="liked">Liked tracks</option>
@@ -689,14 +677,16 @@
                 <option value="duration">Duration: shortest first</option><option value="duration-desc">Duration: longest first</option>
             </select>
         </div>
+            </section>
+            <section class="settings-block" id="playlist-selected-actions"><h3>This playlist</h3>
         <div class="settings-row named-playlist-controls">
-            <select id="named-playlist-select" class="settings-select" aria-label="Named playlist">
-                <option value="">Choose a playlist</option>
-            </select>
+
             <button id="named-playlist-play" class="settings-button">Play All</button>
             <button id="named-playlist-add-current" class="settings-button">Add Song</button>
             <button id="named-playlist-delete" class="settings-button danger">Delete List</button>
         </div>
+            </section>
+            <section class="settings-block"><h3>Add music from a link</h3>
         <div class="settings-row remote-audio-controls">
             <input id="remote-audio-url" class="settings-input" type="url" placeholder="YouTube, YouTube Music, Spotify track or audio link" aria-label="Audio or platform link"/>
             <select id="remote-audio-position" class="settings-select" aria-label="Add link to queue position">
@@ -708,18 +698,23 @@
             <button id="remote-audio-save" class="settings-button">Save Current Link</button>
             <button id="remote-audio-download" class="settings-button">Download MP3…</button>
         </div>
+            </section>
+            <section class="settings-block"><h3>Create a playlist</h3>
         <div class="settings-row named-playlist-controls">
             <input id="named-playlist-name" class="settings-input" maxlength="80" placeholder="New playlist name" aria-label="New playlist name"/>
             <button id="named-playlist-create" class="settings-button">Create</button>
             <button id="named-playlist-save-queue" class="settings-button">Save Queue</button>
         </div>
+            </section>
+            <section class="settings-block"><h3>Import and export</h3>
         <div class="settings-row named-playlist-controls">
             <button id="named-playlist-import" class="settings-button">Import List</button>
             <button id="named-playlist-export" class="settings-button">Export List</button>
         </div>
-        <div id="playlist-results" class="playlist-results"></div>
-        <div id="playlist-status" class="playlist-status"></div>
-    </div>
+            </section>
+        </div>
+        <p id="playlist-options-status" class="playlist-status" role="status"></p>
+    </section>
 
     <!-- ====================================================================
          TAG EDITOR TAB
@@ -737,7 +732,7 @@
         <div class="settings-scroll">
             <div id="tags-empty" class="tags-empty">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
-                <span>Play a track to edit its tags.</span>
+                <span>Choose a song to edit its tags.</span>
             </div>
 
             <div id="tags-form" class="hidden">
@@ -824,7 +819,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18A3 3 0 1 0 19 17V8h3V6h-5z"></path></svg>
             <span class="tab-btn-label">Playlist</span>
         </button>
-        <button class="tab-dot tab-btn" data-tab="settings" title="Settings" aria-label="Settings" role="tab" aria-selected="false">
+        <button class="tab-dot tab-btn" data-tab="settings" title="Settings (Ctrl+K)" aria-label="Settings" role="tab" aria-selected="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path></svg>
             <span class="tab-btn-label">Settings</span>
         </button>
@@ -833,9 +828,8 @@
 
 <!-- ========================================================================
      MENUS
-     Sectioned with small-caps labels and right-aligned key hints. Each menu is
-     a direct child of <body> so it is never clipped by an ancestor's overflow;
-     the script clamps it to the window rectangle.
+     These definitions supply labels and actions to native desktop popups.
+     DOM rendering is retained as a fallback when the desktop bridge is absent.
      ======================================================================== -->
 
 <div class="dropdown-menu" id="speed-dropdown-menu" role="menu">
@@ -858,11 +852,11 @@
 <div class="dropdown-menu" id="file-dropdown-menu" role="menu">
     <span class="menu-label">Open</span>
     <button class="dropdown-item" id="open-file-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H4v20h16V8ZM14 2v6h6M8 13h8M8 17h5"></path></svg>
         <span>Open File...</span>
     </button>
     <button class="dropdown-item" id="open-folder-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7V4h6l2 3h10v13H3Z"></path></svg>
         <span>Open Folder...</span>
         <span class="menu-key">O</span>
     </button>
@@ -882,48 +876,48 @@
         <span>Edit Tags</span>
     </button>
     <button class="dropdown-item" id="add-to-playlist-btn" role="menuitem">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h12v2H3zm0 6h12v2H3zm0 6h8v2H3zm16-5v4h4v2h-4v4h-2v-4h-4v-2h4v-4z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14M12 5v14"></path></svg>
         <span>Add to Playlist</span>
     </button>
     <button class="dropdown-item" id="show-file-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7V4h6l2 3h10v13H3Z"></path></svg>
         <span>Show in Folder</span>
     </button>
     <button class="dropdown-item" id="open-file-external-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"></path></svg>
         <span>Open in Default Player</span>
     </button>
     <button class="dropdown-item" id="open-folder-external-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"></path></svg>
         <span>Open Containing Folder</span>
     </button>
 
     <hr class="dropdown-divider">
     <span class="menu-label">Copy</span>
     <button class="dropdown-item" id="copy-tags-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4H5v18h14V4h-4M9 2h6v5H9Z"></path></svg>
         <span>Title &amp; Artist</span>
     </button>
     <button class="dropdown-item" id="copy-filename-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h12v12H9ZM15 9V3H3v12h6"></path></svg>
         <span>File Name</span>
     </button>
     <button class="dropdown-item" id="copy-path-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h12v12H9ZM15 9V3H3v12h6"></path></svg>
         <span>File Path</span>
     </button>
     <button class="dropdown-item" id="copy-folder-path-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h12v12H9ZM15 9V3H3v12h6"></path></svg>
         <span>Folder Path</span>
     </button>
 
     <hr class="dropdown-divider">
     <button class="dropdown-item" id="exclude-track-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14"></path></svg>
         <span id="exclude-track-label">Exclude from This Folder</span>
     </button>
     <button class="dropdown-item danger" id="delete-file-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"></path></svg>
         <span>Delete File...</span>
     </button>
 </div>
@@ -931,38 +925,39 @@
 <div class="dropdown-menu" id="lyrics-dropdown-menu" role="menu">
     <span class="menu-label">Lyrics</span>
     <button class="dropdown-item" id="toggle-lyrics-section-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 3h16v18H4ZM8 7h8M8 11h8M8 15h5"></path></svg>
         <span id="toggle-lyrics-label">Hide Lyrics</span>
     </button>
     <button class="dropdown-item" id="toggle-lyrics-controls-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6"></path></svg>
         <span id="toggle-lyrics-controls-label">Hide Controls</span>
     </button>
     <button class="dropdown-item" id="toggle-manual-scroll-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 3h16v18H4ZM8 7h8M8 11h8M8 15h5"></path></svg>
         <span id="manual-scroll-label">Disable Auto Scroll</span>
     </button>
     <button class="dropdown-item" id="toggle-lyrics-selection-btn" role="menuitem" aria-pressed="false">Enable Text Selection</button>
+    <button class="dropdown-item" id="import-lyrics-btn" role="menuitem">Import Lyrics…</button>
     <button class="dropdown-item" id="export-lyrics-btn" role="menuitem">Export Lyrics…</button>
 
     <button class="dropdown-item" id="lyrics-overlay-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7v2H8v2h8v-2h-2v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12H3V5h18v10z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h18v18H3ZM9 3v18"></path></svg>
         <span id="lyrics-overlay-label">Show Desktop Overlay</span>
     </button>
     <button class="dropdown-item" id="edit-lyrics-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5M3 21l5-1L21 7l-5-5L3 15Z"></path></svg>
         <span>Edit &amp; Sync Lyrics</span>
         <kbd class="menu-key">E</kbd>
     </button>
     <button class="dropdown-item" id="fullscreen-lyrics-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"></path></svg>
         <span>Full-Screen Lyrics</span>
         <kbd class="menu-key">F</kbd>
     </button>
 
     <hr class="dropdown-divider">
     <button class="dropdown-item" id="refetch-lyrics-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 0 0-15-2L2 8M2 2v6h6M4 17a9 9 0 0 0 15 2l3-3m0 6v-6h-6"></path></svg>
         <span>Refetch Lyrics</span>
     </button>
 </div>
@@ -970,18 +965,18 @@
 <div class="dropdown-menu" id="app-dropdown-menu" role="menu">
     <span class="menu-label">View</span>
     <button class="dropdown-item" id="orientation-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M16 1H8a2 2 0 0 0-2 2v18a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm0 18H8V5h8v14z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h18v18H3ZM9 3v18"></path></svg>
         <span id="orientation-label">Switch to Vertical</span>
     </button>
     <button class="dropdown-item" id="edge-dock-btn" role="menuitem">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 2h2v20H2zM7 4h13v16H7z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h18v18H3ZM9 3v18"></path></svg>
         <span>Stick to screen edge (Ctrl+Alt+D)</span>
     </button>
 
     <hr class="dropdown-divider">
     <span class="menu-label">Window</span>
     <button class="dropdown-item" id="hide-to-tray-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5"></path></svg>
         <span>Hide to Tray Now</span>
     </button>
     <button class="dropdown-item" id="settings-transparency-btn" role="menuitem">
@@ -991,11 +986,11 @@
 
     <hr class="dropdown-divider">
     <button class="dropdown-item" id="go-to-github-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.1.1 1.7 1.1 1.7 1.1.9 1.6 2.4 1.2 3 .9.1-.7.4-1.2.8-1.4-2.3-.3-4.7-1.1-4.7-5.1 0-1.1.4-2 1.1-2.8-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1.1.8-.2 1.7-.3 2.5-.3s1.7.1 2.5.3c2-.1 2.8-1.1 2.8-1.1.6 1.4.2 2.5.1 2.7.7.7 1.1 1.6 1.1 2.8 0 4-2.4 4.8-4.7 5.1.4.3.8.9.8 1.8v2.6c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"></path></svg>
         <span>Go to GitHub</span>
     </button>
     <button class="dropdown-item" id="about-me-btn" role="menuitem">
-        <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 11v6M12 7h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0"></path></svg>
         <span>About Me</span>
     </button>
 </div>
@@ -1023,7 +1018,7 @@
         </div>
         <button id="lyrics-editor-close" class="lyrics-editor-close"
                 title="Close (Esc)" aria-label="Close editor">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+            <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"></path></svg>
         </button>
     </div>
 
@@ -1077,7 +1072,7 @@
 
     <button id="lyrics-fullscreen-close" class="lyrics-fullscreen-close"
             title="Exit full screen (Esc)" aria-label="Exit full screen">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"></path></svg>
     </button>
 
     <div class="lyrics-fullscreen-head">
@@ -1092,6 +1087,7 @@
     <div id="lyrics-fullscreen-body" class="lyrics-fullscreen-body"></div>
 </div>
 
+<script src="js/icons.js"></script>
 <script src="js/audio/engine.js"></script>
 <script src="js/audio/equalizer.js"></script>
 <script src="js/audio/parametric.js"></script>
@@ -1100,6 +1096,8 @@
 <script src="js/lyrics-parser.js"></script>
 <script src="js/roadmap-tools.js"></script>
 <script src="js/art-accent.js"></script>
+<script src="js/native-popups.js"></script>
+<script src="../shared/media-formats.js"></script>
 <script src="js/renderer.js"></script>
 </body>
 </html>

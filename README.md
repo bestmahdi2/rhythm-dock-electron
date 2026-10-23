@@ -239,3 +239,22 @@ tools/                   Repo maintenance scripts (PowerShell / Python)
 ## License
 
 ISC. See [license.md](./license.md).
+
+### Supported files
+
+- Audio: MP3, AAC, M4A/M4B/MP4 (AAC or ALAC), FLAC, WAV, Ogg Vorbis, Opus and WebM.
+- FFmpeg decoding: WMA, AIF/AIFF, APE, WavPack (WV), Musepack (MPC), TTA, TAK,
+  Matroska audio (MKA), DSD (DSF/DFF), and tracker modules (MOD/XM/IT/S3M).
+  ALAC in M4A/M4B/MP4 also uses FFmpeg. Tracker modules require a build with libopenmpt.
+- MIDI (.mid/.midi): choose FluidSynth and an SF2/SF3 SoundFont in Settings > Audio tools.
+  MIDI is rendered into the playback cache, so the normal seek, volume and audio-output controls work.
+- Playlists: M3U/M3U8, PLS and XSPF, including all supported local audio extensions.
+  Open or drop these files, or import them as saved playlists.
+- CUE sheets: open or drop a CUE file to load its referenced local audio; its track indexes
+  appear in chapter navigation and can be queued individually.
+- Lyrics: matching LRC or TXT sidecars, plus Import Lyrics in the lyrics menu. Imported
+  text opens in the editor for review before saving. Synced LRC takes priority over TXT.
+
+Extended decoding requires an installed FFmpeg executable (Settings > Audio tools or PATH).
+The source files are preserved. Tag writing remains restricted to formats the tag editor can safely write;
+playback support does not imply writable tags. Video containers are played as audio.

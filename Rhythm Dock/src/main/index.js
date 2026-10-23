@@ -1,8 +1,8 @@
-const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen, safeStorage, powerMonitor} = require('electron');
+const {app, BrowserWindow, Menu, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen, safeStorage, powerMonitor} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const {Worker} = require('worker_threads');
-const mm = require('music-metadata');
+const mm = {parseFile:(file,options)=>require('./services/media-metadata').parseFile(file,options,store?.get('ffmpegPath','')||'ffmpeg')};
 const Store = require('electron-store');
 const pkg = require('../../package.json');
 
@@ -186,15 +186,15 @@ const currentIconVariant = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'li
 // Kept in step with `build.fileAssociations` in package.json and with the FILE_TYPES
 // table in scripts/generate-icons.js. Previously this list was duplicated in three
 // places and only covered five formats.
-const SUPPORTED_EXTENSIONS = [
-    '.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4',
-    ...mediaTools.EXTRA_FORMATS,
-];
+const mediaFormats = require('../shared/media-formats');
+const inputFiles = require('./services/input-files');
+const SUPPORTED_EXTENSIONS = mediaFormats.audio;
+const isOpenableFile = file => mediaFormats.openable.includes(path.extname(file).toLowerCase());
 
 const isSupportedAudioFile = (filePath) =>
     SUPPORTED_EXTENSIONS.includes(path.extname(filePath).toLowerCase());
 const launchOptions = require('./core/launch-options');
-let pendingLaunch = launchOptions.parseArgs(process.argv, process.cwd(), isSupportedAudioFile);
+let pendingLaunch = launchOptions.parseArgs(process.argv, process.cwd(), isOpenableFile, file => inputFiles.expandFiles([file]));
 let rendererIsReady = false;
 
 const iconFor = (name) => path.join(mediaIconRoot, currentIconVariant(), `${name}.png`);
@@ -417,7 +417,7 @@ if (!gotTheLock) {
             mainWindow.focus();
 
             // Check if the second instance was launched with a file path
-            const launch = launchOptions.parseArgs(commandLine,workingDirectory,isSupportedAudioFile);
+            const launch = launchOptions.parseArgs(commandLine,workingDirectory,isOpenableFile,file=>inputFiles.expandFiles([file]));
             if (launch.files.length) {
                 if(rendererIsReady)sendToRenderer('launch-files',launch);
                 else pendingLaunch={...launch,files:[...pendingLaunch.files,...launch.files]};
@@ -518,9 +518,10 @@ ipcMain.on('renderer-ready', () => {
 // macOS delivers one open-file event per item; combine a file-manager batch.
 let macOpenFiles=[],macOpenTimer;
 app.on('open-file',(event,filePath)=>{
-    event.preventDefault();if(!isSupportedAudioFile(filePath))return;
-    if(!rendererIsReady){pendingLaunch.files.push(filePath);return;}
-    macOpenFiles.push(filePath);clearTimeout(macOpenTimer);
+    event.preventDefault();if(!isOpenableFile(filePath))return;
+    const opened=inputFiles.expandFiles([filePath]);
+    if(!rendererIsReady){pendingLaunch.files.push(...opened);return;}
+    macOpenFiles.push(...opened);clearTimeout(macOpenTimer);
     macOpenTimer=setTimeout(()=>{
         if(!mainWindow||mainWindow.isDestroyed()){pendingLaunch.files.push(...macOpenFiles);macOpenFiles=[];createWindow();return;}
         sendToRenderer('launch-files',{files:[...new Set(macOpenFiles)]});macOpenFiles=[];
@@ -587,6 +588,10 @@ app.on('window-all-closed', () => {
 });
 
 // --- IPC Handlers ---
+require('./windows/native-popup').registerNativePopup({
+    ipcMain, Menu, screen, getWindow: () => mainWindow
+});
+
 ipcMain.handle('lyrics-export', async (_event, payload) => {
     try {
         if (!payload || typeof payload.text !== 'string' || !payload.text.trim()) return {error:'No lyrics available'};
@@ -604,7 +609,7 @@ ipcMain.handle('file-menu-configure', async (_event, enabled) => {
         if (typeof enabled !== 'boolean') throw new Error('Invalid file menu setting');
         const result = await require('./services/file-menu').configure({enabled,
             command: app.isPackaged ? [process.env.APPIMAGE || process.execPath] : [process.execPath, app.getAppPath()],
-            extensions: SUPPORTED_EXTENSIONS, home: app.getPath('home'), dataHome: process.env.XDG_DATA_HOME,
+            extensions: mediaFormats.openable, home: app.getPath('home'), dataHome: process.env.XDG_DATA_HOME,
             mimeTypes: [...new Set([...pkg.build.linux.mimeTypes, 'audio/*',
                 'application/x-mod', 'application/x-s3m', 'application/x-xm', 'application/x-it'])]});
         store.set('fileMenuInstalled', enabled);
@@ -966,12 +971,12 @@ ipcMain.handle('pick-cover-image', async () => {
 ipcMain.handle('open-files', async () => {
     const {canceled, filePaths} = await dialog.showOpenDialog({
         filters: [
-            {name: 'Audio', extensions: SUPPORTED_EXTENSIONS.map(ext => ext.slice(1))},
+            {name: 'Audio, playlists and CUE', extensions: mediaFormats.openable.map(ext => ext.slice(1))},
             {name: 'All Files', extensions: ['*']},
         ],
         properties: ['openFile', 'multiSelections']
     });
-    return (canceled || filePaths.length === 0) ? null : filePaths;
+    return (canceled || filePaths.length === 0) ? null : inputFiles.expandFiles(filePaths);
 });
 
 ipcMain.handle('open-folder', async () => {
@@ -981,10 +986,11 @@ ipcMain.handle('open-folder', async () => {
 });
 
 ipcMain.handle('process-dropped-paths', async (_event, droppedPaths) => {
-    const {files, truncated} = await scanner.resolvePaths(droppedPaths, SUPPORTED_EXTENSIONS, {
+    const {files: inputs, truncated} = await scanner.resolvePaths(droppedPaths, mediaFormats.openable, {
         onProgress: ({found, current}) => sendToRenderer('scan-progress', {found, current}),
     });
 
+    const files = inputFiles.expandFiles(inputs);
     library.ingest(files);
     if (truncated) sendToRenderer('scan-truncated', {count: files.length});
     sendToRenderer('library-updated', {
@@ -1323,7 +1329,7 @@ async function performScanRoot(root) {
     const previous = libraryStore.scanSnapshot(root.id);
     const result = await new Promise((resolve, reject) => {
         const worker = new Worker(path.join(__dirname, 'library', 'scan-worker.js'), {
-            workerData: {rootPath: root.path, extensions: SUPPORTED_EXTENSIONS, previous},
+            workerData: {rootPath: root.path, extensions: SUPPORTED_EXTENSIONS, previous,ffmpeg:store.get('ffmpegPath','')||'ffmpeg'},
         });
         let settled = false;
         worker.on('message', (message) => {
@@ -1399,6 +1405,47 @@ async function importRoomUpload(upload) {
 }
 
 ipcMain.handle('library-roots', () => libraryStore.listRoots());
+ipcMain.handle('midi-tools-pick', async (_event, kind) => {
+    if (!['synth','soundfont'].includes(kind)) return {ok:false,error:'Unknown MIDI setting.'};
+    const picked = await dialog.showOpenDialog(mainWindow, {
+        title:kind==='synth'?'Choose FluidSynth executable':'Choose MIDI SoundFont',properties:['openFile'],
+        filters:kind==='soundfont'?[{name:'SoundFont',extensions:['sf2','sf3']}]:
+            process.platform==='win32'?[{name:'Executable',extensions:['exe']}]:[]});
+    if (picked.canceled || !picked.filePaths.length) return {cancelled:true};
+    const file = picked.filePaths[0];
+    try {
+        if (kind==='synth') await mediaTools.run(file,['--version'],{timeoutMs:5000});
+        else {
+            const fd=await fs.promises.open(file,'r');
+            try {
+                const header=Buffer.alloc(12);await fd.read(header,0,12,0);
+                if(header.toString('ascii',0,4)!=='RIFF'||header.toString('ascii',8,12)!=='sfbk')
+                    throw new Error('Choose a valid SF2 or SF3 SoundFont.');
+            } finally {await fd.close();}
+        }
+        store.set(kind==='synth'?'fluidsynthPath':'midiSoundfont',file);
+        return {ok:true,name:path.basename(file)};
+    } catch(error){return {ok:false,error:error.message};}
+});
+ipcMain.handle('midi-tools-check', async () => {
+    try {
+        const font=store.get('midiSoundfont','');
+        if (!font || !fs.existsSync(font)) throw new Error('Choose a SoundFont before playing MIDI files.');
+        await mediaTools.run(store.get('fluidsynthPath','')||'fluidsynth',['--version'],{timeoutMs:5000});
+        return {ok:true,name:path.basename(font)};
+    } catch(error){return {ok:false,error:error.message};}
+});
+ipcMain.handle('lyrics-import-file', async () => {
+    const picked=await dialog.showOpenDialog(mainWindow,{title:'Import lyrics',properties:['openFile'],
+        filters:[{name:'Lyrics',extensions:['lrc','txt']}]});
+    if(picked.canceled||!picked.filePaths.length)return {cancelled:true};
+    try {
+        const file=picked.filePaths[0];
+        if((await fs.promises.stat(file)).size>2*1024*1024)throw new Error('Lyrics file exceeds 2 MB.');
+        return {ok:true,text:(await fs.promises.readFile(file,'utf8')).replace(/^\uFEFF/,'')};
+    }catch(error){return {ok:false,error:error.message};}
+});
+
 ipcMain.handle('media-tools-pick', async () => {
     const picked = await dialog.showOpenDialog(mainWindow, {title: 'Choose FFmpeg executable',
         properties: ['openFile'], filters: process.platform === 'win32' ? [{name: 'Executable', extensions: ['exe']}] : []});
@@ -1418,7 +1465,8 @@ ipcMain.handle('media-tools-check', async () => {
 });
 ipcMain.handle('media-tools-cancel', () => { mediaOperation?.abort(); return true; });
 ipcMain.handle('media-prepare', (_event, filePath) => withMediaOperation(async (options) => {
-    const result = await mediaTools.prepare(filePath, path.join(paths.getDataRoot(), 'decoded-cache'), options);
+    const result = await mediaTools.prepare(filePath, path.join(paths.getDataRoot(), 'decoded-cache'), {...options,
+        fluidsynth:store.get('fluidsynthPath',''),soundfont:store.get('midiSoundfont','')});
     // Update the relay before playback publishes new state, so guests receive
     // decoded bytes before the next catalog snapshot arrives.
     if (roomClient?.isHost) for (const [id, source] of roomClient.trackSources) {

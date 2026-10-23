@@ -1,0 +1,16 @@
+/* Explicit specificity keeps shared icons consistent with filled legacy SVG rules. */
+svg.dock-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vertical-align: middle;
+}
+svg.dock-icon path { fill: none; stroke: inherit; }
+.current-playlist .dock-icon { width: 13px; height: 13px; }
+.playlist-row-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+#like-btn.active svg.dock-icon path { fill: currentColor; }

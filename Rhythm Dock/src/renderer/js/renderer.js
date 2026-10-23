@@ -961,10 +961,10 @@ function updateEditorClock() {
 }
 
 /** Opens the editor over the whole window, seeded with the current lyric. */
-async function openLyricsEditor() {
+async function openLyricsEditor(importedText) {
     if (!lyricsEditorEl || !currentSongData) return;
 
-    editorLines = buildEditorLines(rawLyricsText || '');
+    editorLines = buildEditorLines(typeof importedText === 'string' ? importedText : (rawLyricsText || ''));
     const firstUnstamped = editorLines.findIndex((line) => line.time == null);
     editorCursor = firstUnstamped === -1 ? 0 : firstUnstamped;
 
@@ -1214,7 +1214,7 @@ function updatePlayPauseIcon() {
     playIcon.style.display = isPlaying ? 'none' : 'block';
     pauseIcon.style.display = isPlaying ? 'block' : 'none';
     const edgePlay = document.getElementById('edge-play');
-    if (edgePlay) edgePlay.textContent = isPlaying ? '⏸' : '▶';
+    if (edgePlay) window.DockIcons.set(edgePlay, isPlaying ? 'pause' : 'play');
 }
 
 function updateVolumeUI() {
@@ -1808,7 +1808,7 @@ function applyReplayGainFor(songData) {
         ((replayGainMode === 'album' ? songData?.analysis?.albumGainDb : null) ?? songData?.analysis?.gainDb ?? 0));
 }
 
-const NEEDS_DECODER = /\.(ape|wv|dsf|dff|mod|xm|it|s3m)$/i;
+const NEEDS_DECODER = {test: file => window.RhythmFormats.needsPreparation(file)};
 const preparedAudio = new Map();
 
 function initMediaTools() {
@@ -1825,6 +1825,22 @@ function initMediaTools() {
         const result = await window.api.mediaToolsCheck(); report(result.ok ? result.version : result.error);
     });
     bind('media-cancel', () => window.api.mediaToolsCancel());
+    for (const [id,kind] of [['midi-synth-pick','synth'],['midi-font-pick','soundfont']]) bind(id,async()=>{
+        const result=await window.api.midiToolsPick(kind);
+        if(!result.cancelled)report(result.ok?'Selected '+result.name:result.error);
+    });
+    bind('midi-tools-check',async()=>{
+        const result=await window.api.midiToolsCheck();report(result.ok?'MIDI is ready with '+result.name:result.error);
+    });
+    bind('import-lyrics-btn',async()=>{
+        if(!currentSongData)return report('Open a song before importing its lyrics.');
+        const source=currentSongData.filePath;
+        const result=await window.api.lyricsImportFile();
+        if(result.cancelled)return;
+        if(!result.ok)return report(result.error);
+        if(currentSongData?.filePath!==source)return report('The song changed. Import the lyrics again.');
+        await openLyricsEditor(result.text);
+    });
     bind('diagnostics-export', async () => {
         const result = await window.api.diagnosticsExport();
         if (!result.cancelled) report(result.ok ? 'Diagnostics exported without URLs or credentials.' : result.error);
@@ -2144,7 +2160,7 @@ function setLocked(locked) {
     if (shut) shut.style.display = isLocked ? 'block' : 'none';
     const edgeLock = document.getElementById('edge-lock');
     if (edgeLock) {
-        edgeLock.textContent = isLocked ? '🔒' : '🔓';
+        window.DockIcons.set(edgeLock, isLocked ? 'lock' : 'unlock');
         edgeLock.title = isLocked ? 'Unlock controls' : 'Lock controls';
     }
 
@@ -2514,6 +2530,9 @@ function initLibraryPanel() {
 
 const tagsTab = document.getElementById('tab-tags');
 let tagsReturnTab = 'player';
+let tagsTargetPath = null;
+let tagsReadTicket = 0;
+let tagsOriginalCover = null;
 const tagsForm = document.getElementById('tags-form');
 const tagsEmpty = document.getElementById('tags-empty');
 const tagsStatus = document.getElementById('tags-status');
@@ -2580,7 +2599,8 @@ function fillTagsForm(tags) {
 
 /** Reads the currently playing file's tags straight from disk. */
 async function loadTagsForCurrentTrack() {
-    const filePath = currentSongData?.filePath || null;
+    const filePath = tagsTargetPath || currentSongData?.filePath || null;
+    const ticket = ++tagsReadTicket;
 
     if (!filePath) {
         tagsForm?.classList.add('hidden');
@@ -2601,6 +2621,8 @@ async function loadTagsForCurrentTrack() {
 
     setTagsStatus('Reading...');
     const result = await window.api.readTags(filePath);
+    if (ticket !== tagsReadTicket) return;
+    tagsOriginalCover = result.cover || (filePath === currentSongData?.filePath ? currentSongData.cover : null);
 
     tagsLoadedPath = filePath;
     pendingCover = undefined;
@@ -2609,7 +2631,7 @@ async function loadTagsForCurrentTrack() {
 
     if (tagsFilename) tagsFilename.textContent = result.basename || '';
     if (tagsCover) {
-        tagsCover.src = result.cover || currentSongData?.cover
+        tagsCover.src = tagsOriginalCover
             || '../assets/images/placeholder.png';
     }
 
@@ -2687,7 +2709,7 @@ function revertTags() {
     pendingCover = undefined;
     fillTagsForm(tagsOriginal);
     if (tagsCover) {
-        tagsCover.src = currentSongData?.cover || '../assets/images/placeholder.png';
+        tagsCover.src = tagsOriginalCover || '../assets/images/placeholder.png';
     }
     setTagsStatus('Reverted.', '');
 }
@@ -2695,7 +2717,7 @@ function revertTags() {
 /** Wires the editor. Called once from the DOM-ready block. */
 function initTagEditor() {
     document.getElementById('tags-close')?.addEventListener('click', () => setActiveTab(tagsReturnTab));
-    document.getElementById('edit-tags-btn')?.addEventListener('click', openTagsEditor);
+    document.getElementById('edit-tags-btn')?.addEventListener('click', () => openTagsEditor());
     TAG_FIELDS.forEach((_key, id) => {
         document.getElementById(id)?.addEventListener('input', refreshTagsDirtyState);
     });
@@ -2810,16 +2832,9 @@ function renderThemeGrid() {
     });
 }
 
-// --- Popover placement -----------------------------------------------------------
-//
-// Menus are `position: fixed` children of <body>, so nothing in the layout can
-// clip them -- but nothing constrains them either. Previously a menu was pinned
-// to `top: trigger.bottom + 5` and simply ran off the bottom of a 180px dock,
-// and a wide menu ran off the left edge in vertical mode. Both are now
-// impossible: the menu is measured, capped to whatever room actually exists,
-// flipped above its trigger when there is more space up than down, and pulled
-// inward so it always sits fully inside the window rectangle. If the content
-// still does not fit, the menu scrolls internally rather than growing.
+// --- Dropdown menus ------------------------------------------------------------
+// The desktop app uses native popup surfaces outside the window. The DOM menu
+// definitions retain their actions and provide a fallback without the bridge.
 
 /** The menu that is currently open, and the button that opened it. */
 let openMenuTrigger = null;
@@ -2888,6 +2903,10 @@ function positionMenu(menu, trigger) {
 
 /** Opens a menu and marks its trigger. */
 function openMenu(menu, trigger) {
+    if (window.DockPopups) {
+        void window.DockPopups.menu(menu, trigger);
+        return;
+    }
     // Measured while hidden and unanimated: a rect read mid-transform reports
     // the scaled size and the menu lands a few pixels off.
     menu.style.visibility = 'hidden';
@@ -2933,6 +2952,10 @@ window.addEventListener('resize', () => {
  */
 function setActiveTab(tab) {
     activeTab = tab;
+    containerEl.scrollLeft = 0;
+    containerEl.scrollTop = 0;
+    document.getElementById('tab-playlist-options')?.classList.toggle('show', tab === 'playlist-options');
+    if (tab === 'playlist-options') updatePlaylistOptionsState();
 
     containerEl.classList.toggle('tab-settings-active', tab === 'settings');
     settingsTab?.classList.toggle('show', tab === 'settings');
@@ -2945,15 +2968,17 @@ function setActiveTab(tab) {
     if (tab === 'tags') loadTagsForCurrentTrack();
 
     tabPager?.querySelectorAll('.tab-dot').forEach((dot) => {
-        dot.classList.toggle('active', dot.dataset.tab === tab);
-        dot.setAttribute('aria-selected', String(dot.dataset.tab === tab));
+        dot.classList.toggle('active', dot.dataset.tab === (tab === 'playlist-options' ? 'playlist' : tab === 'tags' ? (tagsReturnTab === 'playlist-options' ? 'playlist' : tagsReturnTab) : tab));
+        dot.setAttribute('aria-selected', String(dot.dataset.tab === (tab === 'playlist-options' ? 'playlist' : tab === 'tags' ? (tagsReturnTab === 'playlist-options' ? 'playlist' : tagsReturnTab) : tab)));
     });
 
     // The main process resizes the window: a settings panel does not fit in a 180px dock.
-    window.api.setActiveTab(tab);
+    window.api.setActiveTab(tab === 'playlist-options' ? 'playlist' : tab);
 }
 
-function openTagsEditor() {
+function openTagsEditor(filePath = currentSongData?.filePath) {
+    if (typeof filePath !== 'string' || !filePath || /^https?:/i.test(filePath)) return;
+    tagsTargetPath = filePath;
     tagsReturnTab = activeTab === 'tags' ? tagsReturnTab : activeTab;
     setActiveTab('tags');
 }
@@ -3112,6 +3137,9 @@ async function toggleTranslation() {
 
 /** Brief transient message under the results list. */
 function setPlaylistStatus(message) {
+    const detailStatus = document.getElementById('playlist-options-status');
+    if (detailStatus) detailStatus.textContent = message || '';
+
     if (playlistStatus) playlistStatus.textContent = message || '';
 }
 
@@ -3207,11 +3235,11 @@ function enqueue(filePath, position = QUEUE_POSITIONS.END) {
 /** The three queue actions, ready to hand to makeRow(). */
 function queueActions(filePath) {
     return [
-        {label: '\u2191', title: 'Move to the top of the queue',
+        {icon: 'up', title: 'Move to the top of the queue',
             onClick: () => enqueue(filePath, QUEUE_POSITIONS.FIRST)},
-        {label: '\u23ed', title: 'Play next',
+        {icon: 'next', title: 'Play next',
             onClick: () => enqueue(filePath, QUEUE_POSITIONS.NEXT)},
-        {label: '+', title: 'Add to the end of the queue',
+        {icon: 'plus', title: 'Add to the end of the queue',
             onClick: () => enqueue(filePath, QUEUE_POSITIONS.END)},
     ];
 }
@@ -3280,14 +3308,24 @@ function makeRow({title, subtitle, badge, active, filePath, missing, onPlay, act
         row.appendChild(badgeEl);
     }
 
-    for (const action of actions) {
+    const rowActions = filePath && !/^https?:/i.test(filePath)
+        ? [{icon: 'edit', title: 'Edit tags', onClick: () => openTagsEditor(filePath)}] : [];
+    if (actions.length) rowActions.push({icon: 'menu', title: 'More song actions', onClick: async trigger => {
+        const rect = trigger.getBoundingClientRect();
+        const index = await window.api.showNativePopup({x: rect.left, y: rect.bottom,
+            items: actions.map(action => ({label: action.title}))});
+        if (!isLocked && Number.isInteger(index) && actions[index]) actions[index].onClick();
+    }});
+    for (const action of rowActions) {
         const button = document.createElement('button');
         button.className = 'playlist-row-action';
         button.title = action.title;
-        button.textContent = action.label;
+        button.setAttribute('aria-label', action.title);
+        if (action.icon) button.appendChild(window.DockIcons.create(action.icon));
+        if (action.label) button.appendChild(document.createTextNode(action.label));
         button.addEventListener('click', (event) => {
             event.stopPropagation();
-            action.onClick();
+            action.onClick(button);
         });
         row.appendChild(button);
     }
@@ -3324,7 +3362,7 @@ function renderQueue() {
             active: index === currentIndex,
             onPlay: () => playTrack(index),
             actions: [{
-                label: '\u00d7',
+                icon: 'close',
                 title: 'Remove from queue',
                 onClick: () => removeFromQueue(index),
             }],
@@ -3594,9 +3632,9 @@ async function renderBrowseView(view) {
             title:row.title||row.basename||row.filePath,subtitle:row.artist|| (row.missing?'File is missing':''),
             active:row.filePath===playlist[currentIndex],onPlay:()=>view==='queue'?playTrack(row.queueIndex):
                 !row.missing&&loadPlaylistAndPlay(playable,playable.indexOf(row.filePath),{playlistName:view==='named'?selectedPlaylistName():view==='liked'?'Liked Songs':LIBRARY_VIEWS.find(item=>item.id===view)?.label||'Queue'}),
-            actions:[...queueActions(row.filePath),...(view==='named'?[{label:'×',title:'Remove from this playlist',onClick:async()=>{
+            actions:[...queueActions(row.filePath),...(view==='named'?[{icon: 'close',title:'Remove from this playlist',onClick:async()=>{
                 await window.api.playlistRemove(namedPlaylistId,row.filePath);await refreshNamedPlaylists();renderActiveLibraryView();
-            }}]:view==='queue'?[{label:'×',title:'Remove from queue',onClick:()=>removeFromQueue(row.queueIndex)}]:[])],
+            }}]:view==='queue'?[{icon: 'close',title:'Remove from queue',onClick:()=>removeFromQueue(row.queueIndex)}]:[])],
         }));
         shown+=200;if(shown<rows.length)playlistResults.append(more);
     };
@@ -3637,6 +3675,7 @@ function renderLibraryViewChips() {
 
 function setLibraryView(view) {
     activeLibraryView = view;
+    updatePlaylistOptionsState();
     renderLibraryViewChips();
 
     // Switching view is an explicit choice; a stale search term would silently
@@ -3706,7 +3745,7 @@ async function renderActiveLibraryView() {
             // row -- otherwise playback stops dead after a single track.
             onPlay: () => loadPlaylistAndPlay(rows.map((row) => row.filePath), index,{playlistName:LIBRARY_VIEWS.find(view=>view.id===activeLibraryView)?.label||'Queue'}),
             actions: [...queueActions(track.filePath), {
-                label: `★ ${track.rating || 0}`, title: 'Increase rating (5 stars, then clear)',
+                icon: 'star', label: String(track.rating || 0), title: 'Increase rating (5 stars, then clear)',
                 onClick: async () => {
                     await window.api.librarySetRating(track.filePath, ((track.rating || 0) + 1) % 6);
                     renderActiveLibraryView();
@@ -3761,29 +3800,41 @@ async function renderRecommendations() {
         subtitle: [row.artist, row.reason].filter(Boolean).join(' · '),
         onPlay: () => loadPlaylistAndPlay(paths, index),
         actions: [...queueActions(row.filePath), {
-            label: `★ ${row.rating || 0}`, title: 'Increase rating (5 stars, then clear)',
+            icon: 'star', label: String(row.rating || 0), title: 'Increase rating (5 stars, then clear)',
             onClick: async () => {
                 await window.api.librarySetRating(row.filePath, ((row.rating || 0) + 1) % 6);
                 renderRecommendations();
             },
         }, {
-            label: '＋♥', title: 'More like this', onClick: async () => {
+            icon: 'plus', title: 'More like this', onClick: async () => {
                 await window.api.libraryPreferenceSet(row.filePath, {feedback: 1});
                 renderRecommendations();
             },
         }, {
-            label: '−♥', title: 'Less like this', onClick: async () => {
+            icon: 'minus', title: 'Less like this', onClick: async () => {
                 await window.api.libraryPreferenceSet(row.filePath, {feedback: -1});
                 renderRecommendations();
             },
         }, {
-            label: '×', title: 'Do not suggest this song', onClick: () => {
+            icon: 'close', title: 'Do not suggest this song', onClick: () => {
                 const next = [...new Set([...hidden, row.filePath])];
                 window.api.setStoreValue('hiddenRecommendations', next);
                 renderRecommendations();
             },
         }],
     })));
+}
+
+function updatePlaylistOptionsState() {
+    const named = activeLibraryView === 'named' && Boolean(namedPlaylistId);
+    const selectedActions = document.getElementById('playlist-selected-actions');
+    if (selectedActions) selectedActions.hidden = !named;
+    for (const id of ['named-playlist-play','named-playlist-add-current','named-playlist-delete','named-playlist-export']) {
+        const button = document.getElementById(id);
+        if (button) button.disabled = !named;
+    }
+    const heading = document.getElementById('playlist-options-title');
+    if (heading) heading.textContent = named ? selectedPlaylistName() : 'Playlist options';
 }
 
 async function refreshNamedPlaylists(selectedId = namedPlaylistId) {
@@ -3798,6 +3849,7 @@ async function refreshNamedPlaylists(selectedId = namedPlaylistId) {
     } else {
         namedPlaylistId = null;
     }
+    updatePlaylistOptionsState();
 }
 
 async function renderNamedPlaylist() {
@@ -3821,7 +3873,7 @@ async function renderNamedPlaylist() {
                 if (index >= 0) loadPlaylistAndPlay(playable, index,{playlistName:selectedPlaylistName()});
             },
             actions: [...queueActions(row.filePath), {
-                label: '×', title: 'Remove from this playlist', onClick: async () => {
+                icon: 'close', title: 'Remove from this playlist', onClick: async () => {
                     await window.api.playlistRemove(namedPlaylistId, row.filePath);
                     await refreshNamedPlaylists();
                     renderNamedPlaylist();
@@ -3832,11 +3884,18 @@ async function renderNamedPlaylist() {
 }
 
 function initNamedPlaylists() {
+    document.getElementById('playlist-options-open')?.addEventListener('click', () => {
+        updatePlaylistOptionsState();
+        setActiveTab('playlist-options');
+    });
+    document.getElementById('playlist-options-back')?.addEventListener('click', () => setActiveTab('playlist'));
+
     const select = document.getElementById('named-playlist-select');
     const name = document.getElementById('named-playlist-name');
     refreshNamedPlaylists();
     select?.addEventListener('change', () => {
         namedPlaylistId = Number(select.value) || null;
+        updatePlaylistOptionsState();
         setLibraryView(namedPlaylistId ? 'named' : 'queue');
     });
     const create = async (paths) => {
@@ -3888,7 +3947,7 @@ function initNamedPlaylists() {
         setActiveTab('playlist');
         await refreshNamedPlaylists();
         select?.focus();
-        setPlaylistStatus('Choose a playlist, then click Add Song.');
+        setPlaylistStatus('Choose a playlist, then open Playlist options to add this song.');
     });
 }
 
@@ -3978,11 +4037,11 @@ function renderRemoteQueue() {
     setPlaylistStatus(`${queue.length} shared track${queue.length === 1 ? '' : 's'}`);
     queue.forEach((track, index) => {
         const actions = room.role === 'controller' ? [
-            {label: '↑', title: 'Move up', onClick: () =>
+            {icon: 'up', title: 'Move up', onClick: () =>
                 window.api.roomControl('queue:move', {trackId: track.id, direction: 'up'})},
-            {label: '↓', title: 'Move down', onClick: () =>
+            {icon: 'down', title: 'Move down', onClick: () =>
                 window.api.roomControl('queue:move', {trackId: track.id, direction: 'down'})},
-            {label: '×', title: 'Remove from shared queue', onClick: () =>
+            {icon: 'close', title: 'Remove from shared queue', onClick: () =>
                 window.api.roomControl('queue:remove', {trackId: track.id})},
         ] : [];
         if (index === 0) actions.shift();
@@ -4015,7 +4074,7 @@ function renderLikedSongs() {
             active: filePath === playlist[currentIndex],
             onPlay: () => loadPlaylistAndPlay([...favoritesPlaylist], index,{playlistName:'Liked Songs'}),
             actions: [...queueActions(filePath), {
-                label: '\u00d7',
+                icon: 'close',
                 title: 'Remove from liked songs',
                 onClick: () => {
                     favoritesPlaylist.splice(index, 1);
@@ -4047,9 +4106,9 @@ async function runLibrarySearch(query) {
                 onPlay: () => room.role === 'controller' &&
                     window.api.roomControl('queue:add', {trackId: track.id, position: 'end'}),
                 actions: room.role === 'controller' ? [
-                    {label: '↑', title: 'Add at top', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'first'})},
-                    {label: '⏭', title: 'Play next', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'next'})},
-                    {label: '+', title: 'Add at end', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'end'})},
+                    {icon: 'up', title: 'Add at top', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'first'})},
+                    {icon: 'next', title: 'Play next', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'next'})},
+                    {icon: 'plus', title: 'Add at end', onClick: () => window.api.roomControl('queue:add', {trackId: track.id, position: 'end'})},
                 ] : [],
             }));
         }
@@ -4725,16 +4784,65 @@ document.addEventListener('DOMContentLoaded', () => {
         showVolumeFeedback(isMuted ? 0 : playbackVolume);
     });
 
-    // The popup opens on hover, but a drag that leaves the button would otherwise
-    // close it mid-gesture. Pointer capture keeps it open until the drag ends --
-    // and, unlike the old :focus-within rule, it releases on pointerup instead of
-    // pinning the popup open until something else took focus (issue #4).
+    // Keep diagonal travel toward either end of the slider inside an intent
+    // triangle. A short grace period also covers jitter at the button boundary.
     if (volumeSlider) {
         const wrapper = volumeSlider.closest('.volume-control-wrapper');
+        const popup = wrapper?.querySelector('.volume-slider-popup');
+        let closeTimer = null;
+        let corridorTimer = null;
+        let origin = null;
+        let travelling = false;
+        const clearClose = () => { clearTimeout(closeTimer); closeTimer = null; };
+        const close = () => {
+            clearClose(); clearTimeout(corridorTimer);
+            travelling = false; origin = null;
+            wrapper?.classList.remove('pointer-open');
+        };
+        const deferClose = () => {
+            if (!closeTimer) closeTimer = setTimeout(close, 220);
+        };
+        const enter = event => {
+            clearClose(); clearTimeout(corridorTimer);
+            travelling = false;
+            origin = {x: event.clientX, y: event.clientY};
+            wrapper?.classList.add('pointer-open');
+        };
+        const inTriangle = (point, a, b, c) => {
+            const cross = (p, q, r) => (p.x-r.x)*(q.y-r.y)-(q.x-r.x)*(p.y-r.y);
+            const d1 = cross(point,a,b), d2 = cross(point,b,c), d3 = cross(point,c,a);
+            return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+        };
+        wrapper?.addEventListener('pointerenter', enter);
+        wrapper?.addEventListener('pointermove', event => {
+            origin = {x: event.clientX, y: event.clientY};
+        });
+        wrapper?.addEventListener('pointerleave', () => {
+            travelling = true;
+            deferClose();
+            // Bound the grace period even if the pointer stops in the gap.
+            corridorTimer = setTimeout(close, 900);
+        });
+        document.addEventListener('pointermove', event => {
+            if (!travelling || !origin || !popup) return;
+            if (wrapper.contains(event.target)) { enter(event); return; }
+            const rect = popup.getBoundingClientRect();
+            const edgeY = rect.bottom <= origin.y ? rect.bottom - 2 : rect.top + 2;
+            if (inTriangle({x:event.clientX,y:event.clientY}, origin,
+                {x:rect.left-10,y:edgeY}, {x:rect.right+10,y:edgeY})) {
+                clearClose();
+            } else deferClose();
+        });
+        window.addEventListener('blur', close);
         volumeSlider.addEventListener('pointerdown', () => {
+            clearClose(); clearTimeout(corridorTimer);
+            travelling = false;
             wrapper?.classList.add('dragging');
         });
-        const release = () => wrapper?.classList.remove('dragging');
+        const release = () => {
+            wrapper?.classList.remove('dragging');
+            if (!wrapper?.matches(':hover')) close();
+        };
         window.addEventListener('pointerup', release);
         window.addEventListener('pointercancel', release);
     }
@@ -4892,8 +5000,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchAndDisplayOnlineLyrics(currentSongData, true);
     });
 
-    // Dropdown menu logic. See openMenu()/positionMenu() above for the clamping
-    // rules; this block is only wiring.
+    // Wire menu definitions to native desktop popups (DOM fallback without bridge).
     DROPDOWNS.forEach((menuId, btnId) => {
         const toggleBtn = document.getElementById(btnId);
         const menu = document.getElementById(menuId);
@@ -5978,7 +6085,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 document.addEventListener('DOMContentLoaded',()=>{
     window.roadmapTools = window.RhythmRoadmap.install({engine:audio,equalizer,
         track:()=>currentSongData,isLocked:()=>isLocked,canControl:()=>!room.connected||room.isHost,
-        tab:setActiveTab,playPaths:loadPlaylistAndPlay,enqueue:path=>enqueue(path,QUEUE_POSITIONS.END),
+        tab:setActiveTab,editTags:openTagsEditor,playPaths:loadPlaylistAndPlay,enqueue:path=>enqueue(path,QUEUE_POSITIONS.END),
         playStream:(url,title)=>{
             if(room.connected)throw new Error('Leave the shared room before starting a radio stream.');
             finishListen({reason:'switch'});playlist=[];originalPlaylist=[];currentIndex=-1;

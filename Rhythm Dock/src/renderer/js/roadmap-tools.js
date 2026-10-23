@@ -20,14 +20,31 @@ function install(actions) {
     let pageTicket=0,selected=new Set(),appearance={},peaks=null,trackKey='',waveTicket=0,full=null,fullTimer=null,lastFocus;
     const names={Library:'Library',Appearance:'Appearance',Practice:'Practice',Editor:'Audio editor',Broadcasts:'Radio & podcasts',Files:'Tags & files',Accounts:'Accounts',Setup:'Getting started',Layouts:'Layouts',Settings:'Settings & logs'};
     for(const [key,name] of Object.entries(names))button(name,()=>open(key),nav).dataset.page=key;
-    const card=el('section',null,'settings-block');card.id='roadmap-tools-card';card.append(el('h3','Library, appearance & more'));
-    button('Open tools',()=>open('Library'),card);button('Command palette (Ctrl+K)',()=>palette(),card);
-    const settingsPanel=document.getElementById('tab-settings') || document.querySelector('#settings-content') || document.querySelector('.settings-block')?.parentElement;
-    settingsPanel?.append(card);
-    dialog.addEventListener('close',()=>{pageTicket++;lastFocus?.focus();});
+    const settingsPanel=document.getElementById('tab-settings');
+    const card=el('section',null,'settings-block');card.id='roadmap-tools-card';
+    card.append(el('h3','More settings'));
+    const categories=el('div',null,'settings-category-grid');card.append(categories);
+    for(const [key,name] of Object.entries(names)) {
+        if(key!=='Setup') button(name,()=>open(key),categories).dataset.settingsPage=key;
+    }
+    settingsPanel?.querySelector('.settings-scroll')?.prepend(card);
+    dialog.addEventListener('close',()=>{
+        pageTicket++;settingsPanel?.classList.remove('settings-detail-open');lastFocus?.focus({preventScroll:true});
+    });
     async function open(page='Library') {
         if(actions.isLocked())return;
-        if(!dialog.open){lastFocus=document.activeElement;actions.tab('settings');await new Promise(r=>setTimeout(r,80));dialog.showModal();}
+        const embedded=page!=='Setup';
+        if(embedded&&dialog.open&&!settingsPanel.classList.contains('show'))actions.tab('settings');
+        if(dialog.open && (dialog.dataset.embedded==='true')!==embedded) dialog.close();
+        if(!dialog.open){
+            lastFocus=document.activeElement;
+            actions.tab('settings');
+            await new Promise(r=>setTimeout(r,80));
+            dialog.dataset.embedded=String(embedded);
+            if(embedded){settingsPanel.append(dialog);settingsPanel.classList.add('settings-detail-open');dialog.show();}
+            else {document.body.append(dialog);dialog.showModal();}
+        }
+        head.querySelector('button').textContent=embedded?'Back to settings':'Close';
         const ticket=++pageTicket;body.replaceChildren();status.textContent='';heading.textContent=names[page]||page;
         for(const b of nav.querySelectorAll('button'))b.setAttribute('aria-current',b.dataset.page===page?'page':'false');
         try{await pages[page](ticket);}catch(error){if(ticket===pageTicket)status.textContent=error.message;}
@@ -54,8 +71,8 @@ function install(actions) {
             for(const r of currentRows){const item=el('div',null,'rd-track');item.dataset.path=r.filePath;
                 const check=el('input');check.type='checkbox';check.checked=selected.has(r.filePath);check.setAttribute('aria-label','Select '+(r.title||r.basename));
                 check.addEventListener('click',e=>choose(r.filePath,r.index,e));item.append(check);
-                const label=el('span',r.title||r.basename,'rd-label');label.title=r.filePath;label.append(el('small',[r.artist,r.album,r.rating?'★ '+r.rating:''].filter(Boolean).join(' · ')));item.append(label);
-                button('Play',()=>actions.playPaths([r.filePath]),item);button('+',()=>actions.enqueue(r.filePath),item).setAttribute('aria-label','Queue '+(r.title||r.basename));frag.append(item);
+                const label=el('span',r.title||r.basename,'rd-label');label.title=r.filePath;label.append(el('small',[r.artist,r.album,r.rating?'Rating '+r.rating:''].filter(Boolean).join(' · ')));item.append(label);
+                button('Edit tags',()=>{dialog.close();actions.editTags(r.filePath);},item);button('Play',()=>actions.playPaths([r.filePath]),item);button('+',()=>actions.enqueue(r.filePath),item).setAttribute('aria-label','Queue '+(r.title||r.basename));frag.append(item);
             }
             const bottom=el('div');bottom.style.height=Math.max(0,total-start-data.rows.length)*56+'px';frag.append(bottom);list.replaceChildren(frag);
             status.textContent=`${total} songs · ${selected.size} selected`;
@@ -318,19 +335,12 @@ function install(actions) {
         button('Send a test report',async()=>{if(!await call('crashReportTest'))throw new Error('Reporting is off or the endpoint could not accept the report.');status.textContent='Test report accepted.';},body);
     }
     async function palette(){
-        if(actions.isLocked())return;await open('Library');body.replaceChildren();heading.textContent='Command palette';
-        const search=field('Find an action','search',''),results=el('div');body.append(results);
-        const commands=[...Object.keys(names).map(name=>({name:names[name],run:()=>open(name)})),{name:'Now Playing full screen',run:()=>nowPlaying()}];
-        const seen=new Set(commands.map(c=>c.name));
-        for(const b of document.querySelectorAll('button')){
-            if(b.closest('.rd-dialog,.rd-full')||b.disabled)continue;
-            const name=b.getAttribute('aria-label')||b.title||b.textContent.trim();if(!name||seen.has(name))continue;seen.add(name);
-            commands.push({name,run:()=>{const panel=b.closest('[id^="tab-"]');if(panel)actions.tab(panel.id.replace('tab-',''));b.click();}});
-        }
-        let visible=[];
-        function paint(){results.replaceChildren();visible=commands.filter(c=>c.name.toLowerCase().includes(search.value.toLowerCase())).slice(0,40);
-            for(const c of visible)button(c.name,()=>{dialog.close();c.run();},results);}
-        search.addEventListener('input',paint);search.addEventListener('keydown',e=>{if(e.key==='Enter'&&visible[0]){e.preventDefault();dialog.close();visible[0].run();}});paint();search.focus();
+        if(actions.isLocked())return;
+        if(dialog.open)dialog.close();
+        actions.tab('settings');
+        const scroll=settingsPanel.querySelector('.settings-scroll');
+        if(scroll)scroll.scrollTop=0;
+        categories.querySelector('button')?.focus({preventScroll:true});
     }
     const visual=el('canvas');visual.id='rd-visual';visual.width=512;visual.height=64;visual.setAttribute('aria-label','Audio visualizer');visual.hidden=true;
     const wave=el('canvas');wave.id='rd-waveform';wave.width=512;wave.height=52;wave.tabIndex=0;wave.setAttribute('role','slider');wave.setAttribute('aria-label','Waveform seek');wave.hidden=true;

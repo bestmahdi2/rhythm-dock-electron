@@ -34,7 +34,8 @@ const MIME_TYPES = {
     '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
     '.flac': 'audio/flac', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
     '.opus': 'audio/opus', '.wma': 'audio/x-ms-wma', '.aiff': 'audio/aiff',
-    '.mp4': 'video/mp4',
+    '.mp4': 'video/mp4', '.m4b':'audio/mp4', '.aif':'audio/aiff',
+    '.webm':'audio/webm', '.mka':'audio/x-matroska', '.mid':'audio/midi', '.midi':'audio/midi',
 };
 
 function mimeFor(filePath) {

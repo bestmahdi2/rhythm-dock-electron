@@ -195,9 +195,9 @@ client and a laptop running the desktop app are equal members.
 
 | | Listen | Play/pause/seek/skip | Reorder queue | Manage members |
 |---|:--:|:--:|:--:|:--:|
-| **Host** | ✅ | ✅ | ✅ | ✅ |
-| **Controller** | ✅ | ✅ | ✅ | — |
-| **Listener** *(only-viewer)* | ✅ | — | — | — |
+| **Host** | Yes | Yes | Yes | Yes |
+| **Controller** | Yes | Yes | Yes | — |
+| **Listener** *(only-viewer)* | Yes | — | — | — |
 
 A **listener** receives everything — audio, lyrics, artwork, theme, queue — and can
 change nothing. Their own volume is local, so they can still turn themselves down.

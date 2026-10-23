@@ -1,7 +1,7 @@
 'use strict';
 const path=require('node:path');
 const fs=require('node:fs');
-function parseArgs(argv,cwd=process.cwd(),supported=()=>true) {
+function parseArgs(argv,cwd=process.cwd(),supported=()=>true,expand=file=>[file]) {
     const files=[],options={play:false,enqueue:false,hidden:false};
     for(const value of argv.slice(1)) {
         if(value==='--play') options.play=true;
@@ -9,7 +9,7 @@ function parseArgs(argv,cwd=process.cwd(),supported=()=>true) {
         else if(value==='--hidden') options.hidden=true;
         else if(!value.startsWith('-') && value!=='.') {
             const file=path.resolve(cwd,value);
-            try {if(fs.statSync(file).isFile() && supported(file) && !files.includes(file)) files.push(file);} catch(_) {}
+            try {if(fs.statSync(file).isFile() && supported(file) && !files.includes(file)) files.push(...expand(file).filter(item=>!files.includes(item)));} catch(_) {}
         }
     }
     return {...options,files};

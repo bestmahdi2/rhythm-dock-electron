@@ -3,7 +3,7 @@
 const fs = require('fs');
 const {parentPort, workerData} = require('worker_threads');
 const scanner = require('./scanner');
-const mm = require('music-metadata');
+const mm = require('../services/media-metadata');
 
 let cancelled = false;
 parentPort.on('message', (message) => { if (message === 'cancel') cancelled = true; });
@@ -25,7 +25,7 @@ async function run() {
             const old = previous.get(filePath);
             if (!old || old.fileMtimeMs !== stat.mtimeMs || old.fileSize !== stat.size) {
                 try {
-                    const tags = await mm.parseFile(filePath, {skipCovers: true, duration: false});
+                    const tags = await mm.parseFile(filePath, {skipCovers: true, duration: false},workerData.ffmpeg);
                     fingerprint.title = tags.common.title || null;
                     fingerprint.artist = tags.common.artist || null;
                     fingerprint.album = tags.common.album || null;

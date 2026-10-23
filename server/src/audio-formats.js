@@ -1,0 +1,31 @@
+'use strict';
+// Kept aligned with the desktop format registry; standalone server deployments need no desktop files.
+module.exports = [
+    ".mp3",
+    ".aac",
+    ".m4a",
+    ".m4b",
+    ".mp4",
+    ".flac",
+    ".wav",
+    ".ogg",
+    ".opus",
+    ".webm",
+    ".wma",
+    ".aif",
+    ".aiff",
+    ".ape",
+    ".wv",
+    ".mpc",
+    ".tta",
+    ".tak",
+    ".mka",
+    ".dsf",
+    ".dff",
+    ".mod",
+    ".xm",
+    ".it",
+    ".s3m",
+    ".mid",
+    ".midi"
+];

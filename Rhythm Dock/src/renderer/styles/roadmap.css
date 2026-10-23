@@ -38,3 +38,23 @@
 .rd-response {width:100%;height:120px;}
 @media (max-width:400px) {.rd-dialog {padding:8px;} .rd-results {height:170px;} .rd-track button {padding:4px;} .rd-full {padding:10px;}}
 @media (prefers-reduced-motion:reduce) {#rd-visual {display:none;}}
+
+.settings-category-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 8px; }
+.settings-category-grid button { color:var(--text); background:var(--surface-2); border:1px solid var(--line); border-radius:8px; padding:12px; text-align:left; cursor:pointer; }
+.settings-category-grid button:hover { border-color:var(--accent); }
+#tab-settings.settings-detail-open > .panel-head,
+#tab-settings.settings-detail-open > .settings-scroll { display:none; }
+.rd-dialog[data-embedded=true] {
+    position:absolute; inset:0; width:100%; height:100%; max-width:none; max-height:none;
+    margin:0; border:0; border-radius:0; padding:12px; overflow:hidden;
+    background:var(--panel-bg); -webkit-app-region:no-drag;
+}
+.rd-dialog[data-embedded=true][open] { display:flex; flex-direction:column; gap:8px; }
+.rd-dialog[data-embedded=true] .rd-head { position:static; flex-shrink:0; margin:0; padding:0; background:transparent; }
+.rd-dialog[data-embedded=true] .rd-nav { flex-wrap:nowrap; overflow-x:auto; flex-shrink:0; margin:0; padding-bottom:4px; }
+.rd-dialog[data-embedded=true] .rd-nav button { white-space:nowrap; }
+.rd-dialog[data-embedded=true] #rd-body { overflow:auto; flex:1; min-height:0; padding-right:4px; }
+.rd-dialog[data-embedded=true] .rd-status:empty { display:none; }
+
+.settings-category-grid button { font:inherit; font-size:12px; }
+#roadmap-tools-card > h3 { font-size:14px; margin:0 0 12px; }

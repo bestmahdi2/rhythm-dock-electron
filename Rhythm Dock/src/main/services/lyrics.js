@@ -152,11 +152,12 @@ function sidecarCandidates(filePath, lyricsDir) {
 }
 
 function readSidecar(filePath, lyricsDir) {
-    for (const candidate of sidecarCandidates(filePath, lyricsDir)) {
+    const textSidecar = filePath ? path.join(path.dirname(filePath), path.basename(filePath,path.extname(filePath))+'.txt') : null;
+    for (const candidate of [...sidecarCandidates(filePath, lyricsDir), ...(textSidecar ? [textSidecar] : [])]) {
         try {
             if (!fs.existsSync(candidate)) continue;
             if(fs.statSync(candidate).size>2*1024*1024)continue;
-            const text = fs.readFileSync(candidate, 'utf8');
+            const text = fs.readFileSync(candidate, 'utf8').replace(/^\uFEFF/,'');
             if (isUsable(text)) return {text, sidecarPath: candidate};
         } catch (error) {
             console.error(`[lyrics] Could not read ${candidate}:`, error.message);

@@ -66,6 +66,21 @@ const FILE_TYPES = [
     {ext: 's3m', label: 'S3M', from: '#c77b5b', to: '#783c29', mime: 'audio/x-s3m'},
 ];
 
+// Extend the installed file types from the same registry used by playback.
+const formatRegistry = require('../src/shared/media-formats');
+const additionalMimes = {aif:'audio/aiff',webm:'audio/webm',mka:'audio/x-matroska',mpc:'audio/x-musepack',
+    tta:'audio/x-tta',tak:'audio/x-tak',mid:'audio/midi',midi:'audio/midi',
+    m3u:'audio/x-mpegurl',m3u8:'application/vnd.apple.mpegurl',pls:'audio/x-scpls',
+    xspf:'application/xspf+xml',cue:'application/x-cue'};
+for (const extension of formatRegistry.openable) {
+    const ext=extension.slice(1);
+    if(FILE_TYPES.some(type=>type.ext===ext))continue;
+    const index=FILE_TYPES.length;
+    const color=(value)=>'#'+value.toString(16).padStart(6,'0');
+    FILE_TYPES.push({ext,label:ext.toUpperCase(),from:color((0x3578ac+index*0x091c35)%0xffffff),
+        to:color((0x17364c+index*0x041321)%0xffffff),mime:additionalMimes[ext]||'audio/x-'+ext});
+}
+
 const FORMAT_MARKS = {
     m4a:'<path d="M9 17V5l11-2v12M9 8l11-2"/><ellipse cx="6" cy="17" rx="3" ry="2"/><ellipse cx="17" cy="15" rx="3" ry="2"/>',
     m4b:'<path d="M12 6C8 3 4 4 2 5v15c3-2 6-2 10 0 4-2 7-2 10 0V5c-3-1-6-2-10 1v14M5 9h4M5 13h4M15 9h4M15 13h4"/>',
@@ -88,7 +103,7 @@ const FORMAT_MARKS = {
 };
 function formatMark(type) {
     if(type.hero)return vinylMark();
-    return `<g transform="translate(256 240) scale(21.3)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">${FORMAT_MARKS[type.ext]}</g>`;
+    return `<g transform="translate(256 240) scale(21.3)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">${FORMAT_MARKS[type.ext] || '<path d="M3 12h3l3-7 6 14 3-7h3"/>'}</g>`;
 }
 
 // --- SVG artwork -----------------------------------------------------------------

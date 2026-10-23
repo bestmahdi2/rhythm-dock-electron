@@ -9,9 +9,9 @@ const pkg=require('../package.json');
 
 (async()=>{
     const extensions=FILE_TYPES.map(type=>type.ext);
-    assert.equal(new Set(extensions).size,19);
-    assert.equal(new Set(FILE_TYPES.map(type=>type.from)).size,19,'every format must have its own color');
-    assert.equal(new Set(FILE_TYPES.map(type=>fileTypeSvg(type))).size,19);
+    assert.equal(new Set(extensions).size,extensions.length);
+    assert.equal(new Set(FILE_TYPES.map(type=>type.from)).size,extensions.length,'every format must have its own color');
+    assert.equal(new Set(FILE_TYPES.map(type=>fileTypeSvg(type))).size,extensions.length);
     assert.deepEqual(pkg.build.fileAssociations.map(item=>item.ext).sort(),[...extensions].sort());
     for(const ext of EXTRA_FORMATS)assert.ok(extensions.includes(ext.slice(1)));
     for(const type of FILE_TYPES){
@@ -38,5 +38,5 @@ const pkg=require('../package.json');
             assert.equal(result.status,0,result.stderr);
         }
     }
-    console.log('PASS: all 19 formats have distinct palettes, labels, associations, valid multi-resolution icons and valid build/install configuration');
+    console.log('PASS: all registered formats have distinct palettes, labels, associations, valid multi-resolution icons and valid build/install configuration');
 })().catch(error=>{console.error(error);process.exitCode=1;});

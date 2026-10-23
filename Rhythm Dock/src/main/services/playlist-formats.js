@@ -3,7 +3,7 @@
 const path = require('node:path');
 const {fileURLToPath, pathToFileURL} = require('node:url');
 
-const SUPPORTED = new Set(['.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.mp4']);
+const SUPPORTED = new Set(require('../../shared/media-formats').audio);
 
 function decodeFileUri(value) {
     try {

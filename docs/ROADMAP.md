@@ -127,7 +127,7 @@ code and real-device acceptance are separate; `TASKS.md` tracks the latter.
    discovery and a supported playable source; plan them in Phase 14. Do not label
    those sources implemented merely because direct media URLs work.
 
-## Phase 9 — Lyrics, properly ✅ *shipped in v1.6.0*
+## Phase 9 — Lyrics, properly *shipped in v1.6.0*
 
 Every row below has implementation; live provider and installed visual acceptance
 remain separate. This pass fixes tag-write temporary extensions and repeated

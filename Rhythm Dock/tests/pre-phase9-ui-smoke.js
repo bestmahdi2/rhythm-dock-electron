@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {app, BrowserWindow, screen, ipcMain} = require('electron');
+const {app, BrowserWindow, Menu, screen, ipcMain} = require('electron');
 const Database = require('better-sqlite3');
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-ui-smoke-'));
@@ -81,6 +81,69 @@ app.whenReady().then(async () => {
             'an empty first run must offer folder/server onboarding');
         await window.webContents.executeJavaScript(`document.getElementById('roadmap-dialog').close();
             window.api.setStoreValue('onboardingComplete',true);setActiveTab('player');`);
+        // Exercise renderer -> preload -> main native popup wiring without showing OS UI.
+        const originalPopup = Menu.prototype.popup;
+        let popupRows = 0;
+        let popupCalls = 0;
+        let popupChoice = 81;
+        Menu.prototype.popup = function (options) {
+            popupCalls++;
+            popupRows = this.items.length;
+            setImmediate(() => {
+                if (popupChoice !== null) this.items[popupChoice].click();
+                options.callback();
+            });
+        };
+        try {
+            const selection = await window.webContents.executeJavaScript(`(async () => {
+                const select = document.createElement('select');
+                select.id = 'native-popup-fixture';
+                for (let i = 0; i < 82; i++) select.add(new Option('Option ' + i, 'duplicate'));
+                select.options[1].disabled = true;
+                document.body.append(select);
+                let changes = 0, inputs = 0;
+                select.addEventListener('change', () => changes++);
+                select.addEventListener('input', () => inputs++);
+                select.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, button:0}));
+                await new Promise(resolve => setTimeout(resolve, 120));
+                const result = {index: select.selectedIndex, changes, inputs,
+                    collapsed: select.getAttribute('aria-expanded') === 'false'};
+                return result;
+            })()`);
+            assert.equal(popupRows, 82);
+            assert.deepEqual(selection, {index: 81, changes: 1, inputs: 1, collapsed: true});
+            popupChoice = null;
+            const cancelled = await window.webContents.executeJavaScript(`(async () => {
+                const select = document.getElementById('native-popup-fixture');
+                select.dispatchEvent(new KeyboardEvent('keydown', {key:'F4', bubbles:true, cancelable:true}));
+                await new Promise(resolve => setTimeout(resolve, 120));
+                const index = select.selectedIndex; return index;
+            })()`);
+            assert.equal(cancelled, 81);
+            const beforeLocked = popupCalls;
+            await window.webContents.executeJavaScript(`(async () => {
+                setLocked(true);
+                const select = document.getElementById('native-popup-fixture');
+                select.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, button:0}));
+                select.dispatchEvent(new KeyboardEvent('keydown', {key:'F4', bubbles:true, cancelable:true}));
+                await new Promise(resolve => setTimeout(resolve, 120));
+                select.remove(); setLocked(false);
+            })()`);
+            assert.equal(popupCalls, beforeLocked);
+            popupChoice = 6; // Heading followed by playback speeds; 1.25x is row 6.
+            const speed = await window.webContents.executeJavaScript(`(async () => {
+                document.getElementById('speed-btn').click();
+                await new Promise(resolve => setTimeout(resolve, 120));
+                const label = document.getElementById('speed-label').textContent;
+                document.querySelector('[data-rate="1"]').click();
+                return label;
+            })()`);
+            assert.equal(speed, '1.25x');
+            console.log('PASS: native combobox long-list selection, duplicate values, events, cancellation and menu actions');
+        } finally {
+            Menu.prototype.popup = originalPopup;
+        }
+
         const checks = await window.webContents.executeJavaScript(`(() => {
             const theme = document.getElementById('light-mode-btn');
             const lock = document.getElementById('lock-btn');
@@ -337,6 +400,7 @@ app.whenReady().then(async () => {
             document.getElementById('roadmap-dialog').close();
             return {lyricRoundTrip,first,last,scrolled,visual,unsafeRejected:!unsafe.ok,filters,bypass,full,closed:!document.querySelector('.rd-full')};
         })()`);
+        console.log('[ui-smoke] embedded settings:',toolsCheck);
         assert.ok(toolsCheck.first<=40&&toolsCheck.last<=40,'10,000-song library must keep at most 40 visible track rows');
         assert.equal(toolsCheck.scrolled,true);assert.equal(toolsCheck.visual,true);assert.equal(toolsCheck.unsafeRejected,true);
         assert.equal(toolsCheck.filters,2);assert.equal(toolsCheck.bypass,true);assert.equal(toolsCheck.full,true);assert.equal(toolsCheck.closed,true);
@@ -489,6 +553,108 @@ app.whenReady().then(async () => {
             volume.classList.remove('dragging');
             return {all,duration,search,sorted,scoped,named,liked,preview,connected};
         })()`);
+        const volumeTravel = await window.webContents.executeJavaScript(`(async () => {
+            setActiveTab('player');
+            const wrapper = document.querySelector('.volume-control-wrapper');
+            const popup = wrapper.querySelector('.volume-slider-popup');
+            const button = wrapper.getBoundingClientRect();
+            const origin = {clientX:button.left+button.width/2,clientY:button.top+button.height/2};
+            wrapper.dispatchEvent(new PointerEvent('pointerenter', origin));
+            const rect = popup.getBoundingClientRect();
+            wrapper.dispatchEvent(new PointerEvent('pointerleave', origin));
+            // Diagonal travel from the button toward the slider's far left end.
+            document.dispatchEvent(new PointerEvent('pointermove', {
+                clientX:(origin.clientX+rect.left+6)/2,
+                clientY:(origin.clientY+rect.bottom-2)/2,bubbles:true}));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const diagonal = wrapper.classList.contains('pointer-open') && getComputedStyle(popup).display !== 'none';
+            popup.dispatchEvent(new PointerEvent('pointerenter', {clientX:rect.left+8,clientY:rect.top+8}));
+            wrapper.dispatchEvent(new PointerEvent('pointerenter', {clientX:rect.left+8,clientY:rect.top+8}));
+            const reached = wrapper.classList.contains('pointer-open');
+            wrapper.dispatchEvent(new PointerEvent('pointerleave', {clientX:rect.left+8,clientY:rect.top+8}));
+            document.dispatchEvent(new PointerEvent('pointermove', {clientX:0,clientY:window.innerHeight-1,bubbles:true}));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return {diagonal,reached,closed:!wrapper.classList.contains('pointer-open')};
+        })()`);
+        for (const [name, value] of Object.entries(volumeTravel)) assert.equal(value, true, 'volume pointer ' + name);
+        console.log('PASS: volume popup survives diagonal pointer travel and closes after moving away');
+        // Navigation must follow the window, while pages stop above it.
+        for (const tab of ['player','playlist','settings','playlist-options']) {
+            await window.webContents.executeJavaScript(`setActiveTab('${tab}');containerEl.classList.add('lyrics-hidden');`);
+            await new Promise(resolve => setTimeout(resolve, 120));
+            window.setSize(660, 560);
+            await new Promise(resolve => setTimeout(resolve, 120));
+            const layout = await window.webContents.executeJavaScript(`(() => {
+                const nav=document.getElementById('tab-pager').getBoundingClientRect();
+                const page=document.querySelector('#tab-settings.show,#playlist-panel.show,#tab-playlist-options.show');
+                const labels=[...document.querySelectorAll('.tab-btn-label')];
+                return {bottom:window.innerHeight-nav.bottom,
+                    overlap:page ? page.getBoundingClientRect().bottom>nav.top : false,
+                    labels:labels.every(label=>getComputedStyle(label).display!=='none'),
+                    aligned:Math.abs(containerEl.getBoundingClientRect().left)<1&&containerEl.scrollLeft===0};
+            })()`);
+            assert.ok(layout.bottom>=0&&layout.bottom<20, tab+' bottom navigation');
+            assert.equal(layout.overlap,false,tab+' content stays above navigation');
+            assert.equal(layout.labels,true,tab+' visible tab labels');
+            assert.equal(layout.aligned,true,tab+' no horizontal page shift');
+        }
+        const pageFlows=await window.webContents.executeJavaScript(`(async()=>{
+            setActiveTab('playlist');
+            document.getElementById('playlist-options-open').click();
+            const options=activeTab==='playlist-options' && document.getElementById('remote-audio-url').closest('#tab-playlist-options')!==null;
+            document.getElementById('playlist-options-back').click();
+            const back=activeTab==='playlist';
+            const row=makeRow({filePath:${JSON.stringify(secondTonePath)},title:'Second song',onPlay:()=>{}});
+            playlistResults.append(row);row.querySelector('[title="Edit tags"]').click();
+            await new Promise(resolve=>setTimeout(resolve,150));
+            const chosen=tagsLoadedPath===${JSON.stringify(secondTonePath)} && activeTab==='tags';
+            await loadTagsForCurrentTrack();
+            const pinned=tagsLoadedPath===${JSON.stringify(secondTonePath)};
+            document.getElementById('tags-close').click();
+            const tagBack=activeTab==='playlist';
+            document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true,cancelable:true}));
+            const settings=activeTab==='settings'&&!document.getElementById('roadmap-dialog').open;
+            await window.roadmapTools.open('Appearance');
+            const embedded=document.getElementById('roadmap-dialog').parentElement.id==='tab-settings' && !document.querySelector('dialog:modal');
+            document.getElementById('roadmap-dialog').close();
+            return {options,back,chosen,pinned,tagBack,settings,embedded};
+        })()`);
+        for(const [name,value] of Object.entries(pageFlows))assert.equal(value,true,'page flow '+name);
+        console.log('PASS: bottom labelled tabs after resizing, separate playlist options, per-song tags and embedded settings');
+        if(process.env.RHYTHM_TEST_EXTRA_FORMATS){
+            const tools=require('../src/main/services/media-tools');
+            const executable=process.env.FFMPEG_TEST_BINARY||'ffmpeg';
+            for(const [extension,codec]of [['m4a','alac'],['aif','pcm_s16be'],['wma','wmav2'],['webm','libopus'],['mka','flac'],['wv','wavpack'],['tta','tta']]){
+                const source=path.join(scratch,'playback-'+codec+'.'+extension);
+                await tools.run(executable,['-hide_banner','-nostdin','-i',tonePath,'-c:a',codec,source]);
+                const played=await window.webContents.executeJavaScript(`(async()=>{
+                    await loadPlaylistAndPlay([${JSON.stringify(source)}]);
+                    const until=Date.now()+5000;
+                    while(audio.element.readyState<3&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,30));
+                    audio.seek(.3);await new Promise(resolve=>setTimeout(resolve,100));
+                    const result={ready:audio.element.readyState>=3,playing:audio.isPlaying(),seek:audio.seek()>=.25,
+                        original:currentSongData.filePath===${JSON.stringify(source)}};
+                    audio.pause();return result;
+                })()`);
+                for(const [name,value]of Object.entries(played))assert.equal(value,true,extension+' actual Electron '+name);
+            }
+            console.log('PASS: real Electron playback, seeking and original file identity for ALAC, AIF, WMA, WebM, MKA, WV and TTA');
+        }
+        if(process.env.RHYTHM_UI_SCREENSHOTS){
+            await window.webContents.executeJavaScript(`window.api.toggleOrientation(false)`);
+            await new Promise(resolve=>setTimeout(resolve,300));
+            await window.webContents.executeJavaScript(`{
+                const style=document.createElement('style');style.textContent='*{transition:none!important;animation:none!important}';document.head.append(style);
+            }`);
+            for(const tab of ['playlist','playlist-options','settings']){
+                await window.webContents.executeJavaScript(`setActiveTab('${tab}')`);
+                await new Promise(resolve=>setTimeout(resolve,500));
+                await window.webContents.capturePage();
+                await new Promise(resolve=>setTimeout(resolve,100));
+                const image=await window.webContents.capturePage();
+                const target=path.join(scratch,tab+'.png');fs.writeFileSync(target,image.toPNG());console.log('UI screenshot:',target);
+            }
+        }
         console.log('[ui-smoke] playlist browsing and popovers:',browseChecks);
         for(const [name,value] of Object.entries(browseChecks))assert.equal(value,true,name);
         for(const [hovered,dragging,locked,saved,expected] of [
@@ -539,8 +705,7 @@ app.whenReady().then(async () => {
             rows[1].dispatchEvent(new DragEvent('drop',{dataTransfer:transfer,bubbles:true,cancelable:true}));
             const moved=playlist[target]===before,playingTrack=playlist[currentIndex]==='queue-500.mp3';
             await window.roadmapTools.palette();
-            const input=document.querySelector('#rd-body input');input.value='parametric';input.dispatchEvent(new Event('input'));
-            const palette=document.getElementById('rd-heading').textContent==='Command palette';document.getElementById('roadmap-dialog').close();
+            const palette=activeTab==='settings'&&!document.getElementById('roadmap-dialog').open&&document.querySelectorAll('[data-settings-page]').length>=9;
             const tree=await window.api.roadmap('folderChildren','');
             return {count,source,moved,playingTrack,palette,tree:tree.ok};
         })()`);
