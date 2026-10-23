@@ -822,6 +822,22 @@ label,
     min-width: 0;
 }
 
+.current-playlist {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 1px 0;
+    margin-bottom: 2px;
+    color: var(--accent);
+    font-size: 10px;
+    line-height: 14px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+}
+.current-playlist span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.current-playlist:hover { color: var(--text); }
+.current-playlist:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .track-info {
     min-width: 0;
 }
@@ -886,14 +902,33 @@ label,
 .ab-range {
     display: none;
     position: absolute;
-    inset-block: 0;
+    top: var(--sp-4);
+    height: 4px;
+    z-index: 2;
+    pointer-events: none;
     left: 0;
     width: 0;
-    background: var(--accent);
-    opacity: 0.8;
+    background: color-mix(in srgb, var(--accent) 55%, var(--text));
+    opacity: 1;
     border-radius: var(--r-pill);
     box-shadow: 0 0 0 1px var(--accent);
 }
+.ab-range::before, .ab-range::after {
+    position: absolute;
+    top: -12px;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 10px;
+    color: var(--text);
+    background: var(--surface-1);
+    border-bottom: 2px solid var(--accent);
+    padding: 0 2px;
+}
+.ab-range::before { content: 'A'; left: 0; }
+.ab-range::after { content: 'B'; right: 0; }
+.ab-range.pending::after { display: none; }
+.progress-wrapper:hover .ab-range { height: 6px; top: calc(var(--sp-4) - 1px); }
+.container.vertical-mode .ab-range { top: var(--sp-3); }
 
 .ab-range.visible { display: block; }
 
@@ -1152,9 +1187,40 @@ label,
     box-shadow: var(--shadow-2);
 }
 
-/* :focus-within used to keep this open long after the pointer left, because the
-   slider held focus until something else took it -- so the popup sat over the UI
-   until an unrelated click. A drag latch closes on pointerup instead. */
+/* Keep the button and popup connected while the pointer crosses the gap. */
+.volume-slider-popup::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: calc(var(--sp-2) + 2px);
+}
+.volume-control-wrapper:focus-within .volume-slider-popup {
+    display: block;
+}
+
+.playlist-browse-controls {
+    display: flex;
+    gap: 8px;
+    padding: 6px 12px;
+    flex-wrap: wrap;
+}
+.playlist-browse-controls select { flex: 1; min-width: 110px; }
+.playlist-browse-controls[hidden] { display: none; }
+.playlist-row.unavailable {
+    background: var(--danger-soft);
+    border-left: 3px solid var(--danger);
+}
+.playlist-row.unavailable .playlist-row-title,
+.playlist-row.unavailable .playlist-row-subtitle,
+.playlist-unavailable-label {
+    color: var(--danger);
+}
+.playlist-unavailable-label { font-size: 10px; }
+
+/* Hover follows the connected popup; keyboard focus and pointer dragging also
+   keep the slider available while it is being adjusted. */
 .volume-control-wrapper:hover .volume-slider-popup,
 .volume-control-wrapper.dragging .volume-slider-popup {
     display: block;
@@ -1387,6 +1453,16 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 /* RTL scripts need real direction plus a font stack with coverage; the default
    stack renders tofu for Arabic and Persian on Windows. */
+.lyrics-container.lyrics-selectable,
+.lyrics-container.lyrics-selectable * {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-app-region: no-drag;
+}
+.manual-scroll-enabled .lyrics-container {
+    overflow-y: auto;
+}
+
 .lyrics-container.rtl {
     direction: rtl;
 }

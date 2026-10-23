@@ -2,6 +2,13 @@
 function create({electron,getStore,getWindow,send}) {
     let notification=null,lastTrack=null;
     function update(state){
+        if(process.platform==='darwin'&&electron.app.dock){
+            electron.app.dock.setMenu(electron.Menu.buildFromTemplate([
+                {label:'Previous Track',click:()=>send('media-key-event','prev')},
+                {label:state.isPlaying?'Pause':'Play',click:()=>send('media-key-event','play-pause')},
+                {label:'Next Track',click:()=>send('media-key-event','next')},
+            ]));
+        }
         const identity=state.trackId||`${state.artist||''}:${state.title||''}`;
         if(!state.isPlaying||!state.title||identity===lastTrack)return;
         lastTrack=identity;

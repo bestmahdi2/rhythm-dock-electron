@@ -1,6 +1,8 @@
 const {contextBridge, ipcRenderer, webUtils} = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    exportLyrics: payload => ipcRenderer.invoke('lyrics-export', payload),
+    configureFileMenu: enabled => ipcRenderer.invoke('file-menu-configure', enabled),
     roadmap: (operation, value) => ipcRenderer.invoke('roadmap-call', operation, value),
     timelineExport: options => ipcRenderer.invoke('timeline-export',options),
     onFileMoved: callback => ipcRenderer.on('file-moved',(_event,value)=>callback(value)),
@@ -38,15 +40,19 @@ contextBridge.exposeInMainWorld('api', {
     pinWindow: () => ipcRenderer.invoke('pin-window'),
     minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
     closeWindow: () => ipcRenderer.invoke('close-window'),
-    getStoreValue: (key) => ipcRenderer.invoke('get-store-value', key),
+    getStoreValue: (key, fallback) => ipcRenderer.invoke('get-store-value', key, fallback),
     setStoreValue: (key, value) => ipcRenderer.send('set-store-value', key, value),
     getLyrics: (songKey) => ipcRenderer.invoke('get-lyrics', songKey),
     saveLyrics: (songKey, lyricsText, details) => ipcRenderer.send('save-lyrics', songKey, lyricsText, details),
     onFilePathReceived: (callback) => ipcRenderer.on('open-file-path', (_event, filePath) => callback(filePath)),
     onMediaKey: (callback) => ipcRenderer.on('media-key-event', (_event, command) => callback(command)),
+    onAudioInterruption: callback => ipcRenderer.on('audio-interruption', (_event,value)=>callback(value)),
+    audioInterruptionStatus: () => ipcRenderer.invoke('audio-interruption-status'),
+    onAudioInterruptionStatus: callback => ipcRenderer.on('audio-interruption-status',(_event,value)=>callback(value)),
     onRestoreState: (callback) => ipcRenderer.on('restore-state', (_event, state) => callback(state)),
     onSetOrientationClass: (callback) => ipcRenderer.on('set-orientation-class', (_event, isVertical) => callback(isVertical)),
     setOpacity: (value) => ipcRenderer.send('set-opacity', value),
+    previewOpacity: value => ipcRenderer.send('preview-opacity',value),
     openGitHub: () => ipcRenderer.send('open-github'),
     openAuthorUrl: () => ipcRenderer.send('open-author-url'),
     toggleLyricsVisibility: (isVisible) => ipcRenderer.send('toggle-lyrics-visibility', isVisible), // <-- ADD THIS LINE
@@ -54,6 +60,8 @@ contextBridge.exposeInMainWorld('api', {
 
     // --- Library (#16, #17) ---
     librarySearch: (query) => ipcRenderer.invoke('library-search', query),
+    playlistFileStatus: files => ipcRenderer.invoke('playlist-file-status',files),
+    libraryTrackDetails: files => ipcRenderer.invoke('library-track-details', files),
     libraryCatalog: () => ipcRenderer.invoke('library-catalog'),
     libraryArtists: () => ipcRenderer.invoke('library-artists'),
     libraryTracksByArtist: (artistKey) => ipcRenderer.invoke('library-tracks-by-artist', artistKey),
@@ -78,6 +86,10 @@ contextBridge.exposeInMainWorld('api', {
     bookPositionGet: (filePath) => ipcRenderer.invoke('book-position-get', filePath),
     bookPositionSet: (filePath, seconds) => ipcRenderer.invoke('book-position-set', filePath, seconds),
     remoteAudioAdd: (url) => ipcRenderer.invoke('remote-audio-add', url),
+    remoteAudioDownload: filePath => ipcRenderer.invoke('remote-audio-download', filePath),
+    remoteAudioCancel: () => ipcRenderer.invoke('remote-audio-cancel'),
+    linkToolPick: tool => ipcRenderer.invoke('link-tool-pick', tool),
+    linkToolsCheck: () => ipcRenderer.invoke('link-tools-check'),
     remoteAudioSave: (filePath) => ipcRenderer.invoke('remote-audio-save', filePath),
     onRemoteAudioProgress: (callback) => ipcRenderer.on('remote-audio-progress', (_e, value) => callback(value)),
     playlistList: () => ipcRenderer.invoke('playlist-list'),

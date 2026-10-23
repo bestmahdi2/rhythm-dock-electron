@@ -23,6 +23,13 @@ function rulesWhere(rules = {}) {
 }
 function catalog(options = {}) {
     const {clauses, values} = rulesWhere(options.rules);
+    if (options.rootsOnly) clauses.push('t.rootId IN (SELECT id FROM roots)');
+    if (Array.isArray(options.filePaths)) {
+        clauses.push('t.filePath IN (SELECT value FROM json_each(?))');
+        values.push(JSON.stringify(options.filePaths));
+    }
+    if (options.durationFilter === 'long') clauses.push('t.durationSeconds >= 300');
+    if (options.durationFilter === 'short') clauses.push('t.durationSeconds > 0 AND t.durationSeconds < 300');
     if (options.query) {
         clauses.push("(COALESCE(t.title,'') || ' ' || COALESCE(t.artist,'') || ' ' || COALESCE(t.album,'') || ' ' || t.basename) LIKE ? ESCAPE '\\'");
         values.push('%' + String(options.query).slice(0, 300).replace(/[\\%_]/g, '\\$&') + '%');

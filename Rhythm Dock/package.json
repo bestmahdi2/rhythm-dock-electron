@@ -27,7 +27,7 @@
     "dist:linux": "npm run icons && electron-builder --linux --x64",
     "dist:all": "npm run dist:win && npm run dist:mac && npm run dist:linux",
     "postinstall": "electron-builder install-app-deps",
-    "test": "node tests/roadmap-logic.test.js && node tests/discord-presence.test.js && node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/remote-playlist.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && node tests/audio-devices.test.js && node tests/media-tools.test.js && node tests/room-client-integration.test.js && node tests/room-restart-integration.test.js && npm run test:db-migration && npm --prefix ../server test",
+    "test": "node tests/installer-safety.test.js && node tests/audio-interruptions.test.js && node tests/file-icons.test.js && node tests/platform-audio.test.js && node tests/playback-open.test.js && node tests/platform-controls.test.js && node tests/roadmap-logic.test.js && node tests/discord-presence.test.js && node tests/edge-dock.test.js && node tests/remote-cache.test.js && node tests/remote-playlist.test.js && node tests/playlist-formats.test.js && node tests/library-scan.test.js && node tests/root-watcher.test.js && node tests/chapters.test.js && node tests/audio-outputs.test.js && node tests/audio-devices.test.js && node tests/media-tools.test.js && node tests/room-client-integration.test.js && node tests/room-restart-integration.test.js && npm run test:db-migration && npm --prefix ../server test",
     "test:db-migration": "electron tests/db-migration-smoke.js",
     "test:media-tools": "node tests/media-tools.test.js",
     "test:ui-smoke": "electron tests/pre-phase9-ui-smoke.js",
@@ -70,7 +70,8 @@
     ],
     "asarUnpack": [
       "**/src/assets/**",
-      "**/node_modules/better-sqlite3/**"
+      "**/node_modules/better-sqlite3/**",
+      "**/src/main/services/native/**"
     ],
     "npmRebuild": true,
     "buildDependenciesFromSource": false,
@@ -162,6 +163,70 @@
         "role": "Viewer",
         "mimeType": "video/mp4",
         "icon": "build/icons/filetypes/mp4"
+      },
+      {
+        "ext": "ape",
+        "name": "APE Audio File",
+        "description": "APE audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-ape",
+        "icon": "build/icons/filetypes/ape"
+      },
+      {
+        "ext": "wv",
+        "name": "WV Audio File",
+        "description": "WV audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-wavpack",
+        "icon": "build/icons/filetypes/wv"
+      },
+      {
+        "ext": "dsf",
+        "name": "DSF Audio File",
+        "description": "DSF audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-dsf",
+        "icon": "build/icons/filetypes/dsf"
+      },
+      {
+        "ext": "dff",
+        "name": "DFF Audio File",
+        "description": "DFF audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-dff",
+        "icon": "build/icons/filetypes/dff"
+      },
+      {
+        "ext": "mod",
+        "name": "MOD Audio File",
+        "description": "MOD audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-mod",
+        "icon": "build/icons/filetypes/mod"
+      },
+      {
+        "ext": "xm",
+        "name": "XM Audio File",
+        "description": "XM audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-xm",
+        "icon": "build/icons/filetypes/xm"
+      },
+      {
+        "ext": "it",
+        "name": "IT Audio File",
+        "description": "IT audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-it",
+        "icon": "build/icons/filetypes/it"
+      },
+      {
+        "ext": "s3m",
+        "name": "S3M Audio File",
+        "description": "S3M audio",
+        "role": "Viewer",
+        "mimeType": "audio/x-s3m",
+        "icon": "build/icons/filetypes/s3m"
       }
     ],
     "win": {
@@ -184,14 +249,16 @@
       "artifactName": "${productName} Setup ${version}-${arch}.${ext}"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
+      "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "menuCategory": false
+      "menuCategory": false,
+      "allowElevation": true,
+      "include": "scripts/installer.nsh"
     },
     "portable": {
       "artifactName": "${productName} Portable ${version}-${arch}.${ext}"
@@ -281,7 +348,7 @@
         "Type": "Application",
         "Categories": "AudioVideo;Audio;Player;Music;",
         "Keywords": "music;audio;player;mp3;flac;lyrics;",
-        "MimeType": "audio/mpeg;audio/mp4;audio/flac;audio/wav;audio/x-wav;audio/ogg;audio/opus;audio/aac;audio/x-ms-wma;audio/aiff;audio/x-aiff;video/mp4;"
+        "MimeType": "audio/mpeg;audio/mp4;audio/flac;audio/wav;audio/x-wav;audio/ogg;audio/opus;audio/aac;audio/x-ms-wma;audio/aiff;audio/x-aiff;video/mp4;audio/x-rhythmdock-mp3;audio/x-rhythmdock-m4a;audio/x-rhythmdock-m4b;audio/x-rhythmdock-flac;audio/x-rhythmdock-wav;audio/x-rhythmdock-ogg;audio/x-rhythmdock-opus;audio/x-rhythmdock-aac;audio/x-rhythmdock-wma;audio/x-rhythmdock-aiff;audio/x-rhythmdock-mp4;audio/x-rhythmdock-ape;audio/x-rhythmdock-wv;audio/x-rhythmdock-dsf;audio/x-rhythmdock-dff;audio/x-rhythmdock-mod;audio/x-rhythmdock-xm;audio/x-rhythmdock-it;audio/x-rhythmdock-s3m;"
       },
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "maintainer": "Masterous <masterous@alibadiee.ir>",
@@ -298,7 +365,26 @@
         "audio/x-ms-wma",
         "audio/aiff",
         "audio/x-aiff",
-        "video/mp4"
+        "video/mp4",
+        "audio/x-rhythmdock-mp3",
+        "audio/x-rhythmdock-m4a",
+        "audio/x-rhythmdock-m4b",
+        "audio/x-rhythmdock-flac",
+        "audio/x-rhythmdock-wav",
+        "audio/x-rhythmdock-ogg",
+        "audio/x-rhythmdock-opus",
+        "audio/x-rhythmdock-aac",
+        "audio/x-rhythmdock-wma",
+        "audio/x-rhythmdock-aiff",
+        "audio/x-rhythmdock-mp4",
+        "audio/x-rhythmdock-ape",
+        "audio/x-rhythmdock-wv",
+        "audio/x-rhythmdock-dsf",
+        "audio/x-rhythmdock-dff",
+        "audio/x-rhythmdock-mod",
+        "audio/x-rhythmdock-xm",
+        "audio/x-rhythmdock-it",
+        "audio/x-rhythmdock-s3m"
       ]
     },
     "deb": {
@@ -315,7 +401,9 @@
       "fpm": [
         "--deb-field",
         "Suggests: ffmpeg"
-      ]
+      ],
+      "afterInstall": "scripts/linux-after-install.sh",
+      "afterRemove": "scripts/linux-after-remove.sh"
     },
     "rpm": {
       "depends": [
@@ -331,7 +419,9 @@
       "fpm": [
         "--rpm-rpmbuild-define",
         "_build_id_links none"
-      ]
+      ],
+      "afterInstall": "scripts/linux-after-install.sh",
+      "afterRemove": "scripts/linux-after-remove.sh"
     },
     "appImage": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"

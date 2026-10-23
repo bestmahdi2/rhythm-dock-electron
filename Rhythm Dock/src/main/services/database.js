@@ -394,7 +394,8 @@ function runMigrations(handle, dbPath) {
     if (currentVersion === TARGET_VERSION) return;
 
     if (currentVersion > 0) {
-        backupDatabase(dbPath, `v${currentVersion}-to-v${TARGET_VERSION}`);
+        const backup=backupDatabase(dbPath, `v${currentVersion}-to-v${TARGET_VERSION}`);
+        if(!backup)throw new Error('Database upgrade stopped because a safety backup could not be created. Your existing database has not been migrated.');
     }
 
     const applyAll = handle.transaction(() => {

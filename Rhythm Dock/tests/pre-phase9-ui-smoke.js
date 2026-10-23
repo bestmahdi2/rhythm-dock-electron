@@ -35,7 +35,7 @@ const secondTonePath = path.join(scratch, 'second-tone.wav');
 fs.writeFileSync(secondTonePath, wav);
 // A sparse one-hour WAV exercises large-file startup without writing an hour of samples.
 const largeTonePath = path.join(scratch, 'large-streaming.wav');
-const largeBytes = sampleRate * 2 * 3600;
+const largeBytes = sampleRate * 2 * 4800;
 const largeHeader = Buffer.from(wav.subarray(0, 44));
 largeHeader.writeUInt32LE(largeBytes + 36, 4); largeHeader.writeUInt32LE(largeBytes, 40);
 const largeFd = fs.openSync(largeTonePath, 'w');
@@ -241,6 +241,26 @@ app.whenReady().then(async () => {
         console.log('[ui-smoke] engine:', engineCheck);
         assert.ok(engineCheck.large.duration > 3599 && engineCheck.large.readyMs < 5000);
         delete engineCheck.large;
+        const parser=require('music-metadata');
+        const realParseFile=parser.parseFile;
+        parser.parseFile=async(filePath,options)=>{
+            if(filePath===largeTonePath)await new Promise(resolve=>setTimeout(resolve,1800));
+            return realParseFile(filePath,options);
+        };
+        try{
+            const startup=await window.webContents.executeJavaScript(`(async()=>{
+                playlist=[${JSON.stringify(largeTonePath)}];originalPlaylist=[...playlist];
+                const started=performance.now();let metadataDone=false;
+                const loading=playTrack(0,{startAtBeginning:true}).then(()=>{metadataDone=true;});
+                while(!audio.isPlaying()&&performance.now()-started<4000)await new Promise(r=>setTimeout(r,10));
+                const result={startMs:performance.now()-started,playing:audio.isPlaying(),
+                    beforeMetadata:!metadataDone,transportReady:currentSound===audio,duration:audio.duration()};
+                audio.interrupt();await loading;return result;
+            })()`);
+            assert.ok(startup.playing&&startup.beforeMetadata&&startup.transportReady,JSON.stringify(startup));
+            assert.ok(startup.startMs<1500,JSON.stringify(startup));
+            console.log('PASS: 211 MB streamed playback starts before delayed metadata:',startup);
+        }finally{parser.parseFile=realParseFile;}
         assert.deepEqual(engineCheck, {replay: true, resumed: true, pitch: true, primaryDelay: true,
             loop: true, gapless: true, handoff: true, advances: true});
         if (process.env.FFMPEG_TEST_BINARY) {
@@ -322,6 +342,193 @@ app.whenReady().then(async () => {
         assert.equal(toolsCheck.filters,2);assert.equal(toolsCheck.bypass,true);assert.equal(toolsCheck.full,true);assert.equal(toolsCheck.closed,true);
         assert.equal(toolsCheck.lyricRoundTrip,true,'lyrics editor must preserve repeated enhanced word timing, offsets and untimed text');
         console.log('PASS: onboarding, virtual library, custom appearance, parametric EQ and Now Playing:',toolsCheck);
+        const openBehavior=await window.webContents.executeJavaScript(`(async()=>{
+            const waitReady=async()=>{for(let n=0;n<100&&audio.isBusy();n++)await new Promise(r=>setTimeout(r,20));};
+            await loadPlaylistAndPlay([${JSON.stringify(largeTonePath)}],0,{startPaused:true});await waitReady();
+            audio.seek(123);savePlaybackState();
+            await window.api.bookPositionGet(${JSON.stringify(largeTonePath)});
+            await loadPlaylistAndPlay([${JSON.stringify(tonePath)}],0,{startPaused:true});await waitReady();
+            await loadPlaylistAndPlay([${JSON.stringify(largeTonePath)}],0,{startPaused:true});await waitReady();
+            const resumed=Math.abs(audio.seek()-123)<1;
+            await loadPlaylistAndPlay([${JSON.stringify(largeTonePath)}],0,{startPaused:true});await waitReady();
+            const restarted=audio.seek()<1;
+            const before=audio.ticket;
+            document.getElementById('queue-mode').checked=true;
+            document.getElementById('queue-mode').dispatchEvent(new Event('change'));
+            const files=Array.from({length:20},(_,i)=>'batch-'+i+'.mp3');
+            await loadPlaylistAndPlay(files);
+            const queued=audio.ticket===before&&!audio.isPlaying()&&files.every((f,i)=>playlist[currentIndex+1+i]===f);
+            document.getElementById('queue-mode').checked=false;
+            document.getElementById('queue-mode').dispatchEvent(new Event('change'));
+            lyricsSelectable=false;isManualScrollEnabled=false;applyLyricsInteraction();
+            document.getElementById('toggle-lyrics-selection-btn').click();
+            const selection=getComputedStyle(lyricsContainer).userSelect==='text';
+            document.getElementById('toggle-manual-scroll-btn').click();
+            const manual=isManualScrollEnabled&&getComputedStyle(lyricsContainer).overflowY==='auto';
+            document.getElementById('toggle-lyrics-selection-btn').click();
+            document.getElementById('toggle-manual-scroll-btn').click();
+            return {resumed,restarted,queued,selection,manual};
+        })()`);
+        console.log('[ui-smoke] file and lyric controls:', openBehavior);
+        for(const [name,value] of Object.entries(openBehavior))assert.equal(value,true,name);
+        const originalSaveDialog=require('electron').dialog.showSaveDialog;
+        const lyricExportPath=path.join(scratch,'exported.lrc');
+        try {
+            require('electron').dialog.showSaveDialog=async()=>({filePath:lyricExportPath,canceled:false});
+            const exported=await window.webContents.executeJavaScript(`window.api.exportLyrics({title:'Test',synced:true,text:'[00:01.00]Hello'})`);
+            assert.equal(exported.ok,true);
+            assert.equal(fs.readFileSync(lyricExportPath,'utf8'),'[00:01.00]Hello');
+        } finally {require('electron').dialog.showSaveDialog=originalSaveDialog;}
+        console.log('PASS: long-track resume, reopen restart, 20-file queue mode, selectable lyrics, manual scroll and LRC export');
+        const abChecks=await window.webContents.executeJavaScript(`(()=>{
+            const range=document.getElementById('ab-range');
+            audio.clearLoop();pendingLoopStart=null;audio.seek(100);cycleAbRepeat();
+            const start=range.classList.contains('visible')&&range.classList.contains('pending');
+            audio.seek(140);cycleAbRepeat();
+            const selected=range.classList.contains('visible')&&!range.classList.contains('pending')&&parseFloat(range.style.width)>0;
+            const visible=Number(getComputedStyle(range).zIndex)>Number(getComputedStyle(progressBar).zIndex)&&range.parentElement===progressBar.parentElement;
+            const themed=getComputedStyle(range).backgroundColor!=='rgba(0, 0, 0, 0)';
+            cycleAbRepeat();return {start,selected,visible,themed,cleared:!range.classList.contains('visible')};
+        })()`);
+        for(const [name,value] of Object.entries(abChecks))assert.equal(value,true,'A-B '+name);
+        console.log('PASS: A marker, completed loop range, theme color, progress overlay stacking and clearing');
+        const interruptionChecks=await window.webContents.executeJavaScript(`(async()=>{
+            const wait=()=>new Promise(r=>setTimeout(r,70));
+            audio.seek(90);await audio.play();await wait();
+            const position=audio.seek();setLocked(true);handleMediaCommand('pause');await wait();
+            const lockedPause=!audio.isPlaying()&&Math.abs(audio.seek()-position)<.5;
+            setLocked(false);await audio.play();await wait();
+            await audio.ctx.suspend();await wait();
+            const focusPause=!audio.isPlaying();await audio.ctx.resume();await wait();
+            const noResume=!audio.isPlaying();await audio.play();await wait();
+            return {lockedPause,focusPause,noResume};
+        })()`);
+        for(const [name,value] of Object.entries(interruptionChecks))assert.equal(value,true,name);
+        window.webContents.send('audio-interruption',{reason:'communication'});
+        await new Promise(r=>setTimeout(r,80));
+        assert.equal(await window.webContents.executeJavaScript('audio.isPlaying()'),false);
+        await window.webContents.executeJavaScript('audio.play()');
+        require('electron').powerMonitor.emit('suspend');
+        await new Promise(r=>setTimeout(r,80));
+        assert.equal(await window.webContents.executeJavaScript('audio.isPlaying()'),false);
+        console.log('PASS: locked system pause, real audio-context interruption, no automatic resume, call IPC and system-sleep pause');
+        // Exercise the real link IPC, playback and save dialog using tagged local audio.
+        const tools=require('node:child_process');
+        const ffmpeg=process.env.FFMPEG_TEST_BINARY||'ffmpeg';
+        const ffmpegAvailable=tools.spawnSync(ffmpeg,['-version'],{windowsHide:true}).status===0;
+        if(ffmpegAvailable){
+            const platformAudio=require('../src/main/services/platform-audio');
+            const realDownload=platformAudio.download;
+            const cacheDir=path.join(require('../src/main/core/paths').getDataRoot(),'platform-cache','fixture');
+            fs.mkdirSync(cacheDir,{recursive:true});
+            const tagged=path.join(cacheDir,'Artist - Fixture.mp3');
+            tools.execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-i',tonePath,'-metadata','title=Fixture Title',
+                '-metadata','artist=Fixture Artist','-metadata','album=Fixture Album','-id3v2_version','3',tagged],{windowsHide:true});
+            const exportedMp3=path.join(scratch,'downloaded-fixture.mp3');
+            try{
+                platformAudio.download=async()=>({files:[tagged],errors:[],provider:'youtube',cached:false});
+                require('electron').dialog.showSaveDialog=async()=>({filePath:exportedMp3,canceled:false});
+                const linkPlayed=await window.webContents.executeJavaScript(`(async()=>{
+                    document.getElementById('remote-audio-url').value='https://youtu.be/abcdefghijk';
+                    document.getElementById('remote-audio-play').click();
+                    for(let n=0;n<150&&document.getElementById('remote-audio-play').disabled;n++)await new Promise(r=>setTimeout(r,20));
+                    return currentSongData?.title==='Fixture Title'&&playlist.length===1;
+                })()`);
+                assert.equal(linkPlayed,true);
+                const download=await window.webContents.executeJavaScript(`window.api.remoteAudioDownload(${JSON.stringify(tagged)})`);
+                assert.equal(download.ok,true,download.error);
+                const metadata=await require('music-metadata').parseFile(exportedMp3);
+                assert.equal(metadata.common.title,'Fixture Title');assert.equal(metadata.common.artist,'Fixture Artist');
+                assert.equal(metadata.common.album,'Fixture Album');
+                assert.deepEqual(fs.readFileSync(tagged),fs.readFileSync(exportedMp3));
+                console.log('PASS: platform link IPC, Play Link UI and downloaded MP3 retains title, artist, album and original bytes');
+            }finally{
+                platformAudio.download=realDownload;
+                require('electron').dialog.showSaveDialog=originalSaveDialog;
+            }
+        }else console.log('SKIP: FFmpeg missing; tagged platform export fixture unavailable');
+        const libraryStore=require('../src/main/services/library-store');
+        const sourceRoot=libraryStore.addRoot(path.join(scratch,'music-sources'));
+        const insertSource=handle.prepare(`INSERT INTO tracks(filePath,rootId,basename,title,artist,album,durationSeconds,missing,addedAt,lastSeenAt)
+            VALUES(?,?,?,?,?,?,?,0,datetime('now'),datetime('now'))`);
+        insertSource.run('source-long.mp3',sourceRoot.id,'source-long.mp3','Zulu Episode','Host','Podcast',600);
+        insertSource.run('source-short.mp3',sourceRoot.id,'source-short.mp3','Alpha Song','Singer','Album',180);
+        const sourceList=libraryStore.createPlaylist('Browse fixture',['source-long.mp3','source-short.mp3']);
+        const browseChecks=await window.webContents.executeJavaScript(`(async()=>{
+            const filter=document.getElementById('playlist-filter'),sort=document.getElementById('playlist-sort');
+            const titles=()=>[...playlistResults.querySelectorAll('.playlist-row-title')].map(el=>el.textContent);
+            activeLibraryView='all';librarySearchInput.value='';filter.value='all';sort.value='title';
+            await renderActiveLibraryView();
+            const all=playlistResults.querySelectorAll('.playlist-row').length===2&&playlistResults.textContent.indexOf('Alpha Song')<playlistResults.textContent.indexOf('Zulu Episode');
+            filter.value='long';await renderActiveLibraryView();
+            const duration=playlistResults.querySelectorAll('.playlist-row').length===1&&playlistResults.textContent.includes('Zulu Episode');
+            filter.value='all';librarySearchInput.value='Singer';await renderActiveLibraryView();
+            const search=playlistResults.querySelectorAll('.playlist-row').length===1&&playlistResults.textContent.includes('Alpha Song');
+            playlist=['source-long.mp3','source-short.mp3'];originalPlaylist=[...playlist];currentIndex=0;
+            activeLibraryView='queue';librarySearchInput.value='';sort.value='title';await renderActiveLibraryView();
+            const sorted=playlistResults.textContent.indexOf('Alpha Song')<playlistResults.textContent.indexOf('Zulu Episode')&&playlist[0]==='source-long.mp3';
+            librarySearchInput.value='Singer';await renderActiveLibraryView();
+            const scoped=playlistResults.querySelectorAll('.playlist-row').length===1&&playlistResults.textContent.includes('Alpha Song');
+            activeLibraryView='named';namedPlaylistId=${JSON.stringify(sourceList.id)};
+            await renderActiveLibraryView();
+            const named=playlistResults.querySelectorAll('.playlist-row').length===1&&playlistResults.textContent.includes('Alpha Song');
+            librarySearchInput.value='';filter.value='liked';favoritesPlaylist.push('source-long.mp3');
+            await renderActiveLibraryView();
+            const liked=playlistResults.querySelectorAll('.playlist-row').length===1&&playlistResults.textContent.includes('Zulu Episode');
+            favoritesPlaylist=favoritesPlaylist.filter(path=>path!=='source-long.mp3');
+            librarySearchInput.value='';filter.value='all';sort.value='original';activeLibraryView='queue';
+            setActiveTab('player');isMagnifierEnabled=true;updateMagnifierUI();positionAlbumArtPreview();
+            const popup=document.getElementById('magnifier-popup');popup.style.display='block';
+            const rect=popup.getBoundingClientRect();
+            const preview=rect.top>=15&&rect.left>=15&&rect.right<=innerWidth-15&&rect.bottom<=innerHeight-15;
+            popup.style.display='';
+            const volume=document.querySelector('.volume-control-wrapper');volume.classList.add('dragging');
+            const box=volume.querySelector('.volume-slider-popup').getBoundingClientRect();
+            const bridge=getComputedStyle(volume.querySelector('.volume-slider-popup'),'::after');
+            const connected=parseFloat(bridge.height)>=volume.getBoundingClientRect().top-box.bottom;
+            volume.classList.remove('dragging');
+            return {all,duration,search,sorted,scoped,named,liked,preview,connected};
+        })()`);
+        console.log('[ui-smoke] playlist browsing and popovers:',browseChecks);
+        for(const [name,value] of Object.entries(browseChecks))assert.equal(value,true,name);
+        for(const [hovered,dragging,locked,saved,expected] of [
+            [true,false,false,.5,.85],[true,true,false,.4,.4],
+            [true,false,true,.5,.5],[false,false,false,.5,.5],[true,false,false,.8,.8],
+        ]){
+            await window.webContents.executeJavaScript(`savedWindowOpacity=${saved};opacityHovered=${hovered};opacityDragging=${dragging};isLocked=${locked};refreshWindowOpacity();`);
+            await new Promise(resolve=>setTimeout(resolve,30));
+            if(process.platform!=='linux')assert.ok(Math.abs(window.getOpacity()-expected)<.01,'hover opacity policy');
+        }
+        await window.webContents.executeJavaScript(`savedWindowOpacity=.85;opacityHovered=false;opacityDragging=false;isLocked=false;refreshWindowOpacity();`);
+        console.log('PASS: opacity hover boost, slider preview, lock behavior, pointer exit and 80 percent threshold');
+        const playlistLabel=await window.webContents.executeJavaScript(`(async()=>{
+            await loadPlaylistAndPlay([${JSON.stringify(tonePath)}],0,{startPaused:true,playlistName:'My Evening Mix'});
+            const named=document.getElementById('current-playlist-name').textContent==='My Evening Mix';
+            setActiveTab('player');document.getElementById('current-playlist').click();
+            const opensQueue=activeTab==='playlist'&&activeLibraryView==='queue';
+            savePlaybackState();
+            const saved=await window.api.getStoreValue('lastPlaybackState');
+            return {named,opensQueue,persisted:saved.playlistName==='My Evening Mix'};
+        })()`);
+        for(const [name,value] of Object.entries(playlistLabel))assert.equal(value,true,name);
+        console.log('PASS: current playlist name, queue navigation and saved playlist context');
+        const unavailableCheck=await window.webContents.executeJavaScript(`(async()=>{
+            const missing=${JSON.stringify(path.join(scratch,'missing-track.mp3'))};
+            playlist=[${JSON.stringify(tonePath)},missing];originalPlaylist=[...playlist];currentIndex=0;
+            activeLibraryView='queue';librarySearchInput.value='';
+            document.getElementById('playlist-sort').value='original';document.getElementById('playlist-filter').value='all';
+            renderQueue();await refreshPlaylistFileStatus();
+            const rows=[...playlistResults.querySelectorAll('.playlist-row')];
+            const missingRed=rows[1].classList.contains('unavailable')&&rows[1].textContent.includes('skipped');
+            const readableNormal=!rows[0].classList.contains('unavailable');
+            markPlaylistTrackFailed(${JSON.stringify(tonePath)});renderQueue();await refreshPlaylistFileStatus();
+            const failureRetained=playlistResults.querySelector('.playlist-row').classList.contains('unavailable');
+            const removeAvailable=Boolean(playlistResults.querySelectorAll('.playlist-row')[1].querySelector('.playlist-row-action'));
+            failedPlaylistTracks.delete(${JSON.stringify(tonePath)});
+            return {missingRed,readableNormal,failureRetained,removeAvailable};
+        })()`);
+        for(const [name,value] of Object.entries(unavailableCheck))assert.equal(value,true,name);
+        console.log('PASS: missing tracks red, readable tracks normal, failed status survives redraw and removal stays available');
         const virtualQueueCheck=await window.webContents.executeJavaScript(`(async()=>{
             playlist=Array.from({length:10000},(_,i)=>'queue-'+i+'.mp3');originalPlaylist=[...playlist];currentIndex=500;
             activeLibraryView='queue';librarySearchInput.value='';setActiveTab('playlist');renderQueue();
@@ -462,6 +669,24 @@ app.whenReady().then(async () => {
         const recovered = await window.webContents.executeJavaScript('({queue: playlist, playing: audio.isPlaying()})');
         assert.deepEqual(recovered.queue, [tonePath, secondTonePath]);
         assert.equal(recovered.playing, false, 'crash recovery must restore paused');
+        await window.webContents.executeJavaScript(`(async()=>{
+            await window.api.setMinimizeToTray(true);
+            await audio.play();
+        })()`);
+        await new Promise(resolve=>setTimeout(resolve,120));
+        const beforeClose=await window.webContents.executeJavaScript('({playing:audio.isPlaying(),time:audio.seek()})');
+        assert.equal(beforeClose.playing,true);
+        window.close();
+        assert.equal(window.isDestroyed(),false,'close-to-tray keeps the renderer alive');
+        assert.equal(window.isVisible(),false);
+        await new Promise(resolve=>setTimeout(resolve,120));
+        const afterClose=await window.webContents.executeJavaScript('({playing:audio.isPlaying(),time:audio.seek()})');
+        assert.equal(afterClose.playing,true,'closing to tray must not pause playback');
+        assert.ok(afterClose.time>=beforeClose.time);
+        const persisted=await window.webContents.executeJavaScript('window.api.getMinimizeToTray()');
+        assert.equal(persisted,true);
+        await window.webContents.executeJavaScript('window.api.setMinimizeToTray(false)');
+        console.log('PASS: close-to-tray preserves the live window, playback and persisted setting');
         console.log('PASS: settings switch, lock, queue positions, and wall dock in the real renderer');
         app.exit(0);
     } catch (error) {

@@ -77,7 +77,7 @@ app.whenReady().then(async () => {
         assert.equal(libraryStore.setRating('C:\\music\\one.mp3', 7), false);
         assert.equal(libraryStore.getRating('C:\\music\\one.mp3'), 4);
         assert.equal(libraryStore.setBookPosition('C:\\music\\book.m4b', 234.5), true);
-        assert.equal(libraryStore.setBookPosition('C:\\music\\one.mp3', 234.5), false);
+        assert.equal(libraryStore.setBookPosition('C:\\music\\one.mp3', 234.5), true);
         assert.equal(libraryStore.getBookPosition('C:\\music\\book.m4b'), 234.5);
         const suggested = libraryStore.recommendations({filePath: 'C:\\music\\one.mp3', artist: 'Artist', genre: 'Jazz'});
         assert.equal(suggested[0].filePath, 'C:\\music\\two.mp3');

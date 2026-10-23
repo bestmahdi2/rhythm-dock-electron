@@ -9,8 +9,20 @@ window.addEventListener('unhandledrejection', () => window.api.diagnosticEvent('
 
 let currentSound = null;
 let currentSongData = null;
+let activePlaybackFilePath = null;
 let playlist = [];
 let originalPlaylist = [];
+let currentPlaylistName = 'Queue';
+function updateCurrentPlaylistLabel(){
+    const button=document.getElementById('current-playlist');
+    document.getElementById('current-playlist-name').textContent=currentPlaylistName;
+    button.title=`${currentPlaylistName} — open current queue`;
+    button.setAttribute('aria-label',`Current playlist: ${currentPlaylistName}. Open queue.`);
+}
+function selectedPlaylistName(){
+    const select=document.getElementById('named-playlist-select');
+    return select?.selectedOptions[0]?.textContent.replace(/ \(\d+\)$/,'')||'Playlist';
+}
 let currentIndex = -1;
 let isPlaying = false;
 let timeDisplayMode = 'remaining';
@@ -54,6 +66,8 @@ let areLyricsVisible = true;
 let volumeOverlayTimeout = null;
 let areLyricsControlsVisible = true;
 let isManualScrollEnabled = false;
+let lyricsSelectable = false;
+let queueMode = false;
 let playbackRate = 1.0;
 let isSeeking = false;
 let isPlaylistVisible = false;
@@ -61,6 +75,13 @@ let currentExclusions = [];
 let searchDebounce = null;
 let minimizeToTray = false;
 let activeTab = 'player';
+let savedWindowOpacity=0.85;
+let opacityHovered=false;
+let opacityDragging=false;
+function refreshWindowOpacity(){
+    const visibleOpacity=!isLocked&&opacityHovered&&!opacityDragging&&savedWindowOpacity<0.8?0.85:savedWindowOpacity;
+    window.api.previewOpacity(visibleOpacity);
+}
 
 // Feature modules built on the Phase 2 audio graph.
 const equalizer = new window.RhythmEQ.Equalizer(audio);
@@ -70,14 +91,34 @@ const sleepTimer = new window.RhythmTimer.SleepTimer({
     onFinish: (reason) => onTimerFinished(reason),
 });
 const outputWatcher = new window.RhythmDevices.OutputDeviceWatcher({
-    isPlaying: () => audio.isPlaying(),
+    isPlaying: () => audio.isPlaying() || audio.isBusy(),
     activeOutputs: () => [audio.outputDeviceId || 'default', ...audio.listOutputs().map((item) => item.deviceId)],
     getContext: () => audio.ctx,
     onDisconnect: () => {
-        audio.pause();
-        setPlaylistStatus('Paused - headphones disconnected');
+        pauseForInterruption('headphones');
     },
 });
+const interruptionWatcher=new window.RhythmDevices.AudioInterruptionWatcher({
+    getContext:()=>audio.ctx,isPlaying:()=>audio.isPlaying()||audio.isBusy(),onInterrupt:pauseForInterruption,
+});
+function pauseForInterruption(reason){
+    if(!audio.isPlaying()&&!audio.isBusy())return;
+    audio.interrupt();
+    const messages={headphones:'Paused — active headphones disconnected',communication:'Paused — a call started',
+        sleep:'Paused — computer going to sleep','audio-focus':'Paused — system audio interruption','media-pause':'Paused by the system or headphones'};
+    setPlaylistStatus(messages[reason]||'Paused by the system');
+    savePlaybackState();
+}
+window.api.onAudioInterruption(({reason})=>pauseForInterruption(reason));
+function renderInterruptionStatus(status){
+    const element=document.getElementById('interruption-status');
+    if(!element)return;
+    element.textContent=status.native==='ready'?'Windows call detection active.':
+        status.native==='starting'?'Starting Windows call detection…':
+        status.native==='unavailable'?'Windows call detection unavailable. Media-pause and device-disconnect signals still work.':
+        status.native==='disabled'?'Automatic audio-interruption detection is off.':'Listening for available system audio-interruption events.';
+}
+window.api.onAudioInterruptionStatus(renderInterruptionStatus);
 
 // Translation state for the currently displayed lyrics.
 let translationLanguage = 'en';
@@ -305,10 +346,31 @@ function updateAppSettingsMenu() {
 }
 
 function updateMagnifierUI() {
-    toggleMagnifierLabel.textContent = isMagnifierEnabled ? 'Disable Magnifier' : 'Enable Magnifier';
+    toggleMagnifierLabel.textContent = isMagnifierEnabled ? 'Hide Album Art Preview on Hover' : 'Show Album Art Preview on Hover';
     toggleMagnifierBtn.classList.toggle('active', isMagnifierEnabled);
     containerEl.classList.toggle('magnifier-disabled', !isMagnifierEnabled);
 }
+
+function positionAlbumArtPreview() {
+    const wrapper = document.getElementById('album-art-wrapper');
+    const popup = document.getElementById('magnifier-popup');
+    if (!wrapper || !popup) return;
+    const rect = wrapper.getBoundingClientRect();
+    const margin = 16, gap = 12;
+    const size = Math.max(24, Math.min(190, innerWidth - margin * 2, innerHeight - margin * 2));
+    let left = rect.right + gap;
+    let top = rect.top + (rect.height - size) / 2;
+    if (left + size > innerWidth - margin) {
+        left = rect.left + (rect.width - size) / 2;
+        top = rect.bottom + gap;
+    }
+    left = Math.max(margin, Math.min(left, innerWidth - size - margin));
+    top = Math.max(margin, Math.min(top, innerHeight - size - margin));
+    Object.assign(popup.style, {width:`${size}px`, height:`${size}px`,
+        left:`${left - rect.left}px`, top:`${top - rect.top}px`, transform:'none'});
+}
+document.getElementById('album-art-wrapper')?.addEventListener('mouseenter', positionAlbumArtPreview);
+window.addEventListener('resize', positionAlbumArtPreview);
 
 // --- Helper Functions ---
 function updateLyricsDropdownMenu() {
@@ -321,7 +383,8 @@ function updateLyricsDropdownMenu() {
     toggleControlsBtn.classList.toggle('active', areLyricsControlsVisible);
 
     // 3. Enable/Disable Manual Scroll
-    manualScrollLabel.textContent = isManualScrollEnabled ? 'Disable Manual Scroll' : 'Enable Manual Scroll';
+    manualScrollLabel.textContent = isManualScrollEnabled ? 'Enable Auto Scroll' : 'Disable Auto Scroll';
+    toggleManualScrollBtn.setAttribute('aria-pressed', String(!isManualScrollEnabled));
     toggleManualScrollBtn.classList.toggle('active', isManualScrollEnabled);
 }
 
@@ -1069,6 +1132,7 @@ function shuffleArray(array) {
 }
 
 function reportPlaybackState() {
+    updateSystemMediaSession();
     // Title/artist ride along so the tray tooltip can show what is playing.
     window.api.sendPlaybackState({
         isPlaying,
@@ -1170,7 +1234,7 @@ function updateUI() {
         updateProgressFill(seek, duration);
         updateTimeDisplay();
 
-        if (lyricsContainer && lyrics.lines.length > 0 && !isManualScrollEnabled) {
+        if (lyricsContainer && lyrics.lines.length > 0) {
             if (lyrics.isSynced) {
                 let currentLyricIndex = -1;
                 for (let i = lyrics.lines.length - 1; i >= 0; i--) {
@@ -1193,7 +1257,7 @@ function updateUI() {
                         // the pre-shrink height and lands slightly off centre.
                         fitActiveLyric(activeLineEl);
                         const containerHeight = lyricsContainer.clientHeight;
-                        lyricsContainer.scrollTop =
+                        if (!isManualScrollEnabled) lyricsContainer.scrollTop =
                             activeLineEl.offsetTop - (containerHeight / 2) + (activeLineEl.offsetHeight / 2);
                     }
                     lastActiveLyricIndex = currentLyricIndex;
@@ -1203,7 +1267,7 @@ function updateUI() {
                 highlightWords(currentLyricIndex, seek);
             } else {
                 const scrollWrapper = lyricsContainer.firstChild;
-                if (scrollWrapper) {
+                if (scrollWrapper && !isManualScrollEnabled) {
                     const progress = seek / duration;
                     const totalScrollHeight = scrollWrapper.scrollHeight - lyricsContainer.clientHeight;
                     if (totalScrollHeight > 0) {
@@ -1236,11 +1300,19 @@ function savePlaybackState() {
         isShuffled: isShuffled,
         loopMode: loopMode,
         playbackRate,
+        playlistName: currentPlaylistName,
     };
     window.api.setStoreValue('lastPlaybackState', state);
-    if (/\.m4b$/i.test(playlist[currentIndex] || '') &&
-        currentSongData?.filePath === playlist[currentIndex] && !audio.isBusy()) {
-        window.api.bookPositionSet(playlist[currentIndex], seek);
+    persistTrackPosition();
+}
+
+function persistTrackPosition() {
+    const filePath = currentSongData?.filePath;
+    if (filePath && filePath === activePlaybackFilePath && currentSound && !audio.isBusy()) {
+        const seek = audio.seek() || 0;
+        const duration = audio.duration();
+        window.api.bookPositionSet(filePath,
+            audio.hasEnded() || duration < 300 || seek <= 10 || duration - seek <= 10 ? 0 : seek);
     }
 }
 
@@ -1853,10 +1925,12 @@ function renderAbState() {
     const range = document.getElementById('ab-range');
     if (range) {
         const duration = audio.duration();
-        range.classList.toggle('visible', looping && duration > 0);
-        if (looping && duration > 0) {
-            range.style.left = `${Math.max(0, Math.min(100, start / duration * 100))}%`;
-            range.style.width = `${Math.max(0, Math.min(100, (end - start) / duration * 100))}%`;
+        const marked = looping || pendingLoopStart != null;
+        range.classList.toggle('visible', marked && duration > 0);
+        range.classList.toggle('pending', !looping);
+        if (marked && duration > 0) {
+            range.style.left = `${Math.max(0, Math.min(100, (looping ? start : pendingLoopStart) / duration * 100))}%`;
+            range.style.width = looping ? `${Math.max(0, Math.min(100, (end - start) / duration * 100))}%` : '2px';
         }
     }
 
@@ -2057,6 +2131,7 @@ let isLocked = false;
 
 function setLocked(locked) {
     isLocked = Boolean(locked);
+    refreshWindowOpacity();
     containerEl.classList.toggle('locked', isLocked);
 
     const button = document.getElementById('lock-btn');
@@ -3072,6 +3147,23 @@ const QUEUE_POSITIONS = {
     FIRST: 'first',
 };
 
+function enqueueFiles(files) {
+    // Reverse insertion at "next" keeps a multi-file selection in its given order.
+    for (const file of [...files].reverse()) enqueue(file, QUEUE_POSITIONS.NEXT);
+}
+
+function applyLyricsInteraction() {
+    containerEl.classList.toggle('manual-scroll-enabled', isManualScrollEnabled);
+    lyricsContainer.classList.toggle('lyrics-selectable', lyricsSelectable);
+    const button = document.getElementById('toggle-lyrics-selection-btn');
+    button.textContent = lyricsSelectable ? 'Disable Text Selection' : 'Enable Text Selection';
+    button.setAttribute('aria-pressed', String(lyricsSelectable));
+    if (isManualScrollEnabled && !lyrics.isSynced && lyricsContainer.firstChild) {
+        lyricsContainer.firstChild.style.transform = '';
+    }
+    updateLyricsDropdownMenu();
+}
+
 function enqueue(filePath, position = QUEUE_POSITIONS.END) {
     if (!filePath) return;
 
@@ -3124,7 +3216,37 @@ function queueActions(filePath) {
     ];
 }
 
-function makeRow({title, subtitle, badge, active, onPlay, actions = []}) {
+const failedPlaylistTracks=new Map();
+let fileStatusTimer;
+function paintTrackAvailability(row,reason){
+    row.classList.toggle('unavailable',Boolean(reason));
+    row.title=reason?`${reason} — skipped; remove this track or restore the file`:'';
+    let label=row.querySelector('.playlist-unavailable-label');
+    if(reason&&!label){label=document.createElement('span');label.className='playlist-unavailable-label';row.querySelector('.playlist-row-main').append(label);}
+    if(label){if(reason)label.textContent=`${reason} · skipped`;else label.remove();}
+}
+function markPlaylistTrackFailed(filePath,reason='Cannot open file'){
+    if(!filePath)return;
+    failedPlaylistTracks.set(filePath,reason);
+    playlistResults.querySelectorAll('[data-file-path]').forEach(row=>{
+        if(row.dataset.filePath===filePath)paintTrackAvailability(row,reason);
+    });
+}
+async function refreshPlaylistFileStatus(){
+    const rows=[...playlistResults.querySelectorAll('[data-file-path]')];
+    const files=[...new Set(rows.map(row=>row.dataset.filePath))];
+    for(let index=0;index<files.length;index+=250){
+        const statuses=await window.api.playlistFileStatus(files.slice(index,index+250));
+        for(const status of statuses){
+            for(const row of rows){
+                if(!row.isConnected||row.dataset.filePath!==status.filePath)continue;
+                const failed=failedPlaylistTracks.get(status.filePath);
+                paintTrackAvailability(row,!status.available?'File missing or unreadable':failed);
+            }
+        }
+    }
+}
+function makeRow({title, subtitle, badge, active, filePath, missing, onPlay, actions = []}) {
     const row = document.createElement('div');
     row.className = 'playlist-row' + (active ? ' active' : '');
 
@@ -3144,6 +3266,12 @@ function makeRow({title, subtitle, badge, active, onPlay, actions = []}) {
         main.appendChild(sub);
     }
     row.appendChild(main);
+    if(filePath){
+        row.dataset.filePath=filePath;
+        paintTrackAvailability(row,failedPlaylistTracks.get(filePath)||(missing?'File missing or unreadable':null));
+        clearTimeout(fileStatusTimer);
+        fileStatusTimer=setTimeout(()=>refreshPlaylistFileStatus().catch(console.warn),80);
+    }
 
     if (badge) {
         const badgeEl = document.createElement('span');
@@ -3171,6 +3299,7 @@ function makeRow({title, subtitle, badge, active, onPlay, actions = []}) {
 let lastQueueWindowStart=-1;
 function renderQueue() {
     if (!playlistResults) return;
+    if (browseControlsActive()) { renderBrowseView('queue'); return; }
     const scroll=playlistResults.scrollTop;
     playlistResults.innerHTML = '';
 
@@ -3190,6 +3319,7 @@ function renderQueue() {
         const index=start+relativeIndex;
         const name = filePath.split(/[\\/]/).pop();
         const row = makeRow({
+            filePath,
             title: name,
             active: index === currentIndex,
             onPlay: () => playTrack(index),
@@ -3221,7 +3351,7 @@ function renderQueue() {
     playlistResults.scrollTop=scroll;
 }
 playlistResults?.addEventListener('scroll',()=>{
-    if(playlist.length>100&&activeLibraryView==='queue'&&!librarySearchInput?.value.trim()&&(!room.connected||room.isHost)&&
+    if(playlist.length>100&&activeLibraryView==='queue'&&!browseControlsActive()&&(!room.connected||room.isHost)&&
         Math.max(0,Math.floor(playlistResults.scrollTop/44)-5)!==lastQueueWindowStart)renderQueue();
 });
 
@@ -3367,9 +3497,115 @@ function initShortcutsPanel() {
 
 let activeLibraryView = 'queue';
 let namedPlaylistId = null;
+let browseRevision = 0;
+
+function browseControlsActive() {
+    return Boolean(librarySearchInput?.value.trim() || document.getElementById('playlist-filter')?.value !== 'all' ||
+        document.getElementById('playlist-sort')?.value !== 'original');
+}
+
+function filterAndSortTracks(rows) {
+    const query = librarySearchInput.value.trim().toLocaleLowerCase();
+    const filter = document.getElementById('playlist-filter').value;
+    const sort = document.getElementById('playlist-sort').value;
+    const liked = new Set(favoritesPlaylist);
+    const result = rows.filter(row => {
+        const text = [row.title,row.artist,row.album,row.basename,row.filePath].filter(Boolean).join(' ').toLocaleLowerCase();
+        return (!query || text.includes(query)) && (filter !== 'liked' || liked.has(row.filePath)) &&
+            (filter !== 'long' || row.durationSeconds >= 300) &&
+            (filter !== 'short' || (row.durationSeconds > 0 && row.durationSeconds < 300));
+    });
+    if (sort !== 'original') result.sort((a,b) => sort.startsWith('duration')
+        ? ((a.durationSeconds || 0) - (b.durationSeconds || 0)) * (sort.endsWith('desc') ? -1 : 1)
+        : String(a[sort] || a.basename || '').localeCompare(String(b[sort] || b.basename || ''), undefined, {numeric:true,sensitivity:'base'}));
+    return result;
+}
+
+async function renderBrowseView(view) {
+    const revision = ++browseRevision;
+    let rows;
+    if (view === 'all') {
+        const filter = document.getElementById('playlist-filter').value;
+        const sort = document.getElementById('playlist-sort').value;
+        const options = {rootsOnly:true, query:librarySearchInput.value.trim(), limit:200,
+            durationFilter:filter, sort:sort==='original'?'title':sort.replace('-desc',''), desc:sort.endsWith('-desc')};
+        if (filter === 'liked') options.filePaths = favoritesPlaylist;
+        const result = await window.api.roadmap('catalog', options);
+        if (revision !== browseRevision || activeLibraryView !== view) return;
+        if (!result.ok) { setPlaylistStatus(result.error || 'Could not load All Songs'); return; }
+        rows = result.data.rows;
+        playlistResults.replaceChildren();
+        setPlaylistStatus(`${result.data.total} songs from music source folders`);
+        if (!result.data.total) {
+            setPlaylistStatus('No matching songs. Add music source folders in Settings, or clear your filters.');
+            const button = document.createElement('button');button.className='settings-button';button.textContent='Music Source Folders';
+            button.onclick=()=>setActiveTab('settings');playlistResults.append(button);return;
+        }
+        const playAll = async (filePath) => {
+            const paths=[];
+            for(let offset=0;offset<result.data.total;offset+=200){
+                const page=await window.api.roadmap('catalog',{...options,offset});
+                if(!page.ok)return showToast(page.error || 'Could not load songs');
+                paths.push(...page.data.rows.map(row=>row.filePath));
+            }
+            loadPlaylistAndPlay(paths,Math.max(0,paths.indexOf(filePath)),{playlistName:'All Songs'});
+        };
+        const append = page => page.forEach(row=>playlistResults.append(makeRow({filePath:row.filePath,missing:row.missing,title:row.title||row.basename,
+            subtitle:row.artist,onPlay:()=>playAll(row.filePath),actions:queueActions(row.filePath)})));
+        append(rows);
+        if(rows.length<result.data.total){
+            let offset=rows.length;
+            const more=document.createElement('button');more.className='settings-button';more.textContent='Load More Songs';
+            more.onclick=async()=>{more.disabled=true;try{
+                const page=await window.api.roadmap('catalog',{...options,offset});
+                if(revision!==browseRevision||activeLibraryView!==view)return;
+                if(!page.ok)return showToast(page.error||'Could not load songs');
+                more.remove();append(page.data.rows);offset+=page.data.rows.length;
+                if(offset<page.data.total)playlistResults.append(more);
+            }finally{more.disabled=false;}};
+            playlistResults.append(more);
+        }
+        return;
+    }
+    if (view === 'named') rows = namedPlaylistId ? await window.api.playlistTracks(namedPlaylistId) : [];
+    else if (view === 'queue' || view === 'liked') {
+        const paths = view === 'queue' ? [...playlist] : [...favoritesPlaylist];
+        const details = new Map((await window.api.libraryTrackDetails(paths)).map(row=>[row.filePath,row]));
+        rows=paths.map((filePath,index)=>({...details.get(filePath),filePath,queueIndex:index,
+            basename:details.get(filePath)?.basename || filePath.split(/[\\/]/).pop()}));
+    } else if (view === 'for-you') rows = await window.api.libraryRecommendations({filePath:currentSongData?.filePath,liked:favoritesPlaylist,limit:100});
+    else rows = await window.api.libraryView(view,10000);
+    if(revision!==browseRevision||activeLibraryView!==view)return;
+    if(view==='named'&&rows?.length){
+        const details=new Map((await window.api.libraryTrackDetails(rows.map(row=>row.filePath))).map(row=>[row.filePath,row]));
+        rows=rows.map(row=>({...row,...details.get(row.filePath)}));
+    }
+    if(revision!==browseRevision||activeLibraryView!==view)return;
+    rows=filterAndSortTracks(rows || []);
+    playlistResults.replaceChildren();
+    setPlaylistStatus(`${rows.length} matching tracks${view==='named'?' in this playlist':''}`);
+    const playable=rows.filter(row=>!row.missing).map(row=>row.filePath);
+    let shown=0;
+    const more=document.createElement('button');more.className='settings-button';more.textContent='Load More Tracks';
+    const append=()=>{
+        more.remove();
+        for(const row of rows.slice(shown,shown+200))playlistResults.append(makeRow({
+            filePath:row.filePath,missing:row.missing,
+            title:row.title||row.basename||row.filePath,subtitle:row.artist|| (row.missing?'File is missing':''),
+            active:row.filePath===playlist[currentIndex],onPlay:()=>view==='queue'?playTrack(row.queueIndex):
+                !row.missing&&loadPlaylistAndPlay(playable,playable.indexOf(row.filePath),{playlistName:view==='named'?selectedPlaylistName():view==='liked'?'Liked Songs':LIBRARY_VIEWS.find(item=>item.id===view)?.label||'Queue'}),
+            actions:[...queueActions(row.filePath),...(view==='named'?[{label:'×',title:'Remove from this playlist',onClick:async()=>{
+                await window.api.playlistRemove(namedPlaylistId,row.filePath);await refreshNamedPlaylists();renderActiveLibraryView();
+            }}]:view==='queue'?[{label:'×',title:'Remove from queue',onClick:()=>removeFromQueue(row.queueIndex)}]:[])],
+        }));
+        shown+=200;if(shown<rows.length)playlistResults.append(more);
+    };
+    more.onclick=append;append();
+}
 
 const LIBRARY_VIEWS = [
     {id: 'queue',           label: 'Queue'},
+    {id: 'all',             label: 'All Songs'},
     {id: 'liked',           label: 'Liked'},
     {id: 'recently-played', label: 'Recent'},
     {id: 'most-played',     label: 'Most Played'},
@@ -3413,9 +3649,16 @@ function setLibraryView(view) {
 /** Draws whichever view is selected. */
 async function renderActiveLibraryView() {
     if (!playlistResults) return;
+    ++browseRevision;
+    document.querySelector('.playlist-browse-controls').hidden = room.connected && !room.isHost;
 
     if (room.connected && !room.isHost) {
         renderRemoteQueue();
+        return;
+    }
+
+    if (activeLibraryView === 'all' || browseControlsActive()) {
+        await renderBrowseView(activeLibraryView);
         return;
     }
 
@@ -3456,11 +3699,12 @@ async function renderActiveLibraryView() {
     rows.forEach((track, index) => {
         playlistResults.appendChild(makeRow({
             title: track.title || track.basename,
+            filePath:track.filePath,missing:track.missing,
             subtitle: track.artist,
             badge: track.playCount > 0 ? `${track.playCount}` : undefined,
             // Playing from a list should queue the whole list, not just the one
             // row -- otherwise playback stops dead after a single track.
-            onPlay: () => loadPlaylistAndPlay(rows.map((row) => row.filePath), index),
+            onPlay: () => loadPlaylistAndPlay(rows.map((row) => row.filePath), index,{playlistName:LIBRARY_VIEWS.find(view=>view.id===activeLibraryView)?.label||'Queue'}),
             actions: [...queueActions(track.filePath), {
                 label: `★ ${track.rating || 0}`, title: 'Increase rating (5 stars, then clear)',
                 onClick: async () => {
@@ -3512,6 +3756,7 @@ async function renderRecommendations() {
     }
     const paths = rows.map((row) => row.filePath);
     rows.forEach((row, index) => playlistResults.appendChild(makeRow({
+        filePath:row.filePath,missing:row.missing,
         title: row.title || row.basename,
         subtitle: [row.artist, row.reason].filter(Boolean).join(' · '),
         onPlay: () => loadPlaylistAndPlay(paths, index),
@@ -3556,6 +3801,7 @@ async function refreshNamedPlaylists(selectedId = namedPlaylistId) {
 }
 
 async function renderNamedPlaylist() {
+    if (browseControlsActive()) return renderBrowseView('named');
     if (!namedPlaylistId) {
         playlistResults.replaceChildren();
         setPlaylistStatus('Choose a playlist or create one.');
@@ -3568,10 +3814,11 @@ async function renderNamedPlaylist() {
     for (const row of rows) {
         playlistResults.appendChild(makeRow({
             title: row.title || row.basename || row.filePath.split(/[\\/]/).pop(),
+            filePath:row.filePath,missing:row.missing,
             subtitle: row.artist || (row.missing ? 'File is missing' : ''),
             onPlay: () => {
                 const index = playable.indexOf(row.filePath);
-                if (index >= 0) loadPlaylistAndPlay(playable, index);
+                if (index >= 0) loadPlaylistAndPlay(playable, index,{playlistName:selectedPlaylistName()});
             },
             actions: [...queueActions(row.filePath), {
                 label: '×', title: 'Remove from this playlist', onClick: async () => {
@@ -3603,10 +3850,10 @@ function initNamedPlaylists() {
     document.getElementById('named-playlist-save-queue')?.addEventListener('click', () => create([...playlist]));
     document.getElementById('named-playlist-play')?.addEventListener('click', async () => {
         if (!namedPlaylistId) return setPlaylistStatus('Choose a playlist first.');
-        const rows = await window.api.playlistTracks(namedPlaylistId);
+        const rows = filterAndSortTracks(await window.api.playlistTracks(namedPlaylistId));
         const paths = rows.filter((row) => !row.missing).map((row) => row.filePath);
         if (!paths.length) return setPlaylistStatus('This playlist has no available songs.');
-        loadPlaylistAndPlay(paths);
+        loadPlaylistAndPlay(paths,0,{playlistName:selectedPlaylistName()});
     });
     document.getElementById('named-playlist-add-current')?.addEventListener('click', async () => {
         if (!namedPlaylistId) return setPlaylistStatus('Choose a playlist first.');
@@ -3649,21 +3896,58 @@ function initRemoteAudio() {
     const input = document.getElementById('remote-audio-url');
     const add = document.getElementById('remote-audio-add');
     const save = document.getElementById('remote-audio-save');
-    add?.addEventListener('click', async () => {
+    const play = document.getElementById('remote-audio-play');
+    let lastLinkFile = null;
+    const importLink = async playNow => {
         const url = input.value.trim();
-        if (!url) return setPlaylistStatus('Paste a direct HTTPS audio link.');
+        if (!url) return setPlaylistStatus('Paste a YouTube, YouTube Music, Spotify track or HTTPS audio link.');
         add.disabled = true;
+        play.disabled = true;
         setPlaylistStatus('Downloading audio to the temporary cache…');
         try {
             const result = await window.api.remoteAudioAdd(url);
             if (!result.ok) return setPlaylistStatus(`Could not add link: ${result.error}`);
+            lastLinkFile = result.files[0];
             const position = document.getElementById('remote-audio-position').value;
-            const files = position === 'end' ? result.files : [...result.files].reverse();
-            for (const filePath of files) enqueue(filePath, position);
+            if (playNow && !queueMode) await loadPlaylistAndPlay(result.files);
+            else {
+                const files = position === 'end' ? result.files : [...result.files].reverse();
+                for (const filePath of files) enqueue(filePath, position);
+            }
             input.value = '';
-            setPlaylistStatus(`${result.files.length} song(s) added to the queue.` +
+            setPlaylistStatus(`${result.files.length} song(s) ${playNow&&!queueMode?'ready to play':'added to the queue'}.` +
+                (result.provider==='spotify'?' Spotify metadata; audio matched on YouTube.':'')+
+                (result.cached?' Loaded from cache.':'')+
                 (result.errors.length ? ` ${result.errors.length} link(s) could not be added.` : ''));
-        } finally { add.disabled = false; }
+        } catch(error) {setPlaylistStatus(error.message);}
+        finally { add.disabled = false; play.disabled = false; }
+    };
+    add?.addEventListener('click', () => importLink(false));
+    play?.addEventListener('click', () => importLink(true));
+    input?.addEventListener('keydown', event => {if(event.key==='Enter'&&!add.disabled)importLink(true);});
+    document.getElementById('remote-audio-cancel').addEventListener('click',()=>window.api.remoteAudioCancel());
+    document.getElementById('remote-audio-download').addEventListener('click',async event=>{
+        const button=event.currentTarget;
+        const filePath=lastLinkFile||currentSongData?.filePath;
+        if(!filePath)return setPlaylistStatus('Add or play a link first.');
+        button.disabled=true;
+        try {
+            const result=await window.api.remoteAudioDownload(filePath);
+            if(result.error)setPlaylistStatus(result.error);
+            else if(result.ok)setPlaylistStatus('MP3 saved with embedded tags and available artwork.');
+        }catch(error){setPlaylistStatus(error.message);}
+        finally{button.disabled=false;}
+    });
+    for(const [id,tool] of [['link-tool-ytdlp','ytdlp'],['link-tool-spotdl','spotdl']]){
+        document.getElementById(id).addEventListener('click',async()=>{
+            const result=await window.api.linkToolPick(tool);
+            document.getElementById('link-tools-status').textContent=result.error||(result.ok?'Executable selected. Use Check Link Tools to verify.':'');
+        });
+    }
+    document.getElementById('link-tools-check').addEventListener('click',async event=>{
+        const button=event.currentTarget;button.disabled=true;
+        try{document.getElementById('link-tools-status').textContent=(await window.api.linkToolsCheck()).message;}
+        finally{button.disabled=false;}
     });
     save?.addEventListener('click', async () => {
         const current = currentSongData?.filePath;
@@ -3675,15 +3959,16 @@ function initRemoteAudio() {
             playlist = playlist.map((filePath) => filePath === current ? result.filePath : filePath);
             originalPlaylist = originalPlaylist.map((filePath) => filePath === current ? result.filePath : filePath);
             currentSongData.filePath = result.filePath;
+            activePlaybackFilePath = result.filePath;
             savePlaybackState();
             publishRoomLibrary();
             setPlaylistStatus('Saved to your library.');
         } finally { save.disabled = false; }
     });
-    window.api.onRemoteAudioProgress(({received, total}) => {
-        if (add?.disabled) setPlaylistStatus(total
+    window.api.onRemoteAudioProgress(({received, total, stage}) => {
+        if (add?.disabled) setPlaylistStatus(stage || (total
             ? `Downloading audio: ${Math.round(received / total * 100)}%`
-            : `Downloading audio: ${(received / 1024 / 1024).toFixed(1)} MB`);
+            : `Downloading audio: ${(received / 1024 / 1024).toFixed(1)} MB`));
     });
 }
 
@@ -3726,8 +4011,9 @@ function renderLikedSongs() {
     favoritesPlaylist.forEach((filePath, index) => {
         playlistResults.appendChild(makeRow({
             title: filePath.split(/[\\/]/).pop(),
+            filePath,
             active: filePath === playlist[currentIndex],
-            onPlay: () => loadPlaylistAndPlay([...favoritesPlaylist], index),
+            onPlay: () => loadPlaylistAndPlay([...favoritesPlaylist], index,{playlistName:'Liked Songs'}),
             actions: [...queueActions(filePath), {
                 label: '\u00d7',
                 title: 'Remove from liked songs',
@@ -3745,6 +4031,7 @@ function renderLikedSongs() {
 /** Renders search results: artists first, then individual tracks. */
 async function runLibrarySearch(query) {
     if (!playlistResults) return;
+    if (!room.connected || room.isHost) return renderActiveLibraryView();
 
     if (room.connected && !room.isHost) {
         const needle = (query || '').trim().toLocaleLowerCase();
@@ -3769,37 +4056,6 @@ async function runLibrarySearch(query) {
         return;
     }
 
-    if (!query || query.trim().length === 0) {
-        renderActiveLibraryView();
-        return;
-    }
-
-    const {artists, tracks} = await window.api.librarySearch(query);
-    playlistResults.innerHTML = '';
-
-    if (artists.length === 0 && tracks.length === 0) {
-        setPlaylistStatus('No matches. Open a folder to build the library.');
-        return;
-    }
-
-    setPlaylistStatus(`${artists.length} artist(s), ${tracks.length} track(s)`);
-
-    for (const artist of artists) {
-        playlistResults.appendChild(makeRow({
-            title: artist.name,
-            subtitle: `Play all ${artist.count} song${artist.count === 1 ? '' : 's'}`,
-            badge: String(artist.count),
-            onPlay: () => playArtist(artist.key, artist.name),
-        }));
-    }
-
-    for (const track of tracks) {
-        playlistResults.appendChild(makeRow({
-            title: track.title,
-            subtitle: track.artist,
-            onPlay: () => loadPlaylistAndPlay([track.filePath]),
-        }));
-    }
 }
 
 /** Request #16: queue up everything by one artist. */
@@ -3834,7 +4090,7 @@ function playFavorites() {
         setPlaylistStatus('No liked songs yet. Use the heart button to add some.');
         return;
     }
-    loadPlaylistAndPlay([...favoritesPlaylist]);
+    loadPlaylistAndPlay([...favoritesPlaylist],0,{playlistName:'Liked Songs'});
     setPlaylistStatus(`Playing ${favoritesPlaylist.length} liked song(s)`);
 }
 
@@ -3917,17 +4173,20 @@ async function playTrack(index, options = {}) {
         showToast('Preparing audio…');
         const prepared = await window.api.mediaPrepare(filePath);
         if (request !== playRequest) return;
-        if (!prepared.ok) { showToast(prepared.error); return; }
+        if (!prepared.ok) {
+            markPlaylistTrackFailed(filePath,'Cannot decode file');
+            showToast(prepared.error);
+            if(index+1<playlist.length)playTrack(index+1);
+            return;
+        }
         playbackPath = prepared.filePath;
         preparedAudio.set(filePath, playbackPath);
     }
 
-    if (currentIndex >= 0 && /\.m4b$/i.test(playlist[currentIndex] || '') &&
-        currentSongData?.filePath === playlist[currentIndex] && !audio.isBusy()) {
-        window.api.bookPositionSet(playlist[currentIndex], audio.hasEnded() ? 0 : (audio.seek() || 0));
-    }
+    const reopeningCurrent = activePlaybackFilePath === filePath;
+    persistTrackPosition();
     let initialSeek = seekTime;
-    if (/\.m4b$/i.test(filePath) && !startAtBeginning && !seekTime) {
+    if (!reopeningCurrent && !startAtBeginning && !seekTime) {
         initialSeek = await window.api.bookPositionGet(filePath);
         if (request !== playRequest) return;
     }
@@ -3935,12 +4194,20 @@ async function playTrack(index, options = {}) {
     beginListen(filePath);
 
     currentIndex = index;
+    currentSound = audio;
+    const fallbackName = filePath.split(/[\\/]/).pop();
+    // Make transport and progress usable before artwork, tags or lyrics finish.
+    currentSongData = {filePath,basename:fallbackName,title:fallbackName,artist:'',cover:null,lyrics:null};
+    audio.setReplayGain(0);
 
     // Kick off streaming immediately. Everything below races against this ticket.
-    const ticket = audio.load(playbackPath, {autoplay: !startPaused, seek: initialSeek});
+    pendingLoopStart = null;
+    const ticket = audio.load(playbackPath, {autoplay: !startPaused, seek: initialSeek,
+        resumeFromHistory: true});
+    activePlaybackFilePath = filePath;
+    rawLyricsText = null;
 
     // Paint what we can know without parsing anything, so the UI never looks stalled.
-    const fallbackName = filePath.split(/[\\/]/).pop();
     if (filenameEl) filenameEl.textContent = fallbackName;
     titleEl.textContent = fallbackName;
     artistEl.textContent = 'Loading...';
@@ -3990,6 +4257,7 @@ async function playTrack(index, options = {}) {
     if (isLyricsFullscreen) renderFullscreenLyricsHeader();
 
     const embedded = processLyrics(songData.lyrics);
+    rawLyricsText = songData.lyrics || null;
     lyrics = embedded;
     displayLyrics(embedded, ticket);
 
@@ -4016,13 +4284,17 @@ async function playTrack(index, options = {}) {
 
 async function loadPlaylistAndPlay(files, startIndex = 0, options = {}) {
     if (!files || files.length === 0) return;
+    if (queueMode && !options.forcePlay) {
+        enqueueFiles(files);
+        return;
+    }
+    persistTrackPosition();
 
     // Request #13: honour the per-directory exclusion list. Excluded tracks stay on
     // disk but are dropped from any queue built from that folder.
     const directories = [...new Set(files.map(f => f.replace(/[\\/][^\\/]*$/, '')))];
     const excluded = new Set();
-    for (const directory of directories) {
-        const list = await window.api.getExclusions(directory);
+    for (const list of await Promise.all(directories.map(directory=>window.api.getExclusions(directory)))) {
         for (const entry of list) excluded.add(entry);
     }
 
@@ -4032,6 +4304,8 @@ async function loadPlaylistAndPlay(files, startIndex = 0, options = {}) {
     if (usable.length === 0) usable = files;
 
     originalPlaylist = [...usable];
+    currentPlaylistName=options.playlistName||'Queue';
+    updateCurrentPlaylistLabel();
     playlist = isShuffled ? shuffleArray(usable) : [...usable];
     publishRoomLibrary();
 
@@ -4052,7 +4326,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Registered exactly once, rather than being rebuilt as callbacks on every Howl
     // instance. That was the structural reason transport state kept drifting.
 
-    audio.on('statechange', () => { outputWatcher.bindContext(); renderTransport(); });
+    audio.on('statechange', () => { outputWatcher.bindContext(); interruptionWatcher.bindContext(); renderTransport(); });
+    audio.on('statechange',()=>{
+        if(audio.isPlaying()&&activePlaybackFilePath&&failedPlaylistTracks.has(activePlaybackFilePath)){
+            failedPlaylistTracks.delete(activePlaybackFilePath);
+            playlistResults.querySelectorAll('[data-file-path]').forEach(row=>{
+                if(row.dataset.filePath===activePlaybackFilePath)paintTrackAvailability(row,null);
+            });
+        }
+    });
 
     audio.on('metadata', ({duration}) => {
         // Duration is known well before the file has finished buffering, so the
@@ -4095,7 +4377,7 @@ document.addEventListener('DOMContentLoaded', () => {
         goToChapter(chapterIndexAt(audio.seek()) + 1));
 
     audio.on('ended', () => {
-        if (/\.m4b$/i.test(playlist[currentIndex] || '')) {
+        if (playlist[currentIndex]) {
             window.api.bookPositionSet(playlist[currentIndex], 0);
         }
         // Reset the lyric view so replay starts visibly from the beginning.
@@ -4109,6 +4391,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     audio.on('error', ({code, src}) => {
+        markPlaylistTrackFailed(activePlaybackFilePath||playlist[currentIndex]);
         console.error(`Failed to load audio (code ${code}):`, src);
         titleEl.textContent = 'Error: Unplayable file';
         artistEl.textContent = currentSongData ? currentSongData.basename : '';
@@ -4132,6 +4415,11 @@ document.addEventListener('DOMContentLoaded', () => {
      * This should be called on any type of startup.
      */
     async function loadAppSettings() {
+        queueMode = await window.api.getStoreValue('queueMode', false);
+        document.getElementById('queue-mode').checked = queueMode;
+        lyricsSelectable = await window.api.getStoreValue('lyricsSelectable', false);
+        isManualScrollEnabled = !(await window.api.getStoreValue('lyricsAutoScroll', true));
+        applyLyricsInteraction();
         // Load settings that affect UI appearance first
         const savedTheme = await window.api.getStoreValue('colorTheme');
         const theme = await window.api.getStoreValue('theme');
@@ -4140,6 +4428,8 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(savedTheme || (theme === 'light' ? DEFAULT_LIGHT_THEME : DEFAULT_DARK_THEME), false);
 
         const opacity = await window.api.getStoreValue('windowOpacity', 0.85);
+        savedWindowOpacity=opacity;
+        refreshWindowOpacity();
         transparencySlider.value = opacity;
         transparencyValue.textContent = `${Math.round(opacity * 100)}%`;
         containerEl.classList.toggle('is-opaque', opacity >= 1.0);
@@ -4237,10 +4527,15 @@ document.addEventListener('DOMContentLoaded', () => {
         renderRoomUI();
 
         // Headphone watcher (#3).
-        const pauseOnUnplug = await window.api.getStoreValue('pauseOnUnplug');
+        const pauseOnUnplug = await window.api.getStoreValue('pauseOnUnplug',true);
         document.getElementById('discovery-mood').value = await window.api.getStoreValue('discoveryMood') || '';
         if (pauseOnUnplugEl) pauseOnUnplugEl.checked = Boolean(pauseOnUnplug);
         if (pauseOnUnplug) await outputWatcher.start();
+        const pauseOnInterruption=await window.api.getStoreValue('pauseOnInterruption',true);
+        document.getElementById('pause-on-interruption').checked=Boolean(pauseOnInterruption);
+        if(pauseOnInterruption)interruptionWatcher.start();else interruptionWatcher.stop();
+        document.getElementById('pause-on-sleep').checked=Boolean(await window.api.getStoreValue('pauseOnSleep',true));
+        renderInterruptionStatus(await window.api.audioInterruptionStatus());
 
         const isPinned = await window.api.getStoreValue('isPinned');
         pinBtn.classList.toggle('pinned', isPinned !== false);
@@ -4259,6 +4554,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Restore last playlist
         const lastState = await window.api.getStoreValue('lastPlaybackState');
         if (lastState && Array.isArray(lastState.playlist) && lastState.playlist.length) {
+            currentPlaylistName=typeof lastState.playlistName==='string'?lastState.playlistName:'Queue';
+            updateCurrentPlaylistLabel();
             originalPlaylist = lastState.playlist;
             playlist = Array.isArray(lastState.queue) ? lastState.queue.filter((entry) => typeof entry === 'string' && entry) : [...originalPlaylist];
             isShuffled = lastState.isShuffled || false;
@@ -4281,6 +4578,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Attach All Event Listeners ---
 
     // Playback Controls
+    document.getElementById('current-playlist').addEventListener('click',()=>{
+        setLibraryView('queue');
+        setActiveTab('playlist');
+    });
     playPauseBtn.addEventListener('click', () => {
         if (room.connected && !room.isHost) {
             if (room.role === 'controller') window.api.roomControl('toggle');
@@ -4486,9 +4787,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     toggleManualScrollBtn.addEventListener('click', () => {
         isManualScrollEnabled = !isManualScrollEnabled;
-        containerEl.classList.toggle('manual-scroll-enabled', isManualScrollEnabled);
-        updateLyricsDropdownMenu();
+        window.api.setStoreValue('lyricsAutoScroll', !isManualScrollEnabled);
+        lastActiveLyricIndex = -1;
+        applyLyricsInteraction();
     });
+    document.getElementById('toggle-lyrics-selection-btn').addEventListener('click', () => {
+        lyricsSelectable = !lyricsSelectable;
+        window.api.setStoreValue('lyricsSelectable', lyricsSelectable);
+        applyLyricsInteraction();
+    });
+    document.getElementById('export-lyrics-btn').addEventListener('click', async () => {
+        if (!rawLyricsText || !currentSongData) return showToast('No lyrics available to export');
+        const result = await window.api.exportLyrics({text: rawLyricsText,
+            title: currentSongData.title || currentSongData.basename, synced: lyrics.isSynced});
+        if (result.error) showToast(result.error);
+        else if (result.ok) showToast('Lyrics exported');
+    });
+    document.getElementById('queue-mode').addEventListener('change', event => {
+        queueMode = event.target.checked;
+        window.api.setStoreValue('queueMode', queueMode);
+    });
+    for (const [id, enabled] of [['install-file-menu', true], ['remove-file-menu', false]]) {
+        document.getElementById(id).addEventListener('click', async event => {
+            event.currentTarget.disabled = true;
+            try {
+                const result = await window.api.configureFileMenu(enabled);
+                showToast(result.error || (enabled ? 'File menu installed. Restart your file manager if needed.' : 'File menu removed'));
+            } finally { document.getElementById(id).disabled = false; }
+        });
+    }
 
     lyricsOverlayBtn?.addEventListener('click', () => {
         closeAllMenus();
@@ -4537,7 +4864,9 @@ document.addEventListener('DOMContentLoaded', () => {
     lyricsFullscreenCloseBtn?.addEventListener('click', () => setLyricsFullscreen(false));
 
     // Double-clicking the lyrics is the gesture people try first, in both directions.
-    lyricsContainer?.addEventListener('dblclick', () => setLyricsFullscreen(!isLyricsFullscreen));
+    lyricsContainer?.addEventListener('dblclick', () => {
+        if (!lyricsSelectable) setLyricsFullscreen(!isLyricsFullscreen);
+    });
 
     // The OS can drop us out of full-screen on its own (the macOS green button, F11).
     // Trusting our own flag alone left the overlay covering a restored dock window.
@@ -4617,10 +4946,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     transparencySlider.addEventListener('input', () => {
         const opacityValue = parseFloat(transparencySlider.value);
-        window.api.setOpacity(opacityValue);
+        savedWindowOpacity=opacityValue;
+        window.api.previewOpacity(opacityValue);
         transparencyValue.textContent = `${Math.round(opacityValue * 100)}%`;
         containerEl.classList.toggle('is-opaque', opacityValue >= 1.0);
     });
+    document.documentElement.addEventListener('pointerenter',()=>{opacityHovered=true;refreshWindowOpacity();});
+    document.documentElement.addEventListener('pointerleave',()=>{opacityHovered=false;refreshWindowOpacity();});
+    transparencySlider.addEventListener('pointerdown',()=>{opacityDragging=true;refreshWindowOpacity();});
+    const commitOpacity=()=>{
+        opacityDragging=false;
+        window.api.setOpacity(savedWindowOpacity);
+        refreshWindowOpacity();
+    };
+    transparencySlider.addEventListener('change',commitOpacity);
+    window.addEventListener('pointerup',()=>{if(opacityDragging)commitOpacity();});
+    window.addEventListener('pointercancel',()=>{if(opacityDragging)commitOpacity();});
+    window.addEventListener('blur',()=>{opacityHovered=false;if(opacityDragging)commitOpacity();else refreshWindowOpacity();});
 
     goToGithubBtn.addEventListener('click', () => {
         window.api.openGitHub();
@@ -4866,6 +5208,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pauseOnUnplugEl.checked) await outputWatcher.start(); else outputWatcher.stop();
         });
     }
+    for(const [id,key] of [['pause-on-interruption','pauseOnInterruption'],['pause-on-sleep','pauseOnSleep']]){
+        document.getElementById(id).addEventListener('change',async event=>{
+            const enabled=event.target.checked;
+            window.api.setStoreValue(key,enabled);
+            if(key==='pauseOnInterruption'){
+                if(enabled)interruptionWatcher.start();else interruptionWatcher.stop();
+            }
+            renderInterruptionStatus(await window.api.audioInterruptionStatus());
+        });
+    }
     const autoRecommend = document.getElementById('auto-recommend-next');
     document.getElementById('song-mood')?.addEventListener('change', (event) => {
         if (playlist[currentIndex]) window.api.libraryPreferenceSet(playlist[currentIndex], {mood: event.target.value});
@@ -5049,9 +5401,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateTrayMenuUI = () => {
         if (!minimizeTrayLabel) return;
         minimizeTrayLabel.textContent = minimizeToTray
-            ? 'Disable Minimize to Tray'
-            : 'Enable Minimize to Tray';
+            ? 'Disable Close to Tray'
+            : 'Enable Close to Tray';
         minimizeTrayBtn?.classList.toggle('active', minimizeToTray);
+        minimizeTrayBtn?.setAttribute('aria-pressed', String(minimizeToTray));
     };
 
     if (minimizeTrayBtn) {
@@ -5218,7 +5571,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // typist would otherwise queue a dozen round trips.
         librarySearchInput.addEventListener('input', () => {
             clearTimeout(searchDebounce);
-            searchDebounce = setTimeout(() => runLibrarySearch(librarySearchInput.value), 180);
+            searchDebounce = setTimeout(() => room.connected && !room.isHost
+                ? runLibrarySearch(librarySearchInput.value) : renderActiveLibraryView(), 180);
         });
 
         librarySearchInput.addEventListener('keydown', (event) => {
@@ -5227,6 +5581,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderActiveLibraryView();
                 togglePlaylistPanel(false);
             }
+        });
+    }
+
+    for (const id of ['playlist-filter','playlist-sort']) {
+        document.getElementById(id).addEventListener('change', () => {
+            playlistResults.scrollTop = 0;
+            renderActiveLibraryView();
         });
     }
 
@@ -5239,6 +5600,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.api.onLibraryUpdated(({trackCount}) => {
+        if (isPlaylistVisible && activeLibraryView === 'all') { renderActiveLibraryView(); return; }
         if (isPlaylistVisible && !librarySearchInput?.value) {
             setPlaylistStatus(`Library: ${trackCount} tracks indexed`);
         }
@@ -5255,14 +5617,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Fired when the app is launched by opening a file.
-    window.api.onLaunchFiles(async (launch) => {
+    let launchChain = Promise.resolve();
+    window.api.onLaunchFiles(launch => {
+        launchChain = launchChain.then(async () => {
         const ready=document.documentElement.dataset.appReady==='true';
-        if(!ready)await loadAppSettings();
-        if(launch.enqueue || (ready && !launch.play)) {
-            for(const file of launch.files)enqueue(file,QUEUE_POSITIONS.END);
-            if(currentIndex<0 && playlist.length)await playTrack(0,{startPaused:true});
+        if(!ready) {
+            await loadAppSettings();
+            if (launch.enqueue || queueMode) await restoreLastPlaybackState();
+        }
+        if(launch.enqueue || queueMode) {
+            enqueueFiles(launch.files);
         }else await loadPlaylistAndPlay(launch.files);
         startUiLoopOnce();document.documentElement.dataset.appReady='true';
+        }).catch(error => { console.error(error); showToast('Could not open files'); });
     });
     window.api.onFilePathReceived(async (filePath) => {
         await loadAppSettings(); // Still need to load theme, volume, etc.
@@ -5506,7 +5873,11 @@ window.addEventListener('beforeunload', () => {
 });
 
 // API Listeners from Main Process
-window.api.onMediaKey((command) => {
+function handleMediaCommand(command) {
+    if(command==='pause'||command==='stop'){
+        pauseForInterruption('media-pause');
+        return;
+    }
     if (isLocked) return;
     const actions = {
         'play-pause': () => playPauseBtn.click(),
@@ -5514,7 +5885,37 @@ window.api.onMediaKey((command) => {
         'prev': () => prevBtn.click()
     };
     actions[command]?.();
-});
+}
+window.api.onMediaKey(handleMediaCommand);
+
+// Chromium exposes these actions to the operating system's media controls,
+// including MPRIS on Linux desktops that provide a media controller.
+if ('mediaSession' in navigator) {
+    const actions = {
+        play: () => { if (!isPlaying) handleMediaCommand('play-pause'); },
+        pause: () => handleMediaCommand('pause'),
+        stop: () => handleMediaCommand('stop'),
+        previoustrack: () => handleMediaCommand('prev'),
+        nexttrack: () => handleMediaCommand('next'),
+    };
+    for (const [action, handler] of Object.entries(actions)) {
+        try { navigator.mediaSession.setActionHandler(action, handler); }
+        catch (error) { console.warn(`System media action ${action} unavailable:`, error); }
+    }
+}
+
+function updateSystemMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+        navigator.mediaSession.playbackState = currentSongData ? (isPlaying ? 'playing' : 'paused') : 'none';
+        navigator.mediaSession.metadata = currentSongData ? new MediaMetadata({
+            title: currentSongData.title || 'Unknown Title',
+            artist: currentSongData.artist || '',
+            album: currentSongData.album || '',
+            artwork: currentSongData.cover ? [{src: currentSongData.cover}] : [],
+        }) : null;
+    } catch (error) { console.warn('Could not update system media metadata:', error); }
+}
 
 window.api.onSetOrientationClass((isVertical) => {
     containerEl.classList.toggle('vertical-mode', isVertical);

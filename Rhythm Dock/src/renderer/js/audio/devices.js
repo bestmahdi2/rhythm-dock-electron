@@ -84,6 +84,7 @@ class OutputDeviceWatcher {
         this.enabled = false;
         clearTimeout(this.timer);
         this.context?.removeEventListener('sinkchange', this._handler);
+        this.context=null;
         if (this.supported) {
             navigator.mediaDevices.removeEventListener('devicechange', this._handler);
         }
@@ -147,4 +148,44 @@ class OutputDeviceWatcher {
     }
 }
 
-window.RhythmDevices = {OutputDeviceWatcher, looksLikeHeadphones, HEADPHONE_HINTS};
+class AudioInterruptionWatcher {
+    constructor({getContext, isPlaying, onInterrupt}) {
+        this.getContext=getContext;this.isPlaying=isPlaying;this.onInterrupt=onInterrupt;
+        this.enabled=false;this.context=null;this.previousState=null;
+        this.contextChanged=()=>{
+            const state=this.context?.state;
+            if(this.enabled&&this.isPlaying()&&(state==='interrupted'||
+                (state==='suspended'&&this.previousState==='running')))this.onInterrupt('audio-focus');
+            this.previousState=state;
+        };
+        this.sessionChanged=()=>{
+            if(this.enabled&&this.isPlaying()&&navigator.audioSession?.state==='interrupted')this.onInterrupt('audio-focus');
+        };
+    }
+    start(){
+        if(this.enabled)return;
+        this.enabled=true;
+        if(navigator.audioSession){
+            try{navigator.audioSession.type='playback';}catch(_){/* Optional API. */}
+            navigator.audioSession.addEventListener('statechange',this.sessionChanged);
+        }
+        this.bindContext();this.sessionChanged();
+    }
+    bindContext(){
+        if(!this.enabled)return;
+        const context=this.getContext();
+        if(context===this.context)return;
+        this.context?.removeEventListener('statechange',this.contextChanged);
+        this.context=context;this.previousState=context?.state;
+        context?.addEventListener('statechange',this.contextChanged);
+        if(context?.state==='interrupted')this.contextChanged();
+    }
+    stop(){
+        this.enabled=false;
+        this.context?.removeEventListener('statechange',this.contextChanged);
+        navigator.audioSession?.removeEventListener('statechange',this.sessionChanged);
+        this.context=null;this.previousState=null;
+    }
+}
+
+window.RhythmDevices = {OutputDeviceWatcher, AudioInterruptionWatcher, looksLikeHeadphones, HEADPHONE_HINTS};

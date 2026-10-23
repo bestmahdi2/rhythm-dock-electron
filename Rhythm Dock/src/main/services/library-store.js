@@ -319,7 +319,7 @@ function getRating(filePath) {
 
 function setBookPosition(filePath, seconds) {
     const handle = db();
-    if (!handle || typeof filePath !== 'string' || !/\.m4b$/i.test(filePath) ||
+    if (!handle || typeof filePath !== 'string' || !filePath ||
         !Number.isFinite(seconds) || seconds < 0) return false;
     handle.prepare(`INSERT INTO book_positions (filePath, seconds, updatedAt) VALUES (?, ?, ?)
         ON CONFLICT(filePath) DO UPDATE SET seconds = excluded.seconds, updatedAt = excluded.updatedAt`)
@@ -700,7 +700,7 @@ function importAll(payload) {
                 }
             }
             for (const row of payload.bookPositions || []) {
-                if (typeof row.filePath === 'string' && /\.m4b$/i.test(row.filePath) &&
+                if (typeof row.filePath === 'string' && row.filePath &&
                     Number.isFinite(row.seconds) && row.seconds >= 0) {
                     insertBookPosition.run(row.filePath, row.seconds, row.updatedAt || nowIso());
                 }

@@ -5,7 +5,7 @@
  * Generates every icon electron-builder needs, for every platform, from code.
  *
  * Why generate instead of committing binaries:
- *   - We need ~10 file-association icons x 3 formats (.ico/.icns/.png). That is 30
+ *   - We need 19 file-association icons x 3 formats (.ico/.icns/.png). That is 57
  *     binaries to hand-maintain and keep in sync.
  *   - macOS and Linux builds were failing partly because only a Windows `.ico` existed;
  *     electron-builder wants a 512px+ `.png` for Linux and an `.icns` for macOS.
@@ -42,24 +42,54 @@ const BRAND = {
 /**
  * One entry per container the app can open.
  *
- * `mp3` is deliberately the odd one out: it is the only entry with `hero: true`, which
- * gives it the brand-green gradient, the vinyl-record mark and a wider badge. Every
- * other format gets the neutral slate plate with a plain waveform. At 16px in Explorer
- * the silhouette, not just the colour, is different — which is the point.
+ * Each extension has its own palette, symbol and readable extension badge.
  */
 const FILE_TYPES = [
     {ext: 'mp3', label: 'MP3', from: '#1db954', to: '#0a5c28', hero: true, mime: 'audio/mpeg'},
-    {ext: 'm4a', label: 'M4A', from: '#4a5568', to: '#2d3440', mime: 'audio/mp4'},
-    {ext: 'm4b', label: 'M4B', from: '#4a5568', to: '#2d3440', mime: 'audio/mp4'},
-    {ext: 'flac', label: 'FLAC', from: '#3f6f8f', to: '#24455a', mime: 'audio/flac'},
-    {ext: 'wav', label: 'WAV', from: '#5a5470', to: '#332f45', mime: 'audio/wav'},
-    {ext: 'ogg', label: 'OGG', from: '#4c6b52', to: '#2b3f2f', mime: 'audio/ogg'},
-    {ext: 'opus', label: 'OPUS', from: '#6b5a48', to: '#3d3328', mime: 'audio/opus'},
-    {ext: 'aac', label: 'AAC', from: '#6b4a5a', to: '#3d2a33', mime: 'audio/aac'},
-    {ext: 'wma', label: 'WMA', from: '#4a5a6b', to: '#2a343d', mime: 'audio/x-ms-wma'},
-    {ext: 'aiff', label: 'AIFF', from: '#5f5a4a', to: '#37342a', mime: 'audio/aiff'},
-    {ext: 'mp4', label: 'MP4', from: '#6b5148', to: '#3d2e28', mime: 'video/mp4'},
+    {ext: 'm4a', label: 'M4A', from: '#8b5cf6', to: '#5723a0', mime: 'audio/mp4'},
+    {ext: 'm4b', label: 'M4B', from: '#f59e0b', to: '#a64b06', mime: 'audio/mp4'},
+    {ext: 'flac', label: 'FLAC', from: '#06b6d4', to: '#086882', mime: 'audio/flac'},
+    {ext: 'wav', label: 'WAV', from: '#3b82f6', to: '#1d409d', mime: 'audio/wav'},
+    {ext: 'ogg', label: 'OGG', from: '#84b82a', to: '#466619', mime: 'audio/ogg'},
+    {ext: 'opus', label: 'OPUS', from: '#ed649c', to: '#a32262', mime: 'audio/opus'},
+    {ext: 'aac', label: 'AAC', from: '#fb713c', to: '#a93416', mime: 'audio/aac'},
+    {ext: 'wma', label: 'WMA', from: '#6366f1', to: '#36369d', mime: 'audio/x-ms-wma'},
+    {ext: 'aiff', label: 'AIFF', from: '#14b8a6', to: '#07665b', mime: 'audio/aiff'},
+    {ext: 'mp4', label: 'MP4', from: '#ef4444', to: '#991b35', mime: 'video/mp4'},
+    {ext: 'ape', label: 'APE', from: '#ba8a4d', to: '#735022', mime: 'audio/x-ape'},
+    {ext: 'wv', label: 'WV', from: '#24a89a', to: '#19504e', mime: 'audio/x-wavpack'},
+    {ext: 'dsf', label: 'DSF', from: '#c3a33b', to: '#786019', mime: 'audio/x-dsf'},
+    {ext: 'dff', label: 'DFF', from: '#b967d2', to: '#713285', mime: 'audio/x-dff'},
+    {ext: 'mod', label: 'MOD', from: '#87934a', to: '#4b5427', mime: 'audio/x-mod'},
+    {ext: 'xm', label: 'XM', from: '#d75e84', to: '#822547', mime: 'audio/x-xm'},
+    {ext: 'it', label: 'IT', from: '#7993b2', to: '#3c506c', mime: 'audio/x-it'},
+    {ext: 's3m', label: 'S3M', from: '#c77b5b', to: '#783c29', mime: 'audio/x-s3m'},
 ];
+
+const FORMAT_MARKS = {
+    m4a:'<path d="M9 17V5l11-2v12M9 8l11-2"/><ellipse cx="6" cy="17" rx="3" ry="2"/><ellipse cx="17" cy="15" rx="3" ry="2"/>',
+    m4b:'<path d="M12 6C8 3 4 4 2 5v15c3-2 6-2 10 0 4-2 7-2 10 0V5c-3-1-6-2-10 1v14M5 9h4M5 13h4M15 9h4M15 13h4"/>',
+    flac:'<path d="M12 2l8 5v10l-8 5-8-5V7zM4 7l8 5 8-5M12 12v10M8 5l8 5"/>',
+    wav:'<path d="M2 12h3l3-8 4 16 4-16 3 8h3"/>',
+    ogg:'<path d="M3 12a9 9 0 0 1 18 0v7h-5v-8h5M3 11h5v8H3z"/>',
+    opus:'<path d="M9 4l7 3v7M9 4v13"/><circle cx="6" cy="17" r="3"/><path d="M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+    aac:'<path d="M4 5l7 7-7 7V5zM13 5l7 7-7 7V5z"/>',
+    wma:'<path d="M3 4h8v7H3zM14 4h7v7h-7zM3 14h8v7H3zM14 14h7v7h-7z"/>',
+    aiff:'<path d="M5 19V5M12 19V5M19 19V5M2 8h6M9 15h6M16 10h6"/>',
+    mp4:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="M10 8l6 4-6 4z"/>',
+    ape:'<path d="M12 2l9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6zM7 12l3 3 7-7"/>',
+    wv:'<path d="M2 9l4 7 4-10 4 10 4-10 4 7M2 21h20"/>',
+    dsf:'<path d="M2 16h4V8h4v8h4V8h4v8h4"/><circle cx="4" cy="3" r="1"/><circle cx="12" cy="3" r="1"/><circle cx="20" cy="3" r="1"/>',
+    dff:'<circle cx="12" cy="12" r="9"/><path d="M5 12h4V8h6v8h4M12 1v3M12 20v3"/>',
+    mod:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18M15 3v18M3 15h18"/>',
+    xm:'<path d="M4 3v18M10 3v18M16 3v18M22 3v18M2 7h6M8 12h6M14 17h6M20 6h4"/>',
+    it:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 1v3M16 1v3M8 20v3M16 20v3M1 8h3M20 8h3M1 16h3M20 16h3M9 9h6v6H9z"/>',
+    s3m:'<path d="M2 19V9h4v10M10 19V3h4v16M18 19v-7h4v7M1 22h22"/>',
+};
+function formatMark(type) {
+    if(type.hero)return vinylMark();
+    return `<g transform="translate(256 240) scale(21.3)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">${FORMAT_MARKS[type.ext]}</g>`;
+}
 
 // --- SVG artwork -----------------------------------------------------------------
 
@@ -89,20 +119,6 @@ function appIconSvg(size = 1024) {
 </svg>`;
 }
 
-/** A waveform, used as the neutral mark on non-mp3 formats. */
-function waveformMark() {
-    const bars = [
-        [312, 150], [382, 250], [452, 360], [522, 250],
-        [592, 400], [662, 210], [732, 120],
-    ];
-    return bars
-        .map(([x, h]) => {
-            const y = 520 - h / 2;
-            return `<rect x="${x}" y="${y}" width="42" height="${h}" rx="21" fill="#ffffff" fill-opacity="0.92"/>`;
-        })
-        .join('\n    ');
-}
-
 /** The vinyl mark, reserved for mp3. */
 function vinylMark() {
     return `
@@ -121,9 +137,14 @@ function vinylMark() {
  * a format mark and an extension badge along the bottom.
  */
 function fileTypeSvg(type, size = 1024) {
-    const badgeWidth = type.hero ? 470 : 380;
+    if(size<=48)return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
+        <rect x="2" y="2" width="60" height="60" rx="10" fill="${type.to}"/>
+        <path d="M12 2h40a10 10 0 0 1 10 10v25H2V12A10 10 0 0 1 12 2" fill="${type.from}"/>
+        <g transform="translate(0 -8) scale(.0625)">${formatMark(type)}</g>
+        <text x="32" y="55" text-anchor="middle" font-family="DejaVu Sans, Verdana, sans-serif" font-weight="bold" font-size="${type.label.length>3?17:20}" fill="white">${type.label}</text></svg>`;
+    const badgeWidth = 650;
     const badgeX = (1024 - badgeWidth) / 2;
-    const fontSize = type.label.length > 3 ? 104 : 124;
+    const fontSize = type.label.length > 3 ? 150 : 172;
 
     return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024">
@@ -151,13 +172,13 @@ function fileTypeSvg(type, size = 1024) {
         fill="url(#page)"/>
   <path d="M598 96 l258 258 h-202 a56 56 0 0 1 -56 -56 z" fill="url(#fold)"/>
 
-  <!-- Format mark. mp3 gets the vinyl; everything else gets the waveform. -->
-  ${type.hero ? vinylMark() : waveformMark()}
+  <!-- Each format has a distinct symbol as well as its color and label. -->
+  ${formatMark(type)}
 
   <!-- Extension badge. -->
-  <rect x="${badgeX}" y="742" width="${badgeWidth}" height="164" rx="46"
+  <rect x="${badgeX}" y="714" width="${badgeWidth}" height="206" rx="32"
         fill="#000000" fill-opacity="${type.hero ? 0.42 : 0.34}"/>
-  <text x="512" y="852"
+  <text x="512" y="866"
         font-family="DejaVu Sans, Verdana, Geneva, sans-serif"
         font-size="${fontSize}" font-weight="bold"
         fill="#ffffff" text-anchor="middle" letter-spacing="6">${type.label}</text>
@@ -177,14 +198,14 @@ async function svgToPng(svg, size) {
  * we always rasterise at 1024 first. BILINEAR is used because the artwork is flat
  * vector shapes — the fancier resamplers add ringing on the hard edges.
  */
-async function writeIconSet(svg, outputDir, basename) {
+async function writeIconSet(svg, outputDir, basename, type = null) {
     fs.mkdirSync(outputDir, {recursive: true});
 
     const png1024 = await svgToPng(svg, 1024);
     const pngPath = path.join(outputDir, `${basename}.png`);
     fs.writeFileSync(pngPath, png1024);
 
-    const ico = png2icons.createICO(png1024, png2icons.BILINEAR, 0, true, true);
+    const ico = type ? await fileTypeIco(type) : png2icons.createICO(png1024, png2icons.BILINEAR, 0, true, true);
     if (!ico) throw new Error(`Failed to build ICO for ${basename}`);
     fs.writeFileSync(path.join(outputDir, `${basename}.ico`), ico);
 
@@ -193,6 +214,19 @@ async function writeIconSet(svg, outputDir, basename) {
     fs.writeFileSync(path.join(outputDir, `${basename}.icns`), icns);
 
     return pngPath;
+}
+
+async function fileTypeIco(type) {
+    const sizes=[16,24,32,48,64,128,256];
+    const frames=await Promise.all(sizes.map(size=>svgToPng(fileTypeSvg(type,size),size)));
+    const header=Buffer.alloc(6+sizes.length*16);header.writeUInt16LE(1,2);header.writeUInt16LE(sizes.length,4);
+    let offset=header.length;
+    frames.forEach((frame,index)=>{
+        const at=6+index*16,size=sizes[index];header[at]=size===256?0:size;header[at+1]=header[at];
+        header.writeUInt16LE(1,at+4);header.writeUInt16LE(32,at+6);
+        header.writeUInt32LE(frame.length,at+8);header.writeUInt32LE(offset,at+12);offset+=frame.length;
+    });
+    return Buffer.concat([header,...frames]);
 }
 
 /**
@@ -305,7 +339,11 @@ async function main() {
 
     console.log('[icons] Generating file-association icons...');
     for (const type of FILE_TYPES) {
-        await writeIconSet(fileTypeSvg(type), FILETYPE_DIR, type.ext);
+        await writeIconSet(fileTypeSvg(type), FILETYPE_DIR, type.ext, type);
+        for(const size of [16,24,32,48,64,128,256]){
+            const dir=path.join(OUTPUT_DIR,'mimetypes',`${size}x${size}`);fs.mkdirSync(dir,{recursive:true});
+            fs.writeFileSync(path.join(dir,`audio-x-rhythmdock-${type.ext}.png`),await svgToPng(fileTypeSvg(type,size),size));
+        }
         console.log(`[icons]   ${type.ext.padEnd(5)} ${type.hero ? '(distinct mp3 artwork)' : ''}`);
     }
 
@@ -315,6 +353,10 @@ async function main() {
         path.join(OUTPUT_DIR, 'filetypes.json'),
         JSON.stringify(FILE_TYPES, null, 2)
     );
+    fs.writeFileSync(path.join(OUTPUT_DIR,'rhythmdock-mimetypes.xml'),`<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">${FILE_TYPES.map(type=>`
+<mime-type type="audio/x-rhythmdock-${type.ext}"><comment>${type.label} — Rhythm Dock</comment><sub-class-of type="${type.mime}"/><glob pattern="*.${type.ext}" weight="60"/><icon name="audio-x-rhythmdock-${type.ext}"/></mime-type>`).join('')}
+</mime-info>`);
 
     console.log('[icons] Generating taskbar media icons (light + dark)...');
     await writeMediaIcons();
@@ -332,4 +374,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = {FILE_TYPES, MEDIA_GLYPHS, appIconSvg, fileTypeSvg, mediaGlyphSvg, trayIconSvg};
+module.exports = {FILE_TYPES, MEDIA_GLYPHS, appIconSvg, fileTypeSvg, fileTypeIco, mediaGlyphSvg, trayIconSvg};

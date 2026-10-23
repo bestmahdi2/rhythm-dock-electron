@@ -755,7 +755,7 @@ class AudioEngine {
      * lookups, lyric fetches) should capture it and compare with `engine.ticket`
      * before applying their result.
      */
-    load(filePath, {autoplay = false, seek = 0} = {}) {
+    load(filePath, {autoplay = false, seek = 0, resumeFromHistory = false} = {}) {
         this._ensureGraph();
         clearTimeout(this._pauseTimer);
 
@@ -808,7 +808,10 @@ class AudioEngine {
             const applySeek = () => {
                 if (ticket !== this.ticket) return;
                 try {
-                    deck.element.currentTime = seek;
+                    const duration = deck.element.duration;
+                    deck.element.currentTime = resumeFromHistory &&
+                        (!Number.isFinite(duration) || duration < 300 || seek <= 10 || duration - seek <= 10)
+                        ? 0 : seek;
                 } catch (error) {
                     console.warn('[audio] Could not restore seek position:', error);
                 }
@@ -818,10 +821,18 @@ class AudioEngine {
 
         if (autoplay) {
             const start = () => {
-                if (ticket !== this.ticket) return;
+                if (ticket !== this.ticket || this._cancelledAutoplayTicket === ticket) return;
                 this.play();
             };
-            deck.element.addEventListener('canplay', start, {once: true});
+            // Request playback immediately: Chromium reads only the bytes needed
+            // to decode the first frames and continues buffering while playing.
+            // A resume seek must be installed before playback starts.
+            if (seek > 0) deck.element.addEventListener('loadedmetadata', start, {once: true});
+            else start();
+        } else {
+            deck.element.addEventListener('canplay', () => {
+                if (ticket === this.ticket && this.state === STATE.LOADING) this._setState(STATE.PAUSED);
+            }, {once: true});
         }
 
         return ticket;
@@ -970,6 +981,9 @@ class AudioEngine {
 
     async play() {
         this._ensureGraph();
+        const generation=this._interruptionGeneration||0;
+        const ticket=this.ticket;
+        this._cancelledAutoplayTicket=null;
         clearTimeout(this._pauseTimer);
 
         // Autoplay policy: the context starts suspended until a user gesture.
@@ -980,6 +994,8 @@ class AudioEngine {
                 console.warn('[audio] Could not resume AudioContext:', error);
             }
         }
+
+        if(generation!==(this._interruptionGeneration||0)||ticket!==this.ticket)return;
 
         // One line, once per session. A graph that is wired but inaudible gives no
         // error anywhere, so the state that decides whether sound comes out is
@@ -1010,6 +1026,10 @@ class AudioEngine {
                 }
             }
             await this.element.play();
+            if(generation!==(this._interruptionGeneration||0)||ticket!==this.ticket){
+                if(ticket===this.ticket)this.interrupt();
+                return;
+            }
             this._applyGain(this._targetGain(), FADE_IN_MS);
         } catch (error) {
             // AbortError is normal: it means a newer load() superseded this play call.
@@ -1019,6 +1039,17 @@ class AudioEngine {
                 this.emit('error', {code: 0, src: this.element.currentSrc, error});
             }
         }
+    }
+
+    interrupt() {
+        this._interruptionGeneration=(this._interruptionGeneration||0)+1;
+        this._cancelledAutoplayTicket=this.ticket;
+        clearTimeout(this._pauseTimer);
+        this._crossfadeStarted=false;
+        this._applyGain(0,0);
+        for(const deck of this.decks)deck.element.pause();
+        for(const output of this.auxOutputs.values())output.element.pause();
+        if(this.element)this._setState(STATE.PAUSED);
     }
 
     pause() {

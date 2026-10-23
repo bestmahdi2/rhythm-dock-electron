@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen, safeStorage} = require('electron');
+const {app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard, shell, nativeTheme, Notification, screen, safeStorage, powerMonitor} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const {Worker} = require('worker_threads');
@@ -276,6 +276,11 @@ const createWindow = () => {
         if (store.get('edgeDock', {}).active) setEdgeDock(true);
         if(!showOnReadyHidden)mainWindow.show();
     });
+    // Some Bluetooth/USB accessories deliver separate pause/stop app commands.
+    // These must stay idempotent, even when the player's UI is locked.
+    mainWindow.on('app-command',(_event,command)=>{
+        if(command==='media-pause'||command==='media-stop')sendToRenderer('media-key-event','pause');
+    });
     const showOnReadyHidden=pendingLaunch.hidden;
 
     // Debounced persistence on move/resize, plus a final flush returned for 'close'.
@@ -347,8 +352,10 @@ const createWindow = () => {
         lyricsOverlay.close(store);
     });
 
-    // Set initial thumbar buttons
-    updateThumbar();
+    // Windows needs a taskbar button before its thumbnail toolbar can be installed.
+    mainWindow.on('show', updateThumbar);
+    mainWindow.once('ready-to-show', updateThumbar);
+    platformControls.update({isPlaying});
 };
 
 // --- Helper function to safely send messages to the renderer ---
@@ -362,6 +369,7 @@ const sendToRenderer = (channel, ...args) => {
 };
 const platformControls=require('./services/platform-controls').create({electron:require('electron'),getStore:()=>store,
     getWindow:()=>mainWindow,send:sendToRenderer});
+const audioInterruptions=require('./services/audio-interruptions').create({powerMonitor,getStore:()=>store,send:sendToRenderer});
 const discordPresence=new (require('./services/discord-presence').DiscordPresence)({getConfig:()=>store?.get('discordPresence',{})||{}});
 
 const roadmap = require('./services/roadmap-ipc').install({
@@ -424,6 +432,7 @@ app.whenReady().then(() => {
     database.initialize();
     // Import legacy settings before electron-store creates the new config file.
     store = new Store({cwd: paths.getConfigDir()});
+    audioInterruptions.configure();
     store.delete('radioPlaying');
     currentLayout = store.get('windowState.layout') === 'vertical' ? 'vertical' : 'horizontal';
     diagnostics = new Diagnostics(path.join(paths.getDataRoot(), 'logs'));
@@ -514,7 +523,7 @@ app.on('open-file',(event,filePath)=>{
     macOpenFiles.push(filePath);clearTimeout(macOpenTimer);
     macOpenTimer=setTimeout(()=>{
         if(!mainWindow||mainWindow.isDestroyed()){pendingLaunch.files.push(...macOpenFiles);macOpenFiles=[];createWindow();return;}
-        sendToRenderer('launch-files',{files:[...new Set(macOpenFiles)],enqueue:true});macOpenFiles=[];
+        sendToRenderer('launch-files',{files:[...new Set(macOpenFiles)]});macOpenFiles=[];
         if(mainWindow.isMinimized())mainWindow.restore();mainWindow.show();mainWindow.focus();
     },40);
 });
@@ -552,6 +561,7 @@ async function scanAndIndex(dirPath) {
 // Set the quitting flag first, so the window 'close' handler stops hiding the window
 // and lets it actually close.
 app.on('before-quit', () => {
+    platformImportAbort?.abort();
     tray.setQuitting(true);
     rootWatcher.close();
     discordPresence.close();
@@ -560,6 +570,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+    audioInterruptions.stop();
     shortcuts.unregisterAll();
     globalShortcut.unregisterAll();
     tray.destroy();
@@ -576,6 +587,30 @@ app.on('window-all-closed', () => {
 });
 
 // --- IPC Handlers ---
+ipcMain.handle('lyrics-export', async (_event, payload) => {
+    try {
+        if (!payload || typeof payload.text !== 'string' || !payload.text.trim()) return {error:'No lyrics available'};
+        const extension = payload.synced ? 'lrc' : 'txt';
+        const name = String(payload.title || 'Lyrics').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 160);
+        const result = await dialog.showSaveDialog(mainWindow, {title:'Export Lyrics', defaultPath:`${name}.${extension}`,
+            filters:[{name:payload.synced?'Synced Lyrics':'Lyrics Text', extensions:[extension]}]});
+        if (result.canceled || !result.filePath) return {canceled:true};
+        await fs.promises.writeFile(result.filePath, payload.text, 'utf8');
+        return {ok:true};
+    } catch (error) { return {error:error.message}; }
+});
+ipcMain.handle('file-menu-configure', async (_event, enabled) => {
+    try {
+        if (typeof enabled !== 'boolean') throw new Error('Invalid file menu setting');
+        const result = await require('./services/file-menu').configure({enabled,
+            command: app.isPackaged ? [process.env.APPIMAGE || process.execPath] : [process.execPath, app.getAppPath()],
+            extensions: SUPPORTED_EXTENSIONS, home: app.getPath('home'), dataHome: process.env.XDG_DATA_HOME,
+            mimeTypes: [...new Set([...pkg.build.linux.mimeTypes, 'audio/*',
+                'application/x-mod', 'application/x-s3m', 'application/x-xm', 'application/x-it'])]});
+        store.set('fileMenuInstalled', enabled);
+        return result;
+    } catch (error) { return {error:error.message}; }
+});
 
 // NEW: Listen for playback state changes from the renderer
 ipcMain.on('playback-state-changed', (_event, state) => {
@@ -747,7 +782,7 @@ ipcMain.handle('lyrics:set-offset', (_event, {songKey, offsetMs} = {}) => {
     return true;
 });
 
-ipcMain.handle('get-store-value', (_event, key) => store.get(key));
+ipcMain.handle('get-store-value', (_event, key, fallback) => store.get(key, fallback));
 ipcMain.on('diagnostic-event', (_event, event, details) => diagnostics?.record(event, details));
 ipcMain.handle('diagnostics-export', async () => {
     const selected = await dialog.showSaveDialog(mainWindow, {title: 'Export diagnostics',
@@ -756,7 +791,11 @@ ipcMain.handle('diagnostics-export', async () => {
     try { fs.writeFileSync(selected.filePath, diagnostics?.text() || ''); return {ok: true}; }
     catch (error) { return {ok: false, error: error.message}; }
 });
-ipcMain.on('set-store-value', (_event, key, value) => store.set(key, value));
+ipcMain.on('set-store-value', (_event, key, value) => {
+    store.set(key, value);
+    if(key==='pauseOnInterruption'||key==='pauseOnSleep')audioInterruptions.configure();
+});
+ipcMain.handle('audio-interruption-status',()=>audioInterruptions.status());
 /**
  * Extracts ReplayGain from parsed tags (Phase 8).
  *
@@ -1074,10 +1113,14 @@ ipcMain.handle('show-file-in-folder', (_event, filePath) => {
 ipcMain.handle('copy-to-clipboard', (_event, text) => clipboard.writeText(text));
 
 ipcMain.on('set-opacity', (_event, opacity) => {
+    if(!Number.isFinite(opacity)||opacity<0.3||opacity>1)return;
     if (mainWindow) {
         mainWindow.setOpacity(opacity);
         store.set('windowOpacity', opacity); // Save for persistence
     }
+});
+ipcMain.on('preview-opacity',(_event,opacity)=>{
+    if(Number.isFinite(opacity)&&opacity>=0.3&&opacity<=1&&mainWindow&&!mainWindow.isDestroyed())mainWindow.setOpacity(opacity);
 });
 
 ipcMain.on('open-github', () => { //
@@ -1105,6 +1148,37 @@ ipcMain.handle('get-app-version', () => {
 // --- Library IPC (requests #13, #16, #17) ---------------------------------------
 
 ipcMain.handle('library-search', (_event, query) => library.search(query || ''));
+ipcMain.handle('playlist-file-status',async(_event,files)=>{
+    if(!Array.isArray(files))return [];
+    return Promise.all(files.slice(0,250).filter(file=>typeof file==='string').map(async filePath=>{
+        if(/^https?:\/\//i.test(filePath))return {filePath,available:true};
+        try{
+            await fs.promises.access(filePath,fs.constants.R_OK);
+            const stat=await fs.promises.stat(filePath);
+            return {filePath,available:stat.isFile()&&stat.size>0};
+        }catch(_){return {filePath,available:false};}
+    }));
+});
+ipcMain.handle('library-track-details', async (_event, files) => {
+    if (!Array.isArray(files)) return [];
+    const stored = database.handle().prepare('SELECT * FROM tracks WHERE filePath IN (SELECT value FROM json_each(?))')
+        .all(JSON.stringify(files.filter(file => typeof file === 'string')));
+    const details = new Map(stored.map(row => [row.filePath,row]));
+    const pending = [...new Set(files.filter(file => typeof file === 'string' && !details.get(file)?.durationSeconds))];
+    let index=0;
+    await Promise.all(Array.from({length:Math.min(4,pending.length)},async()=>{
+        while(index<pending.length){
+            const filePath=pending[index++];
+            try {
+                const parsed=await mm.parseFile(filePath,{skipCovers:true});
+                details.set(filePath,{...details.get(filePath),filePath,basename:path.basename(filePath),
+                    title:parsed.common.title||path.basename(filePath),artist:parsed.common.artist||'',
+                    album:parsed.common.album||'',durationSeconds:parsed.format.duration||0});
+            } catch (_) { /* Missing files remain visible through their existing metadata or filename. */ }
+        }
+    }));
+    return [...details.values()];
+});
 ipcMain.handle('library-catalog', () => libraryStore.roomCatalog());
 
 ipcMain.handle('library-artists', () => library.listArtists());
@@ -1442,22 +1516,65 @@ ipcMain.handle('library-set-rating', (_event, filePath, rating) => libraryStore.
 ipcMain.handle('book-position-get', (_event, filePath) => libraryStore.getBookPosition(filePath));
 ipcMain.handle('book-position-set', (_event, filePath, seconds) => libraryStore.setBookPosition(filePath, seconds));
 let remoteImports = 0;
+const platformAudio = require('./services/platform-audio');
+let platformImportAbort = null;
+function linkTools() {return {ytdlp:store.get('ytDlpPath',''),spotdl:store.get('spotdlPath',''),ffmpeg:store.get('ffmpegPath','')};}
+ipcMain.handle('link-tool-pick',async(_event,tool)=>{
+    const key={ytdlp:'ytDlpPath',spotdl:'spotdlPath'}[tool];
+    if(!key)return {error:'Unknown link tool'};
+    const picked=await dialog.showOpenDialog(mainWindow,{title:`Choose ${tool}`,properties:['openFile']});
+    if(picked.canceled)return {canceled:true};
+    store.set(key,picked.filePaths[0]);return {ok:true};
+});
+ipcMain.handle('link-tools-check',async()=>{
+    const tools=linkTools(),results=[];
+    for(const [name,executable,args] of [['yt-dlp',tools.ytdlp||'yt-dlp',['--version']],
+        ['spotDL',tools.spotdl||'spotdl',['--version']],['FFmpeg',tools.ffmpeg||'ffmpeg',['-version']],['Deno','deno',['--version']]]){
+        try {await platformAudio.run(executable,args,{timeoutMs:15000});results.push(`${name}: ready`);}
+        catch(_){results.push(`${name}: missing or could not start`);}
+    }
+    return {message:results.join(' · ')};
+});
+ipcMain.handle('remote-audio-cancel',()=>{platformImportAbort?.abort();return {ok:true};});
+ipcMain.handle('remote-audio-download',async(_event,filePath)=>{
+    try {
+        const input=platformAudio.cachedFile(filePath,['remote-cache','platform-cache'].map(name=>path.join(paths.getDataRoot(),name)));
+        const result=await dialog.showSaveDialog(mainWindow,{title:'Download MP3',
+            defaultPath:path.join(app.getPath('downloads'),`${path.basename(input,path.extname(input))}.mp3`),
+            filters:[{name:'MP3 Audio',extensions:['mp3']}]});
+        if(result.canceled||!result.filePath)return {canceled:true};
+        if(path.resolve(input)===path.resolve(result.filePath))throw new Error('Choose a destination outside the temporary cache.');
+        if(path.extname(input).toLowerCase()==='.mp3')await fs.promises.copyFile(input,result.filePath);
+        else await mediaTools.convert(input,result.filePath,{executable:linkTools().ffmpeg});
+        return {ok:true,filePath:result.filePath};
+    }catch(error){return {error:error.message};}
+});
 async function importRemoteAudio(url) {
     if (remoteImports >= 3) return {ok: false, error: 'Three link imports are already running. Try again shortly.'};
     remoteImports++;
+    let controller;
     try {
+        if(platformImportAbort)throw new Error('A link is already downloading. Wait or cancel it first.');
+        controller=new AbortController();platformImportAbort=controller;
         const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
-        const result = await remotePlaylist.download(url, cacheRoot, fetch, (progress) =>
+        let result;
+        if(platformAudio.source(url)){
+            result=await platformAudio.download(url,path.join(paths.getDataRoot(),'platform-cache'),{
+                tools:linkTools(),signal:controller.signal,onProgress:progress=>sendToRenderer('remote-audio-progress',progress)});}
+        else result = await remotePlaylist.download(url, cacheRoot, (resource,options)=>fetch(resource,{...options,signal:controller.signal}), (progress) =>
             sendToRenderer('remote-audio-progress', progress));
+        if(controller.signal.aborted)throw new Error('Link download cancelled.');
         library.ingest(result.files);
         return {ok: true, ...result, filePath: result.files[0]};
     } catch (error) { return {ok: false, error: error.message}; }
-    finally { remoteImports--; }
+    finally { remoteImports--; if(platformImportAbort===controller)platformImportAbort=null; }
 }
 ipcMain.handle('remote-audio-add', (_event, url) => importRemoteAudio(url));
 ipcMain.handle('remote-audio-save', async (_event, filePath) => {
     try {
-        const cacheRoot = path.join(paths.getDataRoot(), 'remote-cache');
+        const roots=['remote-cache','platform-cache'].map(name=>path.join(paths.getDataRoot(),name));
+        platformAudio.cachedFile(filePath,roots);
+        const cacheRoot = roots.find(root=>{const relative=path.relative(root,filePath);return relative&&!relative.startsWith('..')&&!path.isAbsolute(relative);});
         const incoming = path.join(paths.getDataRoot(), 'incoming');
         const savedPath = remoteCache.save(filePath, cacheRoot, incoming);
         const root = libraryStore.addRoot(incoming);
