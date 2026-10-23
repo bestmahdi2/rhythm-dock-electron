@@ -1,4 +1,12 @@
-# Rhythm Dock 1.7.2
+# Rhythm Dock 1.7.3
+
+- Redesigned Player, Playlist and Settings for horizontal, vertical, compact dock and screen-edge layouts while retaining existing controls and behavior.
+- Added eight Settings categories with back navigation, expandable sections and access to existing advanced tools.
+- Improved playlist browsing, queue metadata and durations, filtering, sorting and accessible queue reordering.
+- Removed obsolete artwork, PNG controls, the unused Howler bundle and the superseded standalone vertical page.
+- Added layout and control-preservation checks for the three main tabs.
+
+## Previous changes — 1.7.2
 
 - Expanded architecture coverage: Windows x64/x86/ARM64; macOS Intel/Apple Silicon; Linux x64/ARM64.
 - Fixed Linux package verification to use electron-builder's per-format architecture names.

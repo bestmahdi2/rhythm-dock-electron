@@ -1,6 +1,6 @@
 {
   "name": "rhythm-dock-electron",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "A lightweight, feature-rich music player.",
   "main": "src/main/index.js",
   "homepage": "https://github.com/bestmahdi2/rhythm-dock-electron",
