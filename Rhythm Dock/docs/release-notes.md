@@ -20,6 +20,8 @@ Builds are unsigned. macOS packages are not notarized. Database protections appl
 
 Each platform includes a SHA256SUMS file. Every push produces workflow artifacts. A new version pushed to master publishes a GitHub Release only after all builds and validation pass. Existing release tags are never moved to a different commit.
 
+The workflow reserves a new version tag before building, while the source commit is still the head of master. Publishing uses that existing tag (`--verify-tag`) so a later push cannot cause GitHub's workflow-file permission check to reject tagging the older build. Failed builds can leave a reserved tag without a release; rerun the same commit to retry, or bump the version for corrected source. The workflow never retargets a tag or publishes packages built from a different commit.
+
 | OS | CPU | Packages |
 | --- | --- | --- |
 | Windows | x64, x86 (ia32), ARM64 | Guided Setup EXE + Portable EXE |
