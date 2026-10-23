@@ -209,13 +209,13 @@ Rhythm Dock/
 |  |- preload/
 |  |  |- index.js        The renderer's only bridge to the system
 |  |- renderer/
-|  |  |- index.html      Markup for every panel
-|  |  |- vertical.html   Compact vertical layout
+|  |  |- index.html      Shared panels for horizontal, vertical and edge layouts
 |  |  |- overlay.html    Desktop lyrics strip (its own window)
 |  |  |- styles/         Design tokens and all ten themes
 |  |  |- js/             UI logic, plus audio/ (engine, equalizer, devices)
-|  |- assets/            Bundled images and icons
-|- scripts/              Icon generation
+|  |- assets/images/     Audio and video placeholder artwork
+|- scripts/              Icon generation and packaging helpers
+|- build/icons/          Generated app, tray and file-type icons (npm run icons)
 
 server/                  Optional "listen together" relay
 docs/                    ROADMAP.md, PHASES.md, SERVER-SETUP.md

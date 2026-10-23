@@ -23,6 +23,10 @@ git apply --3way phase-01-foundations.patch
 
 ## Pre-flight notes
 
+The notes below describe the original pre-rework snapshot. The retired PNG
+controls, Howler bundle and separate vertical page have since been removed;
+current layouts share `src/renderer/index.html` and use the WebAudio engine.
+
 **Missing assets.** The supplied `Project_Backup.zip` does not contain
 `Rhythm Dock/src/assets/images/` (placeholder.png, play.png, pause.png, next.png,
 prev.png) or `Rhythm Dock/src/assets/vendor/howler.core.min.js`, even though the code

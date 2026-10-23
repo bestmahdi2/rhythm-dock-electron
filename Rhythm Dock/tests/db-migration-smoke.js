@@ -52,7 +52,7 @@ app.whenReady().then(async () => {
         assert.equal(translate.isRightToLeft('fa'),true);assert.equal(translate.isRightToLeft('fr'),false);
         assert.equal(handle.pragma('user_version', {simple: true}), database.TARGET_VERSION);
         const stablePath = paths.getDatabasePath();
-        const art = fs.readFileSync(path.join(__dirname, '../src/assets/images/volume.png'));
+        const art = fs.readFileSync(path.join(__dirname, '../src/assets/images/placeholder.png'));
         const coverDir = path.join(scratch, 'covers');
         const firstCover = coverCache.thumbnail(art, coverDir);
         assert.match(firstCover, /^data:image\/png;base64,/);

@@ -57,3 +57,6 @@
 **/dist/**
 **/build/**
 Project_Backup.zip
+
+# Retired design drafts are not runtime assets.
+/Rhythm Dock/src/assets/saved/
