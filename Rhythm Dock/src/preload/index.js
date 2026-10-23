@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
     copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
     showFileInFolder: (filePath) => ipcRenderer.invoke('show-file-in-folder', filePath),
     toggleOrientation: (isVertical) => ipcRenderer.invoke('toggle-orientation', isVertical),
+    selectViewMode: mode => ipcRenderer.invoke('select-view-mode', mode),
+    getViewMode: () => ipcRenderer.invoke('get-view-mode'),
     pinWindow: () => ipcRenderer.invoke('pin-window'),
     minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
     closeWindow: () => ipcRenderer.invoke('close-window'),

@@ -83,9 +83,15 @@
 
 /* The edge strip remains the existing 48px hover-to-expand player. */
 .container.edge-docked.collapsed { border-radius: 16px; }
-.edge-control { display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; }
-#edge-play { height: 38px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.edge-control { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; box-sizing: border-box; aspect-ratio: 1; border-radius: 9px; }
+#edge-play { width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: var(--on-accent); }
 .edge-handle { width: 22px; height: 4px; margin: 6px 0; opacity: .65; }
+.container.edge-docked.collapsed[data-edge-side="top"] .edge-strip { flex-direction: row; gap: 6px; }
+.container.edge-docked.collapsed[data-edge-side="top"] .edge-handle { width: 4px; height: 22px; margin: 0 6px; }
+.container.edge-docked.collapsed[data-edge-side="top"] .edge-title-viewport { min-width: 0; min-height: 0; text-align: left; }
+.container.edge-docked.collapsed[data-edge-side="top"] .edge-title-viewport span { writing-mode: horizontal-tb; }
+.container.edge-docked.collapsed[data-edge-side="top"] .edge-title-viewport span.scrolling { animation-name: edge-title-scroll-horizontal; }
+@keyframes edge-title-scroll-horizontal { from { transform: translateX(0); } to { transform: translateX(var(--edge-scroll-distance)); } }
 
 /* Saved compact windows remain usable; no control is removed at small sizes. */
 @media (max-height: 300px) and (min-width: 280px) {
@@ -132,4 +138,10 @@
         -webkit-app-region: no-drag;
     }
     .container[data-active-tab="player"]:not(.collapsed) .lyrics-section { flex: 0 0 auto; }
+}
+/* Collapsed strips never inherit the expanded player's footer or spacing. */
+.container[data-active-tab="player"].vertical-mode.edge-docked.collapsed {
+    padding: 4px;
+    gap: 0;
+    min-width: 0;
 }

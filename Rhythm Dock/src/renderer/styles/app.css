@@ -583,6 +583,7 @@ label,
    could not be moved from anywhere except the player. The bar now sits above
    them, and the panels start below it. */
 .header-bar {
+    -webkit-app-region: drag;
     position: relative;
     z-index: 1500;
     display: flex;
@@ -594,6 +595,9 @@ label,
 }
 
 .filename {
+    -webkit-app-region: drag;
+    align-self: stretch;
+    align-content: center;
     flex: 1 1 auto;
     min-width: 0;
     padding-left: var(--sp-1);

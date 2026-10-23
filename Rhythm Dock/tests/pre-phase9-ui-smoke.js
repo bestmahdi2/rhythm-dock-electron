@@ -144,6 +144,21 @@ app.whenReady().then(async () => {
             Menu.prototype.popup = originalPopup;
         }
 
+        const menuSwitches = await window.webContents.executeJavaScript(`(() => {
+            document.getElementById('lyrics-dropdown-btn').click();
+            const menu=document.getElementById('lyrics-dropdown-menu');
+            const rect=menu.getBoundingClientRect();
+            const fits=menu.classList.contains('show')&&rect.left>=0&&rect.top>=0&&rect.right<=innerWidth&&rect.bottom<=innerHeight;
+            const button=document.getElementById('toggle-manual-scroll-btn');
+            const label=button.textContent;
+            const before=button.getAttribute('aria-pressed');button.click();
+            const stable=button.textContent===label&&button.getAttribute('aria-pressed')!==before;
+            const switchVisible=getComputedStyle(button,'::after').content!=='none';
+            button.click();closeAllMenus();
+            return {fits,stable,switchVisible};
+        })()`);
+        for(const [name,value] of Object.entries(menuSwitches))assert.equal(value,true,'menu switch '+name);
+        console.log('PASS: themed menu bounds, stable toggle labels and visible switches');
         const checks = await window.webContents.executeJavaScript(`(() => {
             const theme = document.getElementById('light-mode-btn');
             const lock = document.getElementById('lock-btn');
@@ -203,8 +218,8 @@ app.whenReady().then(async () => {
         assert.equal(docked, true);
         const bounds = window.getBounds();
         const work = screen.getDisplayMatching(bounds).workArea;
-        assert.ok(bounds.x === work.x || bounds.x + bounds.width === work.x + work.width,
-            'docked window must touch a screen wall');
+        assert.ok(bounds.x === work.x || bounds.x + bounds.width === work.x + work.width || bounds.y === work.y,
+            'docked window must touch the left, right or top edge');
         await window.webContents.executeJavaScript('window.api.edgeDockExpand(true)');
         await new Promise((resolve) => setTimeout(resolve, 350));
         assert.equal(window.getBounds().width, 220, 'hover expansion must have room for the vertical player');
@@ -212,7 +227,7 @@ app.whenReady().then(async () => {
         await new Promise((resolve) => setTimeout(resolve, 350));
         const panelBounds = window.getBounds();
         assert.equal(panelBounds.width, 340, 'docked settings must remain readable');
-        assert.ok(panelBounds.x === work.x || panelBounds.x + panelBounds.width === work.x + work.width);
+        assert.ok(panelBounds.x === work.x || panelBounds.x + panelBounds.width === work.x + work.width || panelBounds.y === work.y);
         await window.webContents.executeJavaScript('window.api.edgeDockToggle()');
         await window.webContents.executeJavaScript('window.api.toggleOrientation(true)');
         assert.equal(window.getBounds().width, 340);

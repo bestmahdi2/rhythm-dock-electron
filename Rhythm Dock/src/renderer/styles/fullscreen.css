@@ -1,0 +1,49 @@
+/* Full app mode keeps the same live lyrics and transport controls. */
+.container.app-fullscreen {
+    width: 100vw; height: 100vh; border-radius: 0;
+    padding: 16px 28px 190px; gap: 16px; min-width: 0;
+    background: var(--bg-solid);
+}
+.container.app-fullscreen[data-active-tab="player"]:not(.collapsed) { padding: 16px 28px 200px; gap: 16px; border-radius: 0; }
+.container.app-fullscreen .header-bar { min-height: 36px; padding-bottom: 10px; border-bottom: 1px solid var(--line); justify-content: space-between; }
+.container.app-fullscreen .filename { display: block; font-size: 12px; }
+.container.app-fullscreen .window-controls { flex-wrap: nowrap; }
+.container.app-fullscreen #fullscreen-mode-btn { color: var(--accent); background: var(--accent-soft); }
+.container.app-fullscreen[data-active-tab="player"] .content-wrapper {
+    position: absolute; bottom: 60px; left: 28px; right: 28px; width: auto;
+    display: grid; grid-template-columns: 80px minmax(160px, 1fr) minmax(300px, 1.4fr);
+    align-items: center; gap: 20px; padding: 18px 0;
+    border-top: 1px solid var(--line);
+}
+.container.app-fullscreen[data-active-tab="player"] #album-art-wrapper { width: 80px; height: 80px; max-width: none; }
+.container.app-fullscreen[data-active-tab="player"] .main-controls { text-align: left; align-items: stretch; }
+.container.app-fullscreen[data-active-tab="player"] #title { font-size: 18px; text-align: left; }
+.container.app-fullscreen[data-active-tab="player"] #artist { text-align: left; }
+.container.app-fullscreen[data-active-tab="player"] .side-controls { grid-column: 3; grid-row: 1; padding: 0; width: min(100%, 480px); justify-self: center; }
+.container.app-fullscreen[data-active-tab="player"] .lyrics-section {
+    flex: 1; min-height: 0; width: min(900px,100%); margin: 0 auto;
+    border: 0; display: flex; flex-direction: column;
+}
+.container.app-fullscreen[data-active-tab="player"] .lyrics-container {
+    flex: 1; height: auto; min-height: 0; padding: 80px 24px;
+    text-align: center; mask-image: linear-gradient(transparent,#000 15%,#000 85%,transparent);
+    -webkit-mask-image: linear-gradient(transparent,#000 15%,#000 85%,transparent);
+}
+.container.app-fullscreen .lyrics-line { font-size: clamp(20px,2.8vw,38px); line-height: 1.6; margin: 14px 0; }
+.container.app-fullscreen .lyrics-line.active { font-size: clamp(24px,3.2vw,46px); }
+.container.app-fullscreen[data-active-tab="player"] .lyrics-controls { align-self: center; position: static; }
+.container.app-fullscreen[data-active-tab="player"].lyrics-hidden .lyrics-section { display: none; }
+.container.app-fullscreen .tab-bar { width: 360px; max-width: calc(100% - 32px); bottom: 12px; }
+.container.app-fullscreen .tab-bar .tab-dot { flex-direction: row; font-size: 12px; }
+.container.app-fullscreen #playlist-panel,
+.container.app-fullscreen #tab-settings,
+.container.app-fullscreen #tab-playlist-options,
+.container.app-fullscreen #tab-tags { top: 72px; bottom: 64px; left: max(28px, calc((100vw - 960px)/2)); right: max(28px, calc((100vw - 960px)/2)); border-radius: 12px; }
+@media(max-width:700px) {
+    .container.app-fullscreen { padding: 12px 16px 230px; }
+    .container.app-fullscreen[data-active-tab="player"]:not(.collapsed) { padding: 12px 16px 260px; }
+    .container.app-fullscreen[data-active-tab="player"] .content-wrapper { left: 16px; right: 16px; grid-template-columns: 56px minmax(0,1fr); gap: 10px; }
+    .container.app-fullscreen[data-active-tab="player"] #album-art-wrapper { width: 56px; height: 56px; }
+    .container.app-fullscreen[data-active-tab="player"] .side-controls { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+    .container.app-fullscreen[data-active-tab="player"] .lyrics-container { padding: 36px 12px; }
+}

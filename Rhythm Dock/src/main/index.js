@@ -92,15 +92,16 @@ let mainWindow;
 let persistWindowState = () => {};
 let currentLayout = 'horizontal';
 let currentTab = 'player';
+let appFullscreenMode = false;
 let edgeDock = {active: false, expanded: false, side: 'right'};
 let normalBounds = null;
 let normalPinned = false;
 let normalResizable = true;
 let edgeSnapTimer = null;
 
-function edgeBounds(side, y, display = screen.getPrimaryDisplay(), width = edgeGeometry.COLLAPSED_WIDTH) {
+function edgeBounds(side, y, display = screen.getPrimaryDisplay(), width = edgeGeometry.COLLAPSED_WIDTH, x = mainWindow?.getBounds().x) {
     return edgeGeometry.boundsFor(side, y, display.workArea,
-        width === edgeGeometry.EXPANDED_WIDTH, currentTab === 'player' ? edgeGeometry.EXPANDED_WIDTH : 340);
+        width === edgeGeometry.EXPANDED_WIDTH, currentTab === 'player' ? edgeGeometry.EXPANDED_WIDTH : 340, x);
 }
 
 function setEdgeDock(active) {
@@ -114,12 +115,12 @@ function setEdgeDock(active) {
         edgeDock.expanded = false;
         const saved = store.get('edgeDock', {});
         const display = screen.getDisplayNearestPoint({x: normalBounds.x, y: normalBounds.y});
-        edgeDock.side = ['left', 'right'].includes(saved.side) ? saved.side
-            : edgeGeometry.sideForPoint(normalBounds.x + normalBounds.width / 2, display.workArea);
-        mainWindow.setMinimumSize(edgeGeometry.COLLAPSED_WIDTH, 110);
+        edgeDock.side = ['left', 'right', 'top'].includes(saved.side) ? saved.side
+            : edgeGeometry.sideForPoint(normalBounds.x + normalBounds.width / 2, display.workArea, normalBounds.y);
+        mainWindow.setMinimumSize(edgeGeometry.COLLAPSED_WIDTH, edgeGeometry.COLLAPSED_WIDTH);
         mainWindow.setResizable(false);
         mainWindow.setAlwaysOnTop(true);
-        mainWindow.setBounds(edgeBounds(edgeDock.side, saved.y ?? normalBounds.y, display));
+        mainWindow.setBounds(edgeBounds(edgeDock.side, saved.y ?? normalBounds.y, display, edgeGeometry.COLLAPSED_WIDTH, saved.x ?? normalBounds.x));
         if (!mainWindow.isVisible()) mainWindow.show();
     } else {
         edgeDock.active = false;
@@ -132,14 +133,15 @@ function setEdgeDock(active) {
         sendToRenderer('set-orientation-class', currentLayout === 'vertical');
     }
     store.set('edgeDock', {active: edgeDock.active, side: edgeDock.side,
-        y: mainWindow.getBounds().y});
+        x: mainWindow.getBounds().x, y: mainWindow.getBounds().y});
     sendToRenderer('edge-dock-changed', {...edgeDock});
     return edgeDock.active;
 }
 
 function expandEdgeDock(expanded) {
     if (!edgeDock.active || !mainWindow || mainWindow.isDestroyed()) return;
-    const wantedWidth = expanded ? (currentTab === 'player' ? edgeGeometry.EXPANDED_WIDTH : 340) : edgeGeometry.COLLAPSED_WIDTH;
+    const wantedWidth = expanded ? (currentTab === 'player' ? edgeGeometry.EXPANDED_WIDTH : 340)
+        : edgeDock.side === 'top' ? edgeGeometry.HEIGHT : edgeGeometry.COLLAPSED_WIDTH;
     if (edgeDock.expanded === Boolean(expanded) && mainWindow.getBounds().width === wantedWidth) return;
     edgeDock.expanded = Boolean(expanded);
     const old = mainWindow.getBounds();
@@ -154,12 +156,15 @@ function snapEdgeDock() {
     const bounds = mainWindow.getBounds();
     const center = {x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2};
     const display = screen.getDisplayNearestPoint(center);
-    edgeDock.side = edgeGeometry.sideForPoint(center.x, display.workArea);
+    // Use the nearest outside edge of the dragged strip, with a small top-edge
+    // threshold so an expanded top panel does not jump to a side when it opens.
+    edgeDock.side = bounds.y <= display.workArea.y + 32 ? 'top'
+        : edgeGeometry.sideForPoint(center.x, display.workArea, center.y);
     const target = edgeBounds(edgeDock.side, bounds.y, display,
         edgeDock.expanded ? edgeGeometry.EXPANDED_WIDTH : edgeGeometry.COLLAPSED_WIDTH);
-    if (target.x !== bounds.x || target.y !== bounds.y || target.height !== bounds.height)
+    if (target.x !== bounds.x || target.y !== bounds.y || target.height !== bounds.height || target.width !== bounds.width)
         mainWindow.setBounds(target);
-    store.set('edgeDock', {active: true, side: edgeDock.side, y: target.y});
+    store.set('edgeDock', {active: true, side: edgeDock.side, x: target.x, y: target.y});
     sendToRenderer('edge-dock-changed', {...edgeDock});
 }
 
@@ -330,7 +335,7 @@ const createWindow = () => {
     // The OS can leave full-screen without asking us (the green button on macOS, F11
     // on Windows), so the renderer is told rather than assuming its own state holds.
     mainWindow.on('enter-full-screen', () => sendToRenderer('window:fullscreen-changed', true));
-    mainWindow.on('leave-full-screen', () => sendToRenderer('window:fullscreen-changed', false));
+    mainWindow.on('leave-full-screen', () => { appFullscreenMode = false; sendToRenderer('window:fullscreen-changed', false); });
 
     // Same treatment for the minimise button when the option is on.
     mainWindow.on('minimize', (event) => {
@@ -384,7 +389,8 @@ const roadmap = require('./services/roadmap-ipc').install({
         mainWindow.setBounds(bounds); if(!Number.isFinite(restored.x))mainWindow.center();
         mainWindow.setAlwaysOnTop(Boolean(preset.pinned));store.set('isPinned',Boolean(preset.pinned));
         sendToRenderer('set-orientation-class',currentLayout==='vertical');
-        if(preset.edge?.active){edgeDock.side=preset.edge.side==='left'?'left':'right';setEdgeDock(true);}
+        if(preset.edge?.active){edgeDock.side=['left','right','top'].includes(preset.edge.side)?preset.edge.side:'right';
+            store.set('edgeDock', {...store.get('edgeDock', {}),side:edgeDock.side});setEdgeDock(true);}
         persistWindowState();
     },
     updated:(oldPath,newPath)=>{
@@ -1001,9 +1007,39 @@ ipcMain.handle('process-dropped-paths', async (_event, droppedPaths) => {
     return files;
 });
 
+function getViewMode() {
+    return appFullscreenMode ? 'fullscreen' : edgeDock.active ? 'stick' : currentLayout === 'vertical' ? 'vertical'
+        : store.get('horizontalViewMode', 'horizontal');
+}
+ipcMain.handle('get-view-mode', () => getViewMode());
+ipcMain.handle('select-view-mode', (_event, mode) => {
+    if (!mainWindow || mainWindow.isDestroyed() || store.get('isLocked', false) ||
+        !['horizontal', 'vertical', 'dock', 'stick', 'fullscreen'].includes(mode)) return getViewMode();
+    if (mode === 'fullscreen') {
+        if (edgeDock.active) setEdgeDock(false);
+        appFullscreenMode = true;
+        mainWindow.setFullScreen(true);
+        return 'fullscreen';
+    }
+    if (appFullscreenMode) { appFullscreenMode = false; mainWindow.setFullScreen(false); }
+    if (mode === 'stick') { setEdgeDock(true); return getViewMode(); }
+    if (edgeDock.active) setEdgeDock(false);
+    currentLayout = mode === 'vertical' ? 'vertical' : 'horizontal';
+    if (mode !== 'vertical') {
+        store.set('horizontalViewMode', mode);
+        store.set('playerTabHeight', windowState.PRESETS[mode === 'dock' ? 'horizontalCompact' : 'horizontal'].height);
+    }
+    windowState.applyPreset(mainWindow, mode === 'dock' ? 'horizontalCompact' : currentLayout);
+    if (currentTab !== 'player') mainWindow.setSize(mode === 'vertical' ? 340 : 380,
+        mode === 'vertical' ? windowState.PRESETS.vertical.height : 420);
+    persistWindowState();
+    sendToRenderer('set-orientation-class', currentLayout === 'vertical');
+    return getViewMode();
+});
 ipcMain.handle('toggle-orientation', async (_event, isVertical) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (edgeDock.active) return;
+    if (appFullscreenMode) { appFullscreenMode = false; mainWindow.setFullScreen(false); }
 
     currentLayout = isVertical ? 'vertical' : 'horizontal';
 
@@ -1025,6 +1061,7 @@ ipcMain.on('edge-dock-expand', (_event, expanded) => expandEdgeDock(expanded));
 
 ipcMain.on('toggle-lyrics-visibility', (_event, isVisible) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (appFullscreenMode) return;
     if (currentLayout !== 'horizontal') return;
 
     // Keep whatever width the user has chosen; only the height changes with the pane.
@@ -2023,6 +2060,7 @@ ipcMain.handle('set-active-tab', (_event, tab) => {
     if (!['player', 'playlist', 'settings', 'tags'].includes(tab)) return false;
     const previousTab = currentTab;
     currentTab = tab;
+    if (appFullscreenMode) return true;
     if (edgeDock.active) {
         expandEdgeDock(true);
         return true;

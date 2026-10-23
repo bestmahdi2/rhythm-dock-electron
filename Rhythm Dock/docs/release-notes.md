@@ -1,4 +1,12 @@
-# Rhythm Dock 1.7.3
+# Rhythm Dock 1.7.4
+
+- Added Full Screen as a fifth view mode, with central lyrics and playback controls along the bottom.
+- Added explicit mode selection and active-state indicators for Horizontal, Vertical, Dock, Stick and Full Screen.
+- Brought menus over the app and added stable labels with visible switches for enabled options.
+- Improved screen-edge controls with square buttons and support for docking to the top edge.
+- Fixed dragging the window by the filename header in Playlist and Settings.
+
+## Previous changes — 1.7.3
 
 - Redesigned Player, Playlist and Settings for horizontal, vertical, compact dock and screen-edge layouts while retaining existing controls and behavior.
 - Added eight Settings categories with back navigation, expandable sections and access to existing advanced tools.

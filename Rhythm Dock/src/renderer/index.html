@@ -12,12 +12,14 @@
     <link rel="stylesheet" href="styles/player.css"/>
     <link rel="stylesheet" href="styles/playlist.css"/>
     <link rel="stylesheet" href="styles/settings.css"/>
+    <link rel="stylesheet" href="styles/menus.css"/>
+    <link rel="stylesheet" href="styles/fullscreen.css"/>
 </head>
 <body>
 <div id="container" class="container" data-active-tab="player">
     <div id="edge-strip" class="edge-strip" aria-label="Edge dock">
         <button id="edge-exit" class="edge-control" title="Exit edge dock (Ctrl+Alt+D)" aria-label="Exit edge dock"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"></path></svg></button>
-        <div id="edge-handle" class="edge-handle" title="Drag up/down or to the other screen edge" aria-label="Drag edge dock"></div>
+        <div id="edge-handle" class="edge-handle" title="Drag to the left, right or top screen edge" aria-label="Drag edge dock"></div>
         <div id="edge-title-viewport" class="edge-title-viewport"><span id="edge-title">No song loaded</span></div>
         <button id="edge-prev" class="edge-control" title="Previous" aria-label="Previous"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5v14M19 5 9 12l10 7Z"></path></svg></button>
         <button id="edge-play" class="edge-control" title="Play or pause" aria-label="Play or pause"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5 19 12 8 19Z"></path></svg></button>
@@ -63,6 +65,9 @@
                 <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6M9 3v6l-3 4v2h12v-2l-3-4V3M12 15v7"></path></svg>
             </button>
 
+            <button id="fullscreen-mode-btn" title="Full screen (F11)" aria-label="Full screen" aria-pressed="false">
+                <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"></path></svg>
+            </button>
             <button id="minimize-btn" title="Minimize">
                 <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14"></path></svg>
             </button>
@@ -975,13 +980,16 @@
 
 <div class="dropdown-menu" id="app-dropdown-menu" role="menu">
     <span class="menu-label">View</span>
-    <button class="dropdown-item" id="orientation-btn" role="menuitem">
+    <button class="dropdown-item" id="orientation-btn" data-view-mode="vertical" role="menuitemradio" aria-checked="false">
         <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h18v18H3ZM9 3v18"></path></svg>
-        <span id="orientation-label">Switch to Vertical</span>
+        <span id="orientation-label">Vertical</span>
     </button>
-    <button class="dropdown-item" id="edge-dock-btn" role="menuitem">
+    <button class="dropdown-item" data-view-mode="horizontal" role="menuitemradio" aria-checked="true">Horizontal</button>
+    <button class="dropdown-item" data-view-mode="dock" role="menuitemradio" aria-checked="false">Dock</button>
+    <button class="dropdown-item" data-view-mode="fullscreen" role="menuitemradio" aria-checked="false">Full screen (F11)</button>
+    <button class="dropdown-item" id="edge-dock-btn" data-view-mode="stick" role="menuitemradio" aria-checked="false">
         <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h18v18H3ZM9 3v18"></path></svg>
-        <span>Stick to screen edge (Ctrl+Alt+D)</span>
+        <span>Stick (Ctrl+Alt+D)</span>
     </button>
 
     <hr class="dropdown-divider">

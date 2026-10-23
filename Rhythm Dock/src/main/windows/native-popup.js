@@ -13,13 +13,23 @@ function registerNativePopup({ipcMain, Menu, screen, getWindow}) {
         const bounds = window.getContentBounds();
         const zoom = window.webContents.getZoomFactor();
         const coordinate = value => Number.isFinite(value) ? value : 0;
+        // Menu.popup uses content-relative DIP coordinates, not screen coordinates.
+        // Electron adds the window origin itself. Adding it here detached menus
+        // from their buttons whenever the window moved away from (0, 0).
+        const menuWidth = Math.min(420, Math.max(220,
+            ...request.items.map(item => String(item?.label || '').length * 7 + 48)));
+        const menuHeight = request.items.reduce((height, item) =>
+            height + (item?.type === 'separator' ? 10 : 30), 12);
+        const inset = 8;
         const anchor = {
-            x: Math.round(bounds.x + coordinate(request.x) * zoom),
-            y: Math.round(bounds.y + coordinate(request.y) * zoom)
+            x: Math.round(Math.max(inset, Math.min(coordinate(request.x) * zoom,
+                bounds.width - menuWidth - inset))),
+            y: Math.round(Math.max(inset, Math.min(coordinate(request.y) * zoom,
+                Math.max(inset, bounds.height - menuHeight - inset))))
         };
-        const area = screen.getDisplayNearestPoint(anchor).workArea;
-        anchor.x = Math.max(area.x, Math.min(anchor.x, area.x + area.width - 1));
-        anchor.y = Math.max(area.y, Math.min(anchor.y, area.y + area.height - 1));
+        const area = screen.getDisplayNearestPoint({x: bounds.x + anchor.x, y: bounds.y + anchor.y}).workArea;
+        anchor.x = Math.round(Math.max(area.x, Math.min(bounds.x + anchor.x, area.x + area.width - 1)) - bounds.x);
+        anchor.y = Math.round(Math.max(area.y, Math.min(bounds.y + anchor.y, area.y + area.height - 1)) - bounds.y);
         return new Promise(resolve => {
             let settled = false;
             const finish = value => { if (!settled) { settled = true; resolve(value); } };

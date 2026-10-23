@@ -330,23 +330,25 @@ function setPlaybackRate(rate) {
 function updateAppSettingsMenu() {
     // 1. Check for Light Mode
     const isLightMode = containerEl.classList.contains('light-mode');
-    lightModeLabel.textContent = isLightMode ? 'Disable Light Mode' : 'Enable Light Mode';
+    lightModeLabel.textContent = 'Light mode';
     lightModeBtn.classList.toggle('active', isLightMode);
     lightModeBtn.setAttribute('aria-checked', String(isLightMode));
 
     // 2. Check for Vertical Orientation
     const isVertical = containerEl.classList.contains('vertical-mode');
-    orientationLabel.textContent = isVertical ? 'Switch to Horizontal' : 'Switch to Vertical';
-    orientationBtn.classList.toggle('active', isVertical);
+    orientationLabel.textContent = 'Vertical';
+    refreshViewModeSelection();
 
     // 3. Check for Volume Boost
     const isVolumeBoosted = parseFloat(volumeSlider.max) > 1.0;
-    volumeBoostLabel.textContent = isVolumeBoosted ? 'Disable Volume Boost' : 'Enable Volume Boost';
+    volumeBoostLabel.textContent = 'Volume boost';
+    volumeBoostBtn.setAttribute('aria-pressed', String(isVolumeBoosted));
     volumeBoostBtn.classList.toggle('active', isVolumeBoosted);
 }
 
 function updateMagnifierUI() {
-    toggleMagnifierLabel.textContent = isMagnifierEnabled ? 'Hide Album Art Preview on Hover' : 'Show Album Art Preview on Hover';
+    toggleMagnifierLabel.textContent = 'Album art preview on hover';
+    toggleMagnifierBtn.setAttribute('aria-pressed', String(isMagnifierEnabled));
     toggleMagnifierBtn.classList.toggle('active', isMagnifierEnabled);
     containerEl.classList.toggle('magnifier-disabled', !isMagnifierEnabled);
 }
@@ -375,17 +377,22 @@ window.addEventListener('resize', positionAlbumArtPreview);
 // --- Helper Functions ---
 function updateLyricsDropdownMenu() {
     // 1. Show/Hide Lyrics Section
-    toggleLyricsLabel.textContent = areLyricsVisible ? 'Hide Lyrics' : 'Show Lyrics';
+    toggleLyricsLabel.textContent = 'Lyrics';
+    toggleLyricsBtn.setAttribute('aria-checked', String(areLyricsVisible));
+    toggleLyricsBtn.setAttribute('role', 'menuitemcheckbox');
     toggleLyricsBtn.classList.toggle('active', areLyricsVisible);
 
     // 2. Show/Hide Lyrics Controls
-    toggleControlsLabel.textContent = areLyricsControlsVisible ? 'Hide Controls' : 'Show Controls';
+    toggleControlsLabel.textContent = 'Lyrics controls';
+    toggleControlsBtn.setAttribute('aria-checked', String(areLyricsControlsVisible));
+    toggleControlsBtn.setAttribute('role', 'menuitemcheckbox');
     toggleControlsBtn.classList.toggle('active', areLyricsControlsVisible);
 
     // 3. Enable/Disable Manual Scroll
-    manualScrollLabel.textContent = isManualScrollEnabled ? 'Enable Auto Scroll' : 'Disable Auto Scroll';
+    manualScrollLabel.textContent = 'Auto scroll';
     toggleManualScrollBtn.setAttribute('aria-pressed', String(!isManualScrollEnabled));
-    toggleManualScrollBtn.classList.toggle('active', isManualScrollEnabled);
+    toggleManualScrollBtn.classList.toggle('active', !isManualScrollEnabled);
+    toggleManualScrollBtn.setAttribute('role', 'menuitemcheckbox');
 }
 
 /**
@@ -716,11 +723,11 @@ async function toggleLyricsOverlay(enabled) {
 
 function renderOverlayMenuState() {
     if (lyricsOverlayLabel) {
-        lyricsOverlayLabel.textContent = isLyricsOverlayOpen
-            ? 'Hide Desktop Overlay'
-            : 'Show Desktop Overlay';
+        lyricsOverlayLabel.textContent = 'Desktop overlay';
     }
     lyricsOverlayBtn?.classList.toggle('active', isLyricsOverlayOpen);
+    lyricsOverlayBtn?.setAttribute('aria-checked', String(isLyricsOverlayOpen));
+    lyricsOverlayBtn?.setAttribute('role', 'menuitemcheckbox');
 }
 
 /* ==========================================================================
@@ -2903,7 +2910,8 @@ function positionMenu(menu, trigger) {
 
 /** Opens a menu and marks its trigger. */
 function openMenu(menu, trigger) {
-    if (window.DockPopups) {
+    if (isLocked) return;
+    if (window.DockPopups && menu.id === 'speed-dropdown-menu') {
         void window.DockPopups.menu(menu, trigger);
         return;
     }
@@ -2921,10 +2929,12 @@ function openMenu(menu, trigger) {
     trigger.parentElement?.classList.add('open');
     openMenuTrigger = trigger;
     openMenuEl = menu;
+    trigger.setAttribute('aria-expanded', 'true');
 }
 
 /** Closes every open menu. */
 function closeAllMenus() {
+    openMenuTrigger?.setAttribute('aria-expanded', 'false');
     document.querySelectorAll('.dropdown-menu.show').forEach((menu) => {
         menu.classList.remove('show');
         menu.classList.remove('flip-up');
@@ -3170,7 +3180,9 @@ function togglePlaylistPanel(force) {
     isPlaylistVisible = force === undefined ? !isPlaylistVisible : Boolean(force);
     playlistPanel.classList.toggle('show', isPlaylistVisible);
     if (togglePlaylistLabel) {
-        togglePlaylistLabel.textContent = isPlaylistVisible ? 'Hide Playlist' : 'Show Playlist';
+        togglePlaylistLabel.textContent = 'Playlist';
+        document.getElementById('toggle-playlist-btn').setAttribute('aria-checked', String(isPlaylistVisible));
+        document.getElementById('toggle-playlist-btn').setAttribute('role', 'menuitemcheckbox');
     }
     if (isPlaylistVisible) {
         renderLibraryViewChips();
@@ -3207,7 +3219,8 @@ function applyLyricsInteraction() {
     containerEl.classList.toggle('manual-scroll-enabled', isManualScrollEnabled);
     lyricsContainer.classList.toggle('lyrics-selectable', lyricsSelectable);
     const button = document.getElementById('toggle-lyrics-selection-btn');
-    button.textContent = lyricsSelectable ? 'Disable Text Selection' : 'Enable Text Selection';
+    button.textContent = 'Text selection';
+    button.setAttribute('role', 'menuitemcheckbox');
     button.setAttribute('aria-pressed', String(lyricsSelectable));
     if (isManualScrollEnabled && !lyrics.isSynced && lyricsContainer.firstChild) {
         lyricsContainer.firstChild.style.transform = '';
@@ -4234,7 +4247,9 @@ async function refreshExclusionState(filePath) {
     const directory = filePath.replace(/[\\/][^\\/]*$/, '');
     currentExclusions = await window.api.getExclusions(directory);
     const isExcluded = currentExclusions.includes(filePath);
-    excludeTrackLabel.textContent = isExcluded ? 'Include in This Folder' : 'Exclude from This Folder';
+    excludeTrackLabel.textContent = 'Exclude from this folder';
+    document.getElementById('exclude-track-btn').setAttribute('aria-checked', String(isExcluded));
+    document.getElementById('exclude-track-btn').setAttribute('role', 'menuitemcheckbox');
     excludeTrackBtn?.classList.toggle('active', isExcluded);
 }
 
@@ -4963,6 +4978,7 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.addEventListener('click', () => window.api.closeWindow());
 
     // App Settings & Menus
+    document.getElementById('fullscreen-mode-btn').addEventListener('click', toggleAppFullscreen);
     lightModeBtn.addEventListener('click', () => {
         // Flip to the counterpart palette rather than to a generic light sheet,
         // so the toggle and the swatch grid can never disagree.
@@ -4970,11 +4986,13 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(wasLight ? DEFAULT_DARK_THEME : DEFAULT_LIGHT_THEME);
     });
 
-    orientationBtn.addEventListener('click', () => {
-        const isCurrentlyVertical = containerEl.classList.contains('vertical-mode');
-        window.api.toggleOrientation(!isCurrentlyVertical);
+    document.querySelectorAll('[data-view-mode]').forEach(button => {
+        button.addEventListener('click', async () => {
+            if (isLocked) return;
+            paintViewModeSelection(await window.api.selectViewMode(button.dataset.viewMode));
+        });
     });
-    document.getElementById('edge-dock-btn')?.addEventListener('click', () => window.api.edgeDockToggle());
+    refreshViewModeSelection();
 
     toggleLyricsBtn.addEventListener('click', () => {
         areLyricsVisible = !areLyricsVisible;
@@ -5610,9 +5628,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const updateTrayMenuUI = () => {
         if (!minimizeTrayLabel) return;
-        minimizeTrayLabel.textContent = minimizeToTray
-            ? 'Disable Close to Tray'
-            : 'Enable Close to Tray';
+        minimizeTrayLabel.textContent = 'Close to tray';
         minimizeTrayBtn?.classList.toggle('active', minimizeToTray);
         minimizeTrayBtn?.setAttribute('aria-pressed', String(minimizeToTray));
     };
@@ -5959,6 +5975,11 @@ document.addEventListener('drop', async (event) => {
 
 // Keyboard Shortcuts
 window.addEventListener('keydown', (event) => {
+    if (event.key === 'F11') { event.preventDefault(); if (!isLocked) toggleAppFullscreen(); return; }
+    if (event.key === 'Escape' && containerEl.classList.contains('app-fullscreen') && !isLyricsFullscreen &&
+        !document.querySelector('.dropdown-menu.show') && !document.querySelector('dialog[open]')) {
+        event.preventDefault(); toggleAppFullscreen(); return;
+    }
     // Escape backs out one layer at a time: menu, then panel, then nothing.
     // It has to run before the INPUT guard so it still works from the search box.
     // The editor owns the keyboard while it is open: Space taps rather than
@@ -6129,18 +6150,45 @@ function updateSystemMediaSession() {
 
 window.api.onSetOrientationClass((isVertical) => {
     containerEl.classList.toggle('vertical-mode', isVertical);
+    refreshViewModeSelection();
 });
+
+function paintViewModeSelection(mode) {
+    containerEl.classList.toggle('app-fullscreen', mode === 'fullscreen');
+    const fullscreenButton = document.getElementById('fullscreen-mode-btn');
+    fullscreenButton?.setAttribute('aria-pressed', String(mode === 'fullscreen'));
+    fullscreenButton?.setAttribute('aria-label', mode === 'fullscreen' ? 'Exit full screen' : 'Full screen');
+    document.querySelectorAll('[data-view-mode]').forEach(button => {
+        const selected = button.dataset.viewMode === mode;
+        button.setAttribute('aria-checked', String(selected));
+        button.classList.toggle('active', selected);
+    });
+}
+async function refreshViewModeSelection() {
+    paintViewModeSelection(await window.api.getViewMode());
+}
+let fullscreenReturnMode = 'horizontal';
+async function toggleAppFullscreen() {
+    if (isLocked) return;
+    if (isLyricsFullscreen) await setLyricsFullscreen(false);
+    const current = await window.api.getViewMode();
+    if (current !== 'fullscreen') fullscreenReturnMode = current;
+    paintViewModeSelection(await window.api.selectViewMode(current === 'fullscreen' ? fullscreenReturnMode : 'fullscreen'));
+}
+window.api.onFullscreenChanged(() => refreshViewModeSelection());
 
 // The narrow strip shares the player's transport; it has no second audio engine.
 let edgeHoverTimer = null;
 let edgeDragging = false;
 let refreshEdgeTitle = () => {};
 function applyEdgeDockState(state) {
+    containerEl.dataset.edgeSide = state.side || 'right';
     containerEl.classList.toggle('edge-docked', Boolean(state.active));
     containerEl.classList.toggle('collapsed', Boolean(state.active && !state.expanded));
     containerEl.classList.toggle('expanded', Boolean(state.active && state.expanded));
     if (state.active) containerEl.classList.add('vertical-mode');
     if (!state.active) clearTimeout(edgeHoverTimer);
+    refreshViewModeSelection();
 }
 
 window.api.onEdgeDockChanged((state) => {
@@ -6154,7 +6202,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const viewport = document.getElementById('edge-title-viewport');
     const updateTitle = () => {
         edgeTitle.textContent = titleEl.textContent || 'No song loaded';
-        const overflow = Math.max(0, edgeTitle.scrollHeight - viewport.clientHeight);
+        const top = containerEl.dataset.edgeSide === 'top';
+        const overflow = Math.max(0, top ? edgeTitle.scrollWidth - viewport.clientWidth : edgeTitle.scrollHeight - viewport.clientHeight);
         edgeTitle.style.setProperty('--edge-scroll-distance', `${-overflow}px`);
         edgeTitle.classList.toggle('scrolling', overflow > 4);
     };
