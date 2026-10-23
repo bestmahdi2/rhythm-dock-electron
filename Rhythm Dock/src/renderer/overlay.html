@@ -14,6 +14,7 @@
 <div id="overlay" class="overlay">
     <!-- The whole strip is the drag handle; the buttons opt back out of it. -->
     <div class="overlay-lines">
+        <p id="overlay-previous" class="overlay-next"></p>
         <p id="overlay-line" class="overlay-line">Rhythm Dock</p>
         <p id="overlay-next" class="overlay-next"></p>
     </div>
@@ -31,13 +32,14 @@
 
         <span class="overlay-divider"></span>
 
-        <button id="overlay-lock" class="overlay-btn" title="Click-through" aria-label="Toggle click-through">
+        <button id="overlay-lock" class="overlay-btn" title="Lock lyrics (controls remain available)" aria-label="Lock lyrics" aria-pressed="false">
             <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5ZM12 14v3"></path></svg>
         </button>
         <button id="overlay-close" class="overlay-btn" title="Close" aria-label="Close overlay">
             <svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"></path></svg>
         </button>
     </div>
+<button id="overlay-resize" aria-label="Resize lyrics overlay" title="Drag to resize"></button>
 </div>
 
 <script src="js/icons.js"></script>

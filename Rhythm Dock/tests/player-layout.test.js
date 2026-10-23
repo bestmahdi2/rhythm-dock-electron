@@ -34,6 +34,16 @@ app.whenReady().then(async () => {
             setActiveTab('player');
             document.documentElement.style.setProperty('--dur','0ms');
             const style=document.createElement('style');style.textContent='*{transition:none!important;animation:none!important}';document.head.append(style);`);
+        const progress = await window.webContents.executeJavaScript(`(()=>{
+            progressBar.max=0; progressBar.value=0; isSeeking=false;
+            updateProgressFill(42,120);
+            const recovered={max:Number(progressBar.max),value:Number(progressBar.value),fill:progressBar.style.getPropertyValue('--progress-percent')};
+            progressBar.value=23; isSeeking=true; updateProgressFill(60,120);
+            const dragging=Number(progressBar.value); isSeeking=false; updateProgressFill(60,120);
+            return {recovered,dragging,resumed:Number(progressBar.value)};
+        })()`);
+        assert.deepEqual(progress,{recovered:{max:120,value:42,fill:'35%'},dragging:23,resumed:60});
+        console.log('PASS: progress thumb recovers stale range bounds, follows playback and preserves active scrubbing');
         // Allow the asynchronous Player tab resize to settle before setting test bounds.
         await new Promise(resolve=>setTimeout(resolve,350));
         for (const mode of ['vertical','dock','horizontal','stick','vertical','horizontal']) {

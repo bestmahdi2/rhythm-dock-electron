@@ -154,6 +154,7 @@ contextBridge.exposeInMainWorld('api', {
     ),
 
     // --- Desktop lyrics overlay (Phase 9) ---
+    lyricsInstalledFonts: () => ipcRenderer.invoke('lyrics:installed-fonts'),
     overlayToggle: (enabled) => ipcRenderer.invoke('overlay:toggle', enabled),
     overlayIsOpen: () => ipcRenderer.invoke('overlay:is-open'),
     overlayUpdate: (payload) => ipcRenderer.send('overlay:update', payload),

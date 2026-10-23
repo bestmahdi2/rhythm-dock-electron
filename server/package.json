@@ -1,6 +1,6 @@
 {
   "name": "rhythm-dock-server",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "private": true,
   "description": "Room server for Rhythm Dock: rendezvous, state fan-out and audio relay.",
   "main": "src/index.js",

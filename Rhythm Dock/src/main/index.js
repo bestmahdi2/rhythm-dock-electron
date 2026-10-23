@@ -273,6 +273,7 @@ const createWindow = () => {
             nodeIntegration: false,
             // Renderer-side spellcheck is dead weight for a music player.
             spellcheck: false,
+            backgroundThrottling: !store.get('lyricsOverlayEnabled', false),
         },
     });
 
@@ -673,15 +674,18 @@ function getLyricsConfig() {
     return {
         ...LYRICS_DEFAULTS,
         ...stored,
-        typography: {...LYRICS_DEFAULTS.typography, ...(stored.typography || {})},
+        typography: {...LYRICS_DEFAULTS.typography, ...(stored.typography || {}), ...(database.getAppPreference('lyricsTypography') || {})},
     };
 }
+
+ipcMain.handle('lyrics:installed-fonts', () => require('./services/system-fonts').list(database));
 
 ipcMain.handle('lyrics:get-config', () => getLyricsConfig());
 
 ipcMain.handle('lyrics:set-config', (_event, config) => {
     const merged = {...getLyricsConfig(), ...(config || {})};
     merged.typography = {...getLyricsConfig().typography, ...((config || {}).typography || {})};
+    database.setAppPreference('lyricsTypography', merged.typography);
     store.set('lyrics', merged);
     return merged;
 });
@@ -1118,11 +1122,21 @@ ipcMain.handle('overlay:toggle', (_event, enabled) => {
     const shouldOpen = enabled === undefined ? !lyricsOverlay.isOpen() : Boolean(enabled);
     const open = shouldOpen ? Boolean(lyricsOverlay.create(store)) : lyricsOverlay.close(store);
     store.set('lyricsOverlayEnabled', open);
+    mainWindow?.webContents.setBackgroundThrottling(!open);
 
     // A freshly created window has missed every push so far, so the player is asked
     // for the current line rather than leaving the strip blank until the next one.
     if (open) sendToRenderer('overlay:request-state');
     return open;
+});
+
+ipcMain.on('overlay:ready', () => sendToRenderer('overlay:request-state'));
+ipcMain.handle('overlay:resize', (event, bounds) => {
+    if (event.sender !== lyricsOverlay.get()?.webContents) return;
+    return lyricsOverlay.resize(bounds);
+});
+ipcMain.on('overlay:interactive', (event, interactive) => {
+    if (event.sender === lyricsOverlay.get()?.webContents) lyricsOverlay.setInteractive(Boolean(interactive));
 });
 
 ipcMain.handle('overlay:is-open', () => lyricsOverlay.isOpen());
@@ -1141,6 +1155,7 @@ ipcMain.on('overlay:command', (_event, action) => sendToRenderer('media-key-even
 ipcMain.on('overlay:close', () => {
     lyricsOverlay.close(store);
     store.set('lyricsOverlayEnabled', false);
+    mainWindow?.webContents.setBackgroundThrottling(true);
     sendToRenderer('overlay:closed');
 });
 

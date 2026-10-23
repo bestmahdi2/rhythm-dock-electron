@@ -164,9 +164,13 @@ app.whenReady().then(async () => {
         assert.equal(libraryStore.importAll(snapshot).ok, true);
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1,
             'restoring the same backup must not duplicate playlist entries');
+        database.setAppPreference('lyricsTypography', {fontFamily:'B Nazanin',fontSize:20});
+        database.setAppPreference('lyricsPinnedFonts', ['B Nazanin','IRANSansX']);
         database.close();
 
         database.initialize();
+        assert.equal(database.getAppPreference('lyricsTypography').fontFamily, 'B Nazanin');
+        assert.deepEqual(database.getAppPreference('lyricsPinnedFonts'), ['B Nazanin','IRANSansX']);
         assert.equal(database.getLyrics('test-song'), 'keep these lyrics', 'reopening must preserve data');
         assert.equal(libraryStore.playlistTracks(playlist.id).length, 1,
             'reopening must preserve named playlists');

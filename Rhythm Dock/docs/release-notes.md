@@ -1,4 +1,13 @@
-# Rhythm Dock 1.7.4
+# Rhythm Dock 1.7.5
+
+- Fixed desktop overlay lyric updates while the player is minimized or hidden in the tray, and synchronized its play/pause icon with playback.
+- Clear stale lyrics on track changes and show previous, current and next synchronized lines.
+- Made overlay click-through locking recoverable from its toolbar and added a resize handle with remembered geometry.
+- Added installed-font selection with pinned B Nazanin and IRANSansX shortcuts; typography preferences are stored in SQLite through a preserving schema migration.
+- Fixed the progress slider thumb staying at the beginning by synchronizing its range and position with playback while preserving active scrubbing.
+- Added overlay regression coverage, migration persistence checks and future offline PWA/repository improvement plans.
+
+## Previous changes — 1.7.4
 
 - Added Full Screen as a fifth view mode, with central lyrics and playback controls along the bottom.
 - Added explicit mode selection and active-state indicators for Horizontal, Vertical, Dock, Stick and Full Screen.

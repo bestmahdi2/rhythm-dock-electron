@@ -233,6 +233,7 @@ const MIGRATIONS = [
         CREATE TABLE delivery_jobs (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, payload TEXT NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0, nextAttempt INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL);`);
     },
+    (db) => db.exec('CREATE TABLE app_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)'),
 ];
 
 const TARGET_VERSION = MIGRATIONS.length;
@@ -588,7 +589,16 @@ function close() {
     }
 }
 
+function getAppPreference(key) {
+    const row = db?.prepare('SELECT value FROM app_preferences WHERE key = ?').get(key);
+    return row ? JSON.parse(row.value) : null;
+}
+function setAppPreference(key, value) {
+    db.prepare('INSERT INTO app_preferences(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value));
+}
+
 module.exports = {
+    getAppPreference, setAppPreference,
     initialize,
     close,
     getLyrics,

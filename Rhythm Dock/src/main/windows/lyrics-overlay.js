@@ -1,32 +1,14 @@
 'use strict';
 
-/**
- * Desktop lyrics overlay (Phase 9).
- *
- * A borderless, always-on-top strip that floats over other applications and shows the
- * current line only. Ubiquitous in Asian music players, almost absent in Western ones,
- * and the single most useful thing a lyrics-focused player can put on screen: it is the
- * only way to follow along while actually using the computer.
- *
- * Design notes:
- *
- *   - It is a separate BrowserWindow, not a mode of the main one. The dock has saved
- *     geometry, tab-driven resizing and a taskbar presence; the overlay needs none of
- *     that and wants different flags entirely.
- *   - Its own preload, exposing four channels. The main preload hands the renderer the
- *     filesystem, the tag writer and the room client, none of which a lyric strip has
- *     any business reaching.
- *   - Position is persisted separately, and validated on restore the same way the main
- *     window's is: a monitor that is no longer attached must not swallow the overlay.
- *   - Click-through is opt-in. An always-on-top strip that eats clicks is a bug; one
- *     that cannot be dragged is also a bug. So it is a toggle, and it defaults off.
- */
+// Separate always-on-top lyrics window with persisted geometry and recoverable
+// click-through controls. Its preload exposes no filesystem or library access.
 
 const path = require('path');
 const {BrowserWindow, screen} = require('electron');
 
 const DEFAULT_WIDTH = 720;
-const DEFAULT_HEIGHT = 132;
+const DEFAULT_HEIGHT = 180;
+let clickThrough = false;
 
 let overlayWindow = null;
 
@@ -78,8 +60,10 @@ function get() {
 function create(store) {
     if (isOpen()) return overlayWindow;
 
+    clickThrough = false;
+    const bounds = restoreBounds(store);
     overlayWindow = new BrowserWindow({
-        ...restoreBounds(store),
+        ...bounds,
         frame: false,
         transparent: true,
         resizable: true,
@@ -95,12 +79,13 @@ function create(store) {
         show: false,
         backgroundColor: '#00000000',
         minWidth: 320,
-        minHeight: 90,
+        minHeight: 150,
         webPreferences: {
             preload: path.join(__dirname, '..', '..', 'preload', 'overlay.js'),
             contextIsolation: true,
             nodeIntegration: false,
             spellcheck: false,
+            backgroundThrottling: false,
         },
     });
 
@@ -110,7 +95,11 @@ function create(store) {
     overlayWindow.setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true});
 
     overlayWindow.loadFile(path.join(__dirname, '..', '..', 'renderer', 'overlay.html'));
-    overlayWindow.once('ready-to-show', () => overlayWindow.show());
+    overlayWindow.once('ready-to-show', () => {
+        if (!isOpen()) return;
+        overlayWindow.setBounds(bounds);
+        overlayWindow.show();
+    });
 
     const persist = () => {
         if (!isOpen()) return;
@@ -153,8 +142,9 @@ function toggle(store) {
  */
 function setClickThrough(enabled) {
     if (!isOpen()) return false;
-    overlayWindow.setIgnoreMouseEvents(Boolean(enabled), {forward: true});
-    return Boolean(enabled);
+    clickThrough = Boolean(enabled);
+    overlayWindow.setIgnoreMouseEvents(clickThrough, {forward: true});
+    return clickThrough;
 }
 
 /** Fire-and-forget push of the current line and transport state. */
@@ -163,7 +153,19 @@ function send(channel, payload) {
     overlayWindow.webContents.send(channel, payload);
 }
 
+function setInteractive(interactive) {
+    if (isOpen()) overlayWindow.setIgnoreMouseEvents(clickThrough && !interactive, {forward:true});
+}
+function resize(bounds) {
+    if (!isOpen() || !bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return;
+    const display = screen.getDisplayMatching(overlayWindow.getBounds()).workArea;
+    overlayWindow.setSize(Math.round(Math.max(320, Math.min(display.width, bounds.width))),
+        Math.round(Math.max(150, Math.min(display.height, bounds.height))));
+    return overlayWindow.getBounds();
+}
+
 module.exports = {
+    resize, setInteractive,
     create,
     close,
     toggle,

@@ -539,8 +539,10 @@
                         <option value="right">Right</option>
                     </select>
                 </div>
-                <input type="text" id="lyrics-font-family" class="settings-input full"
-                       placeholder="Font family - blank to use the app font"/>
+                <input type="text" id="lyrics-font-family" list="lyrics-installed-fonts" aria-label="Lyrics font family" class="settings-input full"
+                       placeholder="Choose an installed font or use the app font"/>
+                <datalist id="lyrics-installed-fonts"></datalist>
+                <div id="lyrics-font-pins" class="settings-row"></div>
                 <span class="settings-hint">Sources are tried in order until one has the song: your own .lrc file, the file's tags, then the online databases.</span>
                 <input type="password" id="lyrics-genius-token" class="settings-input full"
                        placeholder="Genius API token (optional, improves matching)"/>

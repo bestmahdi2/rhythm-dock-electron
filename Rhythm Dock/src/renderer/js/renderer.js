@@ -299,6 +299,7 @@ const roomLeaveBtn = document.getElementById('room-leave-btn');
 function renderTransport() {
     isPlaying = audio.isPlaying();
     updatePlayPauseIcon();
+    refreshOverlay();
     reportPlaybackState();
 
     containerEl.classList.toggle('is-loading', audio.state === AUDIO_STATE.LOADING);
@@ -670,12 +671,8 @@ function updateLyricsTypography(patch) {
 }
 
 /* ==========================================================================
-   Desktop lyrics overlay (Phase 9)
-
-   The strip is a separate window, but the timing stays here: this renderer already
-   runs a per-frame loop that knows which line is current, and a second clock in the
-   overlay would drift against this one within a verse. So the overlay is told what to
-   draw, and owns nothing.
+   Desktop lyrics overlay
+   Independent timer reads the audio clock while the main window is hidden.
    ========================================================================== */
 
 /** The text of a line, whether it came from the parser or a translation. */
@@ -694,19 +691,34 @@ function lyricLineText(index) {
 function pushOverlayLine(index, force = false) {
     if (!isLyricsOverlayOpen) return;
 
-    const line = lyricLineText(index);
-    if (!force && line === lastOverlayLine) return;
-    lastOverlayLine = line;
-
-    window.api.overlayUpdate({
-        line,
+    const payload = {
+        line: lyricLineText(index),
+        previous: lyricLineText(index - 1),
         next: lyricLineText(index + 1),
         title: currentSongData?.title || '',
         artist: currentSongData?.artist || '',
         isPlaying,
         rtl: Boolean(showTranslation && lyricsContainer?.classList.contains('rtl')),
-    });
+    };
+    const signature = JSON.stringify(payload);
+    if (!force && signature === lastOverlayLine) return;
+    lastOverlayLine = signature;
+    window.api.overlayUpdate(payload);
 }
+
+// Animation frames stop when minimized/hidden. Read the audio clock independently.
+function refreshOverlay() {
+    if (!isLyricsOverlayOpen) return;
+    let index = lyrics.lines.length && !lyrics.isSynced ? 0 : -1;
+    if (lyrics.isSynced) {
+        const seek = audio.seek() || 0;
+        for (let i = lyrics.lines.length - 1; i >= 0; i--) {
+            if (seek >= lyrics.lines[i].time + currentLyricsOffset) { index = i; break; }
+        }
+    }
+    pushOverlayLine(index);
+}
+setInterval(refreshOverlay, 100);
 
 /** Opens or closes the overlay and reflects the state in the Lyrics menu. */
 async function toggleLyricsOverlay(enabled) {
@@ -1207,7 +1219,13 @@ function updateOffsetDisplay() {
  * from JS so the elapsed portion is always brand green with real contrast.
  */
 function updateProgressFill(seek, duration) {
-    const percent = duration > 0 ? Math.min(100, (seek / duration) * 100) : 0;
+    const total = Number.isFinite(duration) && duration > 0 ? duration : 0;
+    const position = Math.max(0, Math.min(total, Number.isFinite(seek) ? seek : 0));
+    // The fill uses a percentage, but the native thumb uses value/max. A load or
+    // delayed duration event can leave max at zero even while the fill advances.
+    progressBar.max = total || 1;
+    if (!isSeeking) progressBar.value = position;
+    const percent = total > 0 ? (position / total) * 100 : 0;
     progressBar.style.setProperty('--progress-percent', `${percent}%`);
 
     if (progressBuffered) {
@@ -4368,6 +4386,10 @@ async function playTrack(index, options = {}) {
     const fallbackName = filePath.split(/[\\/]/).pop();
     // Make transport and progress usable before artwork, tags or lyrics finish.
     currentSongData = {filePath,basename:fallbackName,title:fallbackName,artist:'',cover:null,lyrics:null};
+    lyrics = {isSynced:false, hasWordTiming:false, lines:[]};
+    translatedLines = null;
+    lastActiveLyricIndex = -1;
+    refreshOverlay();
     audio.setReplayGain(0);
 
     // Kick off streaming immediately. Everything below races against this ticket.
@@ -4530,7 +4552,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     audio.on('buffered', () => updateProgressFill(audio.seek(), audio.duration()));
-    audio.on('time', ({seek}) => {
+    audio.on('time', ({seek, duration}) => {
+        if (!isSeeking) {
+            updateProgressFill(seek, duration || audio.duration());
+            updateTimeDisplay();
+        }
         const select = document.getElementById('chapter-select');
         if (select && !document.getElementById('chapter-nav').hidden) {
             const index = String(chapterIndexAt(seek));
@@ -4651,6 +4677,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // The overlay survives a restart if it was open when the app last closed.
         isLyricsOverlayOpen = await window.api.overlayIsOpen();
         renderOverlayMenuState();
+        if (isLyricsOverlayOpen) {
+            window.api.overlayStyle(lyricsConfig?.typography || {});
+            refreshOverlay();
+        }
         const savedFavorites = await window.api.getStoreValue('favoritesPlaylist');
         if (savedFavorites && Array.isArray(savedFavorites)) {
             favoritesPlaylist = savedFavorites;
@@ -4806,7 +4836,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Track the drag so updateUI() stops writing to the input while the user holds it.
     ['pointerdown', 'mousedown'].forEach(evt =>
         progressBar.addEventListener(evt, () => { isSeeking = true; }));
-    ['pointerup', 'mouseup', 'pointercancel'].forEach(evt =>
+    ['pointerup', 'mouseup', 'pointercancel', 'blur'].forEach(evt =>
         window.addEventListener(evt, () => { isSeeking = false; }));
 
     progressBar.addEventListener('input', () => {
@@ -5054,6 +5084,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // A window that has just opened has missed every push so far.
     window.api.onOverlayRequestState?.(() => {
+        isLyricsOverlayOpen = true;
         window.api.overlayStyle(lyricsConfig?.typography || {});
         pushOverlayLine(lastActiveLyricIndex, true);
     });
@@ -5417,6 +5448,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lyricsAlignEl?.addEventListener('change', () => {
         updateLyricsTypography({align: lyricsAlignEl.value});
     });
+    loadInstalledLyricFonts();
     lyricsFontFamilyEl?.addEventListener('change', () => {
         updateLyricsTypography({fontFamily: lyricsFontFamilyEl.value.trim()});
     });
@@ -6259,3 +6291,20 @@ window.api.onFileMoved(({oldPath,newPath})=>{
     if(currentSongData?.filePath===oldPath)currentSongData.filePath=newPath;
     savePlaybackState();if(activeTab==='playlist')renderQueue();
 });
+
+async function loadInstalledLyricFonts() {
+    const list = document.getElementById('lyrics-installed-fonts');
+    if (!list) return;
+    const result = await window.api.lyricsInstalledFonts();
+    list.replaceChildren(...result.fonts.map(name => {
+        const option = document.createElement('option'); option.value = name; return option;
+    }));
+    const pins = document.getElementById('lyrics-font-pins');
+    pins.replaceChildren(...result.pinned.map(name => {
+        const button = document.createElement('button'); button.type = 'button';
+        button.className = 'settings-btn'; button.textContent = name;
+        button.title = result.fonts.includes(name) ? name : name + ' (install this font to use it)';
+        button.addEventListener('click', () => { lyricsFontFamilyEl.value = name; updateLyricsTypography({fontFamily:name}); });
+        return button;
+    }));
+}

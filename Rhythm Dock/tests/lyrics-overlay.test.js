@@ -1,0 +1,97 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {app, BrowserWindow, ipcMain} = require('electron');
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-overlay-'));
+app.setPath('appData', scratch);
+app.setPath('userData', path.join(scratch, 'profile'));
+fs.mkdirSync(app.getPath('userData'), {recursive:true});
+fs.writeFileSync(path.join(app.getPath('userData'),'config.json'), JSON.stringify({onboardingComplete:true}));
+BrowserWindow.prototype.show = function () {};
+const ready = new Promise(resolve => ipcMain.once('renderer-ready', resolve));
+process.argv.splice(1);
+require('../src/main/index');
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+app.whenReady().then(async () => {
+    try {
+        await Promise.race([ready, wait(20000).then(()=>{throw Error('Renderer timeout');})]);
+        const main = BrowserWindow.getAllWindows()[0];
+        for (let i=0; i<100; i++) {
+            if (await main.webContents.executeJavaScript('document.documentElement.dataset.appReady === "true"')) break;
+            await wait(50);
+        }
+        main.webContents.on('console-message', (_event, level, message) => { if(level >= 2) console.log('renderer:',message); });
+        const js = code => main.webContents.executeJavaScript(code);
+        await js(`(async()=>{document.getElementById('roadmap-dialog')?.close();
+            audio.seek = () => window.testSeek || 0;
+            audio.isPlaying = () => Boolean(window.testPlaying);
+            await toggleLyricsOverlay(true);})()`);
+        const overlay = require('../src/main/windows/lyrics-overlay');
+        const win = overlay.get();
+        if (win.webContents.isLoading()) await new Promise(resolve => win.webContents.once('did-finish-load', resolve));
+        const read = code => win.webContents.executeJavaScript(code);
+        const hitTesting = [];
+        const originalIgnore = win.setIgnoreMouseEvents.bind(win);
+        win.setIgnoreMouseEvents = (ignore, options) => { hitTesting.push(ignore); originalIgnore(ignore, options); };
+        await js(`lyrics = {isSynced:true,lines:[{time:1,text:'Before'},{time:2,text:'Current'},{time:3,text:'After'}]};
+            currentSongData = {title:'First track'}; currentLyricsOffset=0; testSeek=2.5; testPlaying=true; renderTransport();`);
+        await wait(250);
+        assert.deepEqual(await read(`[...document.querySelectorAll('.overlay-lines p')].map(p=>p.textContent)`), ['Before','Current','After']);
+        assert.equal(await read(`document.getElementById('overlay-play').getAttribute('aria-label')`), 'Pause');
+        main.hide();
+        await js(`testSeek=3.5;`);
+        await wait(250);
+        assert.equal(await read(`document.getElementById('overlay-line').textContent`), 'After', 'timer advances lyrics without animation frames or transport events');
+        await js(`testPlaying=false; renderTransport();`);
+        await wait(250);
+        assert.equal(await read(`document.getElementById('overlay-line').textContent`), 'After');
+        assert.equal(await read(`document.getElementById('overlay-play').getAttribute('aria-label')`), 'Play');
+        main.minimize();
+        await js(`testSeek=2.5; testPlaying=true; renderTransport();`);
+        await wait(250);
+        assert.equal(await read(`document.getElementById('overlay-line').textContent`), 'Current');
+        await js(`currentSongData={title:'New track'}; lyrics={isSynced:false,lines:[]}; refreshOverlay();`);
+        await wait(100);
+        assert.deepEqual(await read(`[...document.querySelectorAll('.overlay-lines p')].map(p=>p.textContent)`), ['','New track','']);
+        await read(`document.getElementById('overlay-lock').click()`);
+        await wait(100);
+        assert.equal(await read(`document.getElementById('overlay-lock').getAttribute('aria-pressed')`), 'true');
+        await read(`document.dispatchEvent(new MouseEvent('mousemove',{clientX:30,clientY:30}));`);
+        await wait(100);
+        assert.equal(hitTesting.at(-1), true, 'locked lyric area passes clicks through');
+        await read(`(()=>{const r=document.getElementById('overlay-lock').getBoundingClientRect();
+            document.dispatchEvent(new MouseEvent('mousemove',{clientX:r.x+r.width/2,clientY:r.y+r.height/2}));})()`);
+        await wait(100);
+        assert.equal(hitTesting.at(-1), false, 'hovering lock restores native mouse interaction');
+        await read(`document.getElementById('overlay-lock').click()`);
+        await wait(100);
+        assert.equal(await read(`document.getElementById('overlay-lock').getAttribute('aria-pressed')`), 'false');
+        await read(`window.overlay.resize({width:820,height:260})`);
+        assert.equal(win.getBounds().width, 820);
+        assert.equal(win.getBounds().height, 260);
+        await js(`updateLyricsTypography({fontFamily:'B Nazanin'})`);
+        await wait(700);
+        const db = require('../src/main/services/database');
+        assert.equal(db.getAppPreference('lyricsTypography').fontFamily, 'B Nazanin');
+        assert.equal(await read(`document.documentElement.style.getPropertyValue('--lyric-font-family')`), 'B Nazanin');
+        const fonts = await js(`window.api.lyricsInstalledFonts()`);
+        assert.ok(fonts.fonts.length > 0, 'enumerates actual OS fonts');
+        assert.ok(fonts.pinned.includes('B Nazanin'));
+        assert.ok(fonts.pinned.includes('IRANSansX'));
+        assert.deepEqual(db.getAppPreference('lyricsPinnedFonts'), fonts.pinned);
+        await js(`(async()=>{await toggleLyricsOverlay(false); await toggleLyricsOverlay(true);})()`);
+        await wait(400);
+        assert.equal(overlay.get().getBounds().width, 820, 'resized bounds restored');
+        assert.equal(await overlay.get().webContents.executeJavaScript(`document.getElementById('overlay-line').textContent`), 'New track', 'new window requests current state');
+        if (process.env.RHYTHM_OVERLAY_CAPTURE) {
+            await js(`lyrics={isSynced:true,lines:[{time:1,text:'The line before'},{time:2,text:'Your music, your words'},{time:3,text:'The next line is always in view'}]}; testSeek=2.5; refreshOverlay();`);
+            await wait(150);
+            fs.writeFileSync(process.env.RHYTHM_OVERLAY_CAPTURE, (await overlay.get().webContents.capturePage()).toPNG());
+        }
+        console.log('PASS: overlay context lines, hidden/minimized updates, transport state, song reset, lock toggle, resize, font enumeration and database preferences');
+        app.exit(0);
+    } catch (error) { console.error(error); app.exit(1); }
+});
+

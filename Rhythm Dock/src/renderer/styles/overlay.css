@@ -170,7 +170,7 @@ body {
 }
 
 .overlay.click-through:hover .overlay-controls {
-    opacity: 0;
+    opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -180,3 +180,17 @@ body {
         transition: none;
     }
 }
+
+.overlay { position: relative; padding-bottom: 12px; }
+.overlay.click-through { -webkit-app-region: no-drag; }
+.overlay-lines { gap: 5px; }
+.overlay-next { flex-shrink: 0; min-height: 1.2em; }
+.overlay-controls { flex-shrink: 0; }
+#overlay-resize {
+    position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px;
+    border: 0; border-radius: 3px; background: transparent; color: var(--overlay-text-dim);
+    cursor: nwse-resize; -webkit-app-region: no-drag;
+}
+#overlay-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px;
+    width: 8px; height: 8px; border-right: 2px solid; border-bottom: 2px solid; }
+#overlay-resize:focus-visible { outline: 2px solid var(--overlay-accent); }

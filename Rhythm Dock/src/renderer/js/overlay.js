@@ -1,13 +1,6 @@
 'use strict';
 
-/**
- * Desktop lyrics overlay renderer (Phase 9).
- *
- * Intentionally dumb. It owns no timing, no parsing and no playback state: the main
- * window already runs a per-frame loop that knows exactly which line is current, and
- * duplicating that here would mean two clocks drifting apart. This window renders what
- * it is told and forwards button presses back.
- */
+// Renders authoritative player state, with local lock and resize interactions.
 
 const lineEl = document.getElementById('overlay-line');
 const nextEl = document.getElementById('overlay-next');
@@ -25,6 +18,10 @@ function render(payload = {}) {
         lineEl.textContent = text || (payload.title || 'Rhythm Dock');
         lineEl.classList.toggle('idle', !text);
     }
+    document.getElementById('overlay-previous').textContent = (payload.previous || '').trim();
+    const playButton = document.getElementById('overlay-play');
+    playButton.title = payload.isPlaying ? 'Pause' : 'Play';
+    playButton.setAttribute('aria-label', playButton.title);
     if (nextEl) {
         nextEl.textContent = (payload.next || '').trim();
     }
@@ -60,17 +57,46 @@ document.getElementById('overlay-next-btn')
 document.getElementById('overlay-close')
     ?.addEventListener('click', () => window.overlay.close());
 
-/**
- * Click-through is a one-way door from this window's point of view: once the pointer
- * passes through, the button that would turn it off is no longer clickable. So the
- * only way back is from the main window's menu, and the button says so.
- */
+// Locked lyrics pass clicks through, while the toolbar remains recoverable.
 const lockBtn = document.getElementById('overlay-lock');
 lockBtn?.addEventListener('click', async () => {
     isClickThrough = await window.overlay.setClickThrough(!isClickThrough);
     overlayEl?.classList.toggle('click-through', isClickThrough);
     lockBtn.classList.toggle('active', isClickThrough);
-    lockBtn.title = isClickThrough
-        ? 'Click-through is on — turn it off from the player'
-        : 'Click-through';
+    lockBtn.setAttribute('aria-pressed', String(isClickThrough));
+    lockBtn.title = isClickThrough ? 'Unlock lyrics' : 'Lock lyrics (controls remain available)';
+    lockBtn.setAttribute('aria-label', isClickThrough ? 'Unlock lyrics' : 'Lock lyrics');
+    interactive = true;
+    window.overlay.setInteractive(true);
 });
+
+// Forwarded mouse moves still arrive while the lyrics are click-through. Re-enable
+// hit testing over controls so locking never removes the route back to unlock.
+let interactive = true;
+document.addEventListener('mousemove', event => {
+    if (!isClickThrough) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const next = Boolean(target?.closest('.overlay-controls, #overlay-resize'));
+    if (next !== interactive) { interactive = next; window.overlay.setInteractive(next); }
+});
+document.addEventListener('mouseleave', () => {
+    if (isClickThrough) { interactive = false; window.overlay.setInteractive(false); }
+});
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && isClickThrough) lockBtn.click();
+});
+const resizeGrip = document.getElementById('overlay-resize');
+let resizing;
+resizeGrip.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    resizing = {x:event.screenX, y:event.screenY, width:window.innerWidth, height:window.innerHeight};
+    resizeGrip.setPointerCapture(event.pointerId);
+    event.preventDefault();
+});
+resizeGrip.addEventListener('pointermove', event => {
+    if (resizing) window.overlay.resize({width:resizing.width + event.screenX - resizing.x,
+        height:resizing.height + event.screenY - resizing.y});
+});
+resizeGrip.addEventListener('pointerup', () => { resizing = null; });
+resizeGrip.addEventListener('lostpointercapture', () => { resizing = null; });
+window.overlay.ready();

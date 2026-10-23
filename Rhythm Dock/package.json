@@ -1,6 +1,6 @@
 {
   "name": "rhythm-dock-electron",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "A lightweight, feature-rich music player.",
   "main": "src/main/index.js",
   "homepage": "https://github.com/bestmahdi2/rhythm-dock-electron",
@@ -31,6 +31,7 @@
     "test:db-migration": "electron tests/db-migration-smoke.js",
     "test:media-tools": "node tests/media-tools.test.js",
     "test:ui-smoke": "electron tests/pre-phase9-ui-smoke.js",
+    "test:lyrics-overlay": "electron tests/lyrics-overlay.test.js",
     "test:player-layout": "electron tests/player-layout.test.js",
     "test:playlist-layout": "electron tests/playlist-layout.test.js",
     "test:settings-layout": "electron tests/settings-layout.test.js",
