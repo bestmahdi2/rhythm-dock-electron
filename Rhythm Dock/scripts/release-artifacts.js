@@ -19,7 +19,10 @@ function expectedFiles(platform,version=pkg.version){
     if(platform==='macos-x64'||platform==='macos-arm64'){
         const arch=platform.slice(6);return [`${prefix}-${arch}.dmg`,`${prefix}-${arch}.zip`];
     }
-    if(platform==='linux-x64')return ['AppImage','deb','rpm','tar.gz'].map(ext=>`${prefix}-x64.${ext}`);
+    if(platform==='linux-x64')return [
+        `${prefix}-x86_64.AppImage`,`${prefix}-amd64.deb`,
+        `${prefix}-x86_64.rpm`,`${prefix}-x64.tar.gz`,
+    ];
     throw new Error(`Unknown release platform: ${platform}`);
 }
 async function collect(platform,directory=path.join(root,'dist')){
@@ -27,7 +30,7 @@ async function collect(platform,directory=path.join(root,'dist')){
     for(const name of names){
         const file=path.join(directory,name);
         if(!fs.existsSync(file)||!fs.statSync(file).isFile()||fs.statSync(file).size===0)
-            throw new Error(`Missing required installer/portable package: ${name}`);
+            throw new Error(`Missing required installer/portable package: ${name}. Found: ${fs.existsSync(directory)?fs.readdirSync(directory).join(', '):'(output directory missing)'}`);
     }
     const output=path.join(directory,'release');fs.mkdirSync(output,{recursive:true});
     const checksums=[];
